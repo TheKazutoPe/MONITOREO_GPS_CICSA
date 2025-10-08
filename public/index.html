@@ -1,106 +1,122 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>Emisor | Monitoreo GPS</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Emisor de coordenadas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root{color-scheme:dark}
-    body{margin:0;background:#0b1220;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto}
-    header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid #1f2937;position:sticky;top:0;background:#0b1220}
-    .pill{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #374151}
-    .ok{color:#22c55e;border-color:#22c55e}
-    .bad{color:#f87171;border-color:#f87171}
-    #canvas{height:58svh;margin:10px;border-radius:12px;border:1px dashed #293241;display:flex;align-items:center;justify-content:center;color:#64748b}
-    footer{position:fixed;left:0;right:0;bottom:0;padding:10px;background:rgba(11,18,32,.9);backdrop-filter:blur(4px);border-top:1px solid #1f2937}
-    #startStop{width:100%;padding:14px;border:0;border-radius:12px;background:#2563eb;color:white;font-weight:700}
-    #startStop:disabled{opacity:.6}
-    #warn{color:#fca5a5;font-size:13px;padding:0 12px 10px}
+    :root{--bg:#0b1220;--card:#121a2b;--muted:#8aa0bd;--ok:#2ecc71;--bad:#e74c3c;--pri:#4da3ff}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#0b1220,#0e1627);color:#eaf2ff;}
+    .wrap{max-width:900px;margin:32px auto;padding:0 16px;}
+    .card{background:linear-gradient(180deg,#0f1a2e,#0d172a);border:1px solid #1e2a44;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:24px}
+    h1{margin:0 0 8px;font-size:24px}
+    .muted{color:var(--muted)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+    input,button{height:40px;border-radius:10px;border:1px solid #273656;background:#0f1a2e;color:#eaf2ff;padding:0 12px}
+    button{background:linear-gradient(180deg,#1b6cff,#1a5bdb);border:1px solid #2a68ff;cursor:pointer}
+    button.secondary{background:#15203a;border-color:#2a3c64}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .stat{display:grid;grid-template-columns:120px 1fr;gap:8px;margin-top:8px}
+    .badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:12px;border:1px solid #2b3f6b;background:#0f1a2e}
+    .ok{color:var(--ok)} .bad{color:var(--bad)} .pri{color:#cfe2ff}
   </style>
 </head>
 <body>
-  <header>
-    <strong>Emisor</strong>
-    <span id="wsState" class="pill bad">WS: desconectado</span>
-    <span id="gpsState" class="pill bad">GPS: inactivo</span>
-  </header>
+  <div class="wrap">
+    <div class="card">
+      <h1>Emisor de coordenadas</h1>
+      <div class="muted">Envia tu ubicación periódicamente por WebSocket.</div>
 
-  <main>
-    <div id="canvas">Aquí aparecerá el estado de envío…</div>
-    <div id="warn"></div>
-  </main>
+      <div class="row">
+        <label>ID:</label>
+        <input id="id" placeholder="Ej: BRIG 1" style="min-width:200px">
+        <button id="start">Iniciar envío</button>
+        <button id="stop" class="secondary">Detener</button>
+        <span id="wsState" class="badge">WS: desconectado</span>
+        <span id="gpsState" class="badge">GPS: inactivo</span>
+      </div>
 
-  <footer>
-    <button id="startStop" disabled>Iniciar trabajo</button>
-  </footer>
+      <div class="stat"><div>Latitud</div><div id="lat">—</div></div>
+      <div class="stat"><div>Longitud</div><div id="lng">—</div></div>
+      <div class="stat"><div>Precisión</div><div id="acc">—</div></div>
+      <div class="stat"><div>Velocidad</div><div id="spd">—</div></div>
+      <div class="stat"><div>Último envío</div><div id="last">—</div></div>
+    </div>
+  </div>
 
-  <script src="/env.js"></script>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-  document.addEventListener('DOMContentLoaded', async () => {
-    const wsState = document.getElementById('wsState');
-    const gpsState = document.getElementById('gpsState');
-    const warn = document.getElementById('warn');
-    const btn = document.getElementById('startStop');
+    const els = {
+      id: document.getElementById("id"),
+      start: document.getElementById("start"),
+      stop: document.getElementById("stop"),
+      wsState: document.getElementById("wsState"),
+      gpsState: document.getElementById("gpsState"),
+      lat: document.getElementById("lat"),
+      lng: document.getElementById("lng"),
+      acc: document.getElementById("acc"),
+      spd: document.getElementById("spd"),
+      last: document.getElementById("last"),
+    };
 
-    if (!window.ENV?.SUPABASE_URL || !window.ENV?.SUPABASE_ANON_KEY) {
-      warn.textContent = "Faltan variables (env.js)."; return;
+    // Persistir ID
+    els.id.value = localStorage.getItem("sender_id") || "";
+    els.id.addEventListener("change", () => localStorage.setItem("sender_id", els.id.value));
+
+    let ws, watchId, lastSent = 0;
+    const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    const SEND_EVERY_MS = 3000; // throttle
+
+    function setWS(ok){ els.wsState.textContent = `WS: ${ok ? "conectado":"desconectado"}`; els.wsState.style.color = ok ? "#2ecc71" : "#e74c3c"; }
+    function setGPS(txt,color){ els.gpsState.textContent = `GPS: ${txt}`; els.gpsState.style.color = color || "#cfe2ff"; }
+
+    function connectWS() {
+      ws = new WebSocket(WS_URL);
+      ws.onopen  = () => setWS(true);
+      ws.onclose = () => setWS(false);
+      ws.onerror = () => setWS(false);
     }
-    const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) { warn.textContent = "Primero inicia sesión."; window.location.href="/login.html"; return; }
+    function start() {
+      if (!navigator.geolocation) return alert("Este navegador no soporta geolocalización.");
+      connectWS();
+      setGPS("activo","#2ecc71");
+      watchId = navigator.geolocation.watchPosition(onPos, onErr, {enableHighAccuracy:true, maximumAge:0, timeout:10000});
+      els.start.disabled = true;
+      els.stop.disabled = false;
+    }
 
-    if (!('geolocation' in navigator)) { warn.textContent = "Este navegador no soporta geolocalización."; return; }
+    function stop() {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+      if (ws) ws.close();
+      setGPS("inactivo");
+      els.start.disabled = false;
+      els.stop.disabled = true;
+    }
 
-    const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?token=" + encodeURIComponent(session.access_token);
-    const ws = new WebSocket(wsUrl);
+    function onPos(p){
+      const { latitude:lat, longitude:lng, accuracy:acc, speed } = p.coords;
+      els.lat.textContent = lat.toFixed(6);
+      els.lng.textContent = lng.toFixed(6);
+      els.acc.textContent = (acc??0).toFixed(0) + " m";
+      els.spd.textContent = (speed??0).toFixed(1) + " m/s";
 
-    ws.addEventListener("open", () => {
-      wsState.classList.remove('bad'); wsState.classList.add('ok');
-      wsState.textContent = "WS: conectado";
-      btn.disabled = false;
-    });
-    ws.addEventListener("close", () => {
-      wsState.classList.remove('ok'); wsState.classList.add('bad');
-      wsState.textContent = "WS: desconectado";
-      btn.disabled = true;
-    });
+      const now = Date.now();
+      if (!ws || ws.readyState !== 1 || now - lastSent < SEND_EVERY_MS) return;
+      lastSent = now;
 
-    let trackId = null;
-    let watchId = null;
+      const msg = { type:"pos", id: els.id.value || "BRIG", lat:+lat.toFixed(6), lng:+lng.toFixed(6), acc, spd:speed||0, ts: now };
+      ws.send(JSON.stringify(msg));
+      els.last.textContent = new Date(now).toLocaleTimeString();
+    }
 
-    btn.addEventListener('click', async () => {
-      if (!trackId) {
-        ws.send(JSON.stringify({ type: "start" }));
-        const onAck = (ev) => {
-          try {
-            const msg = JSON.parse(ev.data);
-            if (msg.type === "ack" && msg.what === "start") {
-              trackId = msg.track_id;
-              btn.textContent = "Detener trabajo";
-              gpsState.classList.remove('bad'); gpsState.classList.add('ok'); gpsState.textContent = "GPS: activo";
-              watchId = navigator.geolocation.watchPosition(pos => {
-                const { latitude, longitude, accuracy, speed } = pos.coords;
-                ws.send(JSON.stringify({ type:"pos", track_id:trackId, lat:latitude, lng:longitude, acc:accuracy??null, spd:speed??null, ts:Date.now() }));
-              }, err => { warn.textContent = "GPS: " + err.message; }, { enableHighAccuracy:true, maximumAge:5000, timeout:15000 });
-              ws.removeEventListener('message', onAck);
-            }
-          } catch {}
-        };
-        ws.addEventListener('message', onAck);
+    function onErr(e){ console.error(e); setGPS("error","#e74c3c"); }
 
-      } else {
-        ws.send(JSON.stringify({ type:"stop", track_id }));
-        if (watchId!==null) navigator.geolocation.clearWatch(watchId);
-        trackId = null; watchId=null;
-        btn.textContent = "Iniciar trabajo";
-        gpsState.classList.remove('ok'); gpsState.classList.add('bad'); gpsState.textContent = "GPS: inactivo";
-      }
-    });
-  });
+    els.start.onclick = start;
+    els.stop.onclick = stop;
+    els.stop.disabled = true;
   </script>
 </body>
 </html>
-
-

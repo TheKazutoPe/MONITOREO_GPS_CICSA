@@ -1,87 +1,126 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Viewer | Monitoreo GPS</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Visor en tiempo real</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
-    :root{color-scheme:dark}
-    body{margin:0;background:#0b1220;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto}
-    header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid #1f2937;background:#0b1220;position:sticky;top:0}
-    .pill{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #374151}
-    .ok{color:#22c55e;border-color:#22c55e}
-    .bad{color:#f87171;border-color:#f87171}
-    #map{height:calc(100svh - 56px)}
-    #warn{color:#fca5a5;padding:8px 12px}
+    html,body{height:100%;margin:0}
+    #app{display:grid;grid-template-columns: 1fr 360px; gap:8px; height:100%;}
+    #map{height:100%;}
+    aside{background:#0f1a2e;color:#eaf2ff;border-left:1px solid #1e2a44;padding:10px;font-family:Inter,system-ui,Arial}
+    h3{margin:8px 0 12px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{border-bottom:1px solid #223357;padding:6px 4px;text-align:left}
+    .muted{color:#8aa0bd}
+    .badge{display:inline-block;border:1px solid #2b3f6b;border-radius:999px;padding:2px 6px;font-size:12px;margin-left:6px}
   </style>
 </head>
 <body>
-  <header>
-    <strong>Viewer</strong>
-    <span id="wsState" class="pill bad">WS: desconectado</span>
-    <a class="pill" href="/login.html" style="text-decoration:none">Login</a>
-  </header>
-  <div id="warn"></div>
-  <div id="map"></div>
+  <div id="app">
+    <div id="map"></div>
+    <aside>
+      <h3>Equipos conectados <span id="ws" class="badge">WS: conectando…</span></h3>
+      <table>
+        <thead><tr><th>ID</th><th>Lat</th><th>Lng</th><th>Hace</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="muted">Click en un ID para centrar el mapa.</p>
+    </aside>
+  </div>
 
-  <script src="/env.js"></script>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-  (async () => {
-    const warn = document.getElementById('warn');
-    const wsState = document.getElementById('wsState');
+    const map = L.map('map').setView([-12.0464,-77.0428], 12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
 
-    if (!window.ENV?.SUPABASE_URL || !window.ENV?.SUPABASE_ANON_KEY) {
-      warn.textContent = "Faltan variables (env.js)."; return;
-    }
-    const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+    const markers = new Map(); // id->marker
+    const trails  = new Map(); // id->polyline
+    const rowsEl  = document.getElementById('rows');
+    const wsBadge = document.getElementById('ws');
 
-    // requiere sesión para abrir WS
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) { warn.textContent = "Primero inicia sesión."; return; }
+    const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+    let ws = new WebSocket(WS_URL);
 
-    // mapa
-    const map = L.map('map').setView([-12.0464, -77.0428], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    ws.onopen = () => wsBadge.textContent = 'WS: conectado';
+    ws.onclose = () => wsBadge.textContent = 'WS: cerrado';
+    ws.onerror = () => wsBadge.textContent = 'WS: error';
 
-    const carIcon = L.icon({ iconUrl: '/img/car.svg', iconSize:[28,14], iconAnchor:[14,7] });
-
-    // Marcadores por user_id
-    const markers = new Map();
-
-    const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?token=" + encodeURIComponent(session.access_token);
-    const ws = new WebSocket(wsUrl);
-
-    ws.addEventListener("open", () => { wsState.classList.remove('bad'); wsState.classList.add('ok'); wsState.textContent = "WS: conectado"; });
-    ws.addEventListener("close", () => { wsState.classList.remove('ok'); wsState.classList.add('bad'); wsState.textContent = "WS: desconectado"; });
-
-    function upsertMarker(u) {
-      const key = u.user_id || u.id;
-      let mk = markers.get(key);
+    function upsert(id, lat, lng, ts){
+      // marcador
+      let mk = markers.get(id);
       if (!mk) {
-        mk = L.marker([u.lat,u.lng], { icon: carIcon }).addTo(map);
-        markers.set(key, mk);
+        mk = L.marker([lat,lng]).addTo(map).bindPopup(id);
+        markers.set(id, mk);
       } else {
-        mk.setLatLng([u.lat,u.lng]);
+        mk.setLatLng([lat,lng]);
       }
-      // Tooltip con el id/brigada si la tienes en tu snapshot
-      mk.bindTooltip(u.brigada ? u.brigada : (key ?? 'brigada'), { permanent:false });
+      // rastro
+      let pl = trails.get(id);
+      if (!pl) {
+        pl = L.polyline([[lat,lng]], {weight:3}).addTo(map);
+        trails.set(id, pl);
+      } else {
+        const pts = pl.getLatLngs();
+        pts.push([lat,lng]);
+        if (pts.length > 200) pts.shift();
+        pl.setLatLngs(pts);
+      }
+      renderTable();
+      fitBoundsSoon();
     }
 
-    ws.addEventListener('message', (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "snapshot") {
-          const entries = Object.values(msg.data || {});
-          entries.forEach(upsertMarker);
-          if (entries.length) map.setView([entries[0].lat, entries[0].lng], 14);
+    // tabla
+    function renderTable(){
+      rowsEl.innerHTML = '';
+      const arr = [...markers.keys()].sort();
+      for (const id of arr){
+        const {lat,lng} = markers.get(id).getLatLng();
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><a href="#" data-id="${id}">${id}</a></td>
+                        <td>${lat.toFixed(6)}</td>
+                        <td>${lng.toFixed(6)}</td>
+                        <td>${timeAgo(Date.now() - (tr.dataset.ts||0))}</td>`;
+        rowsEl.appendChild(tr);
+      }
+      rowsEl.querySelectorAll('a[data-id]').forEach(a=>{
+        a.onclick = (e)=>{ e.preventDefault(); const id=e.target.dataset.id; const {lat,lng}=markers.get(id).getLatLng(); map.setView([lat,lng], 16, {animate:true}); };
+      });
+    }
+
+    let fitTimer;
+    function fitBoundsSoon(){
+      clearTimeout(fitTimer);
+      fitTimer = setTimeout(()=>{
+        const bounds = L.latLngBounds([...markers.values()].map(m=>m.getLatLng()));
+        if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+      }, 400);
+    }
+
+    function timeAgo(ms){
+      const s = Math.max(1, Math.round(ms/1000));
+      if (s<60) return s+'s';
+      const m = Math.round(s/60);
+      if (m<60) return m+'m';
+      const h = Math.round(m/60);
+      return h+'h';
+    }
+
+    ws.onmessage = (e)=>{
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'snapshot'){
+        const snap = msg.data || {};
+        for (const [id,p] of Object.entries(snap)){
+          upsert(id, p.lat, p.lng, p.ts);
         }
-        if (msg.type === "point") upsertMarker(msg.data);
-      } catch {}
-    });
-  })();
+      } else if (msg.type === 'point'){
+        const { id, lat, lng, ts } = msg.data;
+        if (lat==null || lng==null) return;
+        upsert(id, lat, lng, ts);
+      }
+    };
   </script>
 </body>
 </html>
+
