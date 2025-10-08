@@ -148,10 +148,31 @@
 
     function isRunning(){ return startStop.textContent.trim().toLowerCase().startsWith('detener'); }
 
-    // ======= CLICK (sin inline) =======
-    startStop.addEventListener('click', () => {
-      if (!isRunning()) startSending(); else stopSending();
-    });
+    startStop.addEventListener('click', async () => {
+  try {
+    // Relee sesión por si el usuario acaba de iniciar/cerrar sesión en otra pestaña
+    const { data } = await supa.auth.getSession();
+    const sess = data?.session || null;
+    if (!sess) { 
+      location.href = '/login.html'; 
+      return; 
+    }
+    token = sess.access_token;
+
+    // ¿Estamos corriendo? (botón dice Detener)
+    const running = startStop.textContent.trim().toLowerCase().startsWith('detener');
+    if (!running) {
+      // iniciar
+      startSending(); 
+    } else {
+      // detener
+      stopSending();
+    }
+  } catch (e) {
+    console.error('No se pudo leer la sesión:', e);
+    location.href = '/login.html';
+  }
+});
 
   });
   </script>
