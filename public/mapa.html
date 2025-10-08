@@ -1,197 +1,121 @@
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Mapa de Brigadas</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>
-  :root{--bg:#0b1220;--fg:#e6edf3;--mut:#9aa4b2;}
-  body{margin:0;font-family:system-ui,Arial,sans-serif;background:#fff;}
-  header{padding:8px 12px;border-bottom:1px solid #eee;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  select,input,button{padding:.45rem .6rem;border:1px solid #cfd6df;border-radius:8px}
-  #wrap{display:grid;grid-template-columns:1fr 320px;min-height:calc(100vh - 50px)}
-  #map{width:100%;height:100%}
-  #side{background:var(--bg);color:var(--fg);padding:10px;overflow:auto}
-  #wsdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;background:#888}
-  .ok{background:#28a745!important}.bad{background:#dc3545!important}
-  table{width:100%;border-collapse:collapse;font-size:.9rem}
-  th,td{padding:6px;border-bottom:1px solid #1b253a}
-  th{color:#c8d1df;text-align:left;position:sticky;top:0;background:var(--bg)}
-  .row-btn{background:none;border:none;color:#6cb2ff;cursor:pointer;text-decoration:underline;padding:0}
-  .chip{background:#1b253a;border-radius:999px;padding:.1rem .45rem;font-size:.75rem}
-</style>
-</head>
-<body>
-<header>
-  <span class="chip">MONITOREO</span>
-  <select id="zona"><option value="">Zona (todas)</option><option>NORTE</option><option>SUR</option><option>CENTRO</option><option>LIMA</option></select>
-  <select id="contrata"><option value="">Contrata (todas)</option><option>CICSA</option><option>SAFESA</option><option>COMATEL</option><option>DOLAN</option><option>ECYTEL</option></select>
-  <input id="brigada" placeholder="Brigada (opcional)"/>
-  <select id="win"><option value="180">Últimas 3h</option><option value="60">1h</option><option value="30">30m</option><option value="10">10m</option></select>
-  <button id="btnRef">Actualizar</button>
-</header>
-
-<div id="wrap">
-  <div id="map"></div>
-  <aside id="side">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <strong>Equipos conectados</strong>
-      <span><span id="wsdot"></span><small id="wslabel">WS: desconectado</small></span>
-    </div>
-    <table id="tbl">
-      <thead><tr><th>ID</th><th>Lat</th><th>Lng</th><th>Hace</th></tr></thead>
-      <tbody id="tbody"><tr><td colspan="4" style="color:var(--mut)">Click en un ID para centrar el mapa.</td></tr></tbody>
-    </table>
-  </aside>
-</div>
-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// --- i18n guard (evita errores si no existe) ---
-window.i18n = window.i18n || {}; i18n.translations = i18n.translations || {}; i18n.lang = i18n.lang || 'es';
-i18n.translations.es = Object.assign({ ago:'Hace' }, i18n.translations.es || {});
-function t(k){ return (i18n?.translations?.[i18n.lang]?.[k]) ?? k; }
+// Configurar mapa base
+const map = L.map('map').setView([-12.0464, -77.0428], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
 
-const map = L.map('map').setView([-9.2, -75], 5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+// -------- VARIABLES PRINCIPALES --------
+const markers = new Map();
+const trails = new Map();
+const startPoints = new Map();
+const lastSeen = new Map();
 
-const markers  = new Map();  // id -> Marker
-const trails   = new Map();  // id -> Polyline
-const lastSeen = new Map();  // id -> ts
+const carIcon = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png', // 🚗 icono auto
+  iconSize: [34, 34],
+  iconAnchor: [17, 17]
+});
 
-function normalizeTs(ts){ return (typeof ts==='number' && ts<1e12) ? ts*1000 : ts; }
-function timeAgo(ts){
-  ts = normalizeTs(ts);
-  const s = Math.max(1, Math.floor((Date.now()-ts)/1000));
-  if (s<60)  return `${t('ago')} ${s}s`;
-  const m = Math.floor(s/60);
-  if (m<60)  return `${t('ago')} ${m}m`;
-  const h = Math.floor(m/60);
-  if (h<48)  return `${t('ago')} ${h}h`;
-  const d = Math.floor(h/24);
-  return `${t('ago')} ${d}d`;
+const startIcon = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', // 📍 icono inicio
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+});
+
+const colors = ["#007bff","#28a745","#ff5722","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
+const colorMap = new Map();
+function colorFor(id){
+  if(!colorMap.has(id))
+    colorMap.set(id, colors[colorMap.size % colors.length]);
+  return colorMap.get(id);
 }
 
-function upsertMarker(id, lat, lng, labelHTML){
-  let m = markers.get(id);
-  if(!m){ m = L.marker([lat,lng]).addTo(map).bindPopup(labelHTML); markers.set(id,m); }
-  else { m.setLatLng([lat,lng]).setPopupContent(labelHTML); }
-  return m;
-}
-
-function appendTrail(id, lat, lng){
-  let pl = trails.get(id);
-  if(!pl){
-    pl = L.polyline([[lat,lng]], {weight:4, opacity:.9}).addTo(map);
-    trails.set(id, pl);
+// -------- FUNCIONES DE DIBUJO --------
+function addOrUpdateCar(id, lat, lng, meta, ts){
+  const name = meta?.display || id;
+  const popup = `<b>${name}</b><br>${meta?.brigada||''} / ${meta?.zona||''} / ${meta?.contrata||''}<br>${new Date(ts).toLocaleString()}`;
+  
+  // Si no existe el marcador
+  let marker = markers.get(id);
+  if(!marker){
+    marker = L.marker([lat, lng], { icon: carIcon }).addTo(map).bindPopup(popup);
+    markers.set(id, marker);
   }else{
-    const arr = pl.getLatLngs(); arr.push([lat,lng]);
-    if(arr.length>800) arr.splice(0, arr.length-800);
-    pl.setLatLngs(arr);
+    marker.setLatLng([lat, lng]).setPopupContent(popup);
   }
+
+  // Añadir recorrido
+  let line = trails.get(id);
+  if(!line){
+    const color = colorFor(id);
+    line = L.polyline([[lat, lng]], { color, weight: 4, opacity: 0.8 }).addTo(map);
+    trails.set(id, line);
+
+    // PUNTO INICIAL
+    const start = L.marker([lat, lng], { icon: startIcon }).addTo(map);
+    startPoints.set(id, start);
+  }else{
+    const arr = line.getLatLngs();
+    arr.push([lat, lng]);
+    if(arr.length > 2000) arr.splice(0, arr.length - 2000);
+    line.setLatLngs(arr);
+  }
+
+  lastSeen.set(id, { ts, meta, lat, lng });
+  renderSidebar();
 }
 
-function setWsStatus(ok){
-  const dot = document.getElementById('wsdot');
-  const label = document.getElementById('wslabel');
-  dot.className = ok ? 'ok' : 'bad';
-  label.textContent = `WS: ${ok?'conectado':'desconectado'}`;
-}
+// -------- PANEL DE CONECTADOS --------
+function renderSidebar(){
+  const div = document.getElementById('onlineList');
+  div.innerHTML = '';
+  const now = Date.now();
 
-function renderList(){
-  const tb = document.getElementById('tbody');
-  tb.innerHTML = '';
-  const rows = [...lastSeen.entries()].sort((a,b)=>b[1]-a[1]);
-  if(!rows.length){
-    tb.innerHTML = `<tr><td colspan="4" style="color:#8a96a8">Sin conexiones recientes.</td></tr>`;
+  if(lastSeen.size === 0){
+    div.innerHTML = '<p style="color:#8a96a8">Sin brigadas conectadas.</p>';
     return;
   }
-  for(const [id, ts] of rows){
-    const mk = markers.get(id);
-    const lat = mk ? mk.getLatLng().lat.toFixed(5) : '-';
-    const lng = mk ? mk.getLatLng().lng.toFixed(5) : '-';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td><button class="row-btn" data-id="${id}">${id}</button></td>
-                    <td>${lat}</td><td>${lng}</td><td>${timeAgo(ts)}</td>`;
-    tr.querySelector('button').onclick = ()=>{
-      if (mk){ map.setView(mk.getLatLng(), 16, {animate:true}); mk.openPopup(); }
-    };
-    tb.appendChild(tr);
-  }
+
+  [...lastSeen.entries()]
+    .sort((a,b)=>b[1].ts - a[1].ts)
+    .forEach(([id, obj])=>{
+      const color = colorFor(id);
+      const age = (now - obj.ts) / 1000;
+      const online = age < 60;
+      const el = document.createElement('div');
+      el.style.padding = '6px 8px';
+      el.style.marginBottom = '6px';
+      el.style.borderLeft = `4px solid ${color}`;
+      el.style.borderRadius = '6px';
+      el.style.background = online ? '#122940' : '#1b1f2b';
+      el.style.cursor = 'pointer';
+      el.innerHTML = `
+        <div><b style="color:${color}">${obj.meta?.display || id}</b></div>
+        <div style="color:#b7c1d1">${obj.meta?.brigada||''} / ${obj.meta?.zona||''} / ${obj.meta?.contrata||''}</div>
+        <div style="color:#7e8ba0;font-size:.8rem">${online?'🟢 En línea':'⚫ Inactivo'} — ${new Date(obj.ts).toLocaleTimeString()}</div>
+      `;
+      el.onclick = ()=>{ 
+        const mk = markers.get(id);
+        if(mk){ map.setView(mk.getLatLng(), 17); mk.openPopup(); }
+      };
+      div.appendChild(el);
+    });
 }
 
-// 1) Carga histórica para polylines
-async function loadHistory(){
-  const p = new URLSearchParams();
-  if(zona.value)     p.set('zona', zona.value);
-  if(contrata.value) p.set('contrata', contrata.value);
-  if(brigada.value)  p.set('brigada', brigada.value.trim());
-  p.set('minutes', win.value);
-
-  const res = await fetch('/api/recorridos?'+p.toString());
-  const r = await res.json();
-  if(!r.ok) return;
-
-  trails.forEach(pl=>map.removeLayer(pl)); trails.clear();
-
-  Object.entries(r.data).forEach(([id, points])=>{
-    if (!points.length) return;
-    const latlngs = points.map(p=>[p.lat, p.lng]);
-    const pl = L.polyline(latlngs, {weight:4, opacity:.9}).addTo(map);
-    trails.set(id, pl);
-
-    const last = points[points.length-1];
-    const ts = normalizeTs(last.ts);
-    const name = last.meta?.display || id;
-    const label = `<b>${name}</b><br>${last.meta?.contrata||''} / ${last.meta?.zona||''} / ${last.meta?.brigada||''}<br>${new Date(ts).toLocaleString()}`;
-    upsertMarker(id, last.lat, last.lng, label);
-    lastSeen.set(id, ts);
-  });
-  renderList();
-}
-
-// 2) Refrescar conectados (últimos 60s)
-async function refreshConnected(){
-  const res = await fetch('/api/conectados');
-  const r = await res.json();
-  if(!r.ok) return;
-
-  r.data.forEach(x=>{
-    lastSeen.set(x.id, normalizeTs(x.ts));
-    const mk = markers.get(x.id);
-    if (mk) mk.setOpacity(1);
-  });
-
-  const now = Date.now();
-  markers.forEach((mk, id)=>{
-    const ts = lastSeen.get(id) || 0;
-    mk.setOpacity((now - ts) < 120000 ? 1 : 0.4);
-  });
-  renderList();
-}
-
-// 3) WebSocket en vivo
+// -------- WEBSOCKET EN VIVO --------
 const ws = new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
-ws.onopen  = ()=> setWsStatus(true);
-ws.onclose = ()=> setWsStatus(false);
+
+ws.onopen = ()=> console.log("✅ WS conectado");
+ws.onclose = ()=> console.warn("❌ WS desconectado");
 ws.onmessage = (ev)=>{
-  let msg; try{ msg = JSON.parse(ev.data); }catch{return;}
-  if(msg.type!=='point') return;
-  const d = msg.data; const ts = normalizeTs(d.ts || Date.now());
-  const name = d.meta?.display || d.id;
-  const label = `<b>${name}</b><br>${d.meta?.contrata||''} / ${d.meta?.zona||''} / ${d.meta?.brigada||''}<br>${new Date(ts).toLocaleString()}`;
-  upsertMarker(d.id, d.lat, d.lng, label);
-  appendTrail(d.id, d.lat, d.lng);
-  lastSeen.set(d.id, ts);
-  renderList();
+  let msg;
+  try { msg = JSON.parse(ev.data); } catch { return; }
+  if(msg.type !== 'point') return;
+  const d = msg.data;
+  addOrUpdateCar(d.id, d.lat, d.lng, d.meta, d.ts || Date.now());
 };
-
-document.getElementById('btnRef').onclick = loadHistory;
-
-// Inicio
-loadHistory();
-setInterval(refreshConnected, 8000);
 </script>
-</body>
-</html>
+
