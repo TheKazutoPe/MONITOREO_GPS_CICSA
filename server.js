@@ -4,10 +4,6 @@ if (!process.env.SUPABASE_URL) {
   try { require('dotenv').config(); } catch {}
 }
 
-
-// server.js
-// npm i express ws @supabase/supabase-js adm-zip
-require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const http = require("http");
