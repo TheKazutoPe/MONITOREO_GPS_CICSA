@@ -1,24 +1,24 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Login Brigadas</title>
+<meta charset="UTF-8">
+<title>Monitoreo de Brigadas - Login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  body{font-family:system-ui,Arial,sans-serif;padding:16px;max-width:520px;margin:auto}
+  body{font-family:system-ui,Arial,sans-serif;padding:18px;max-width:520px;margin:auto}
   .card{border:1px solid #e9ecef;border-radius:14px;padding:16px;box-shadow:0 8px 20px rgba(0,0,0,.05)}
   label{display:block;margin:.5rem 0 .2rem}
-  input,select,button{width:100%;padding:.75rem;border:1px solid #ced4da;border-radius:10px}
-  button{cursor:pointer;margin-top:.75rem}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+  input,button{width:100%;padding:.75rem;border:1px solid #ced4da;border-radius:10px}
+  button{cursor:pointer;margin-top:.75rem;background:#198754;color:#fff;border-color:#198754}
   .muted{color:#6c757d;font-size:.9rem}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
 </style>
 </head>
 <body>
   <h2>Monitoreo de Brigadas</h2>
-  <p class="muted">Inicia sesión con tu usuario y clave registrados en Supabase.</p>
+  <p class="muted">Inicia sesión con tu usuario y clave registrados.</p>
 
-  <div class="card">
+  <div id="login" class="card">
     <label>Usuario</label>
     <input id="usuario" placeholder="usuario" />
     <label>Clave</label>
@@ -40,20 +40,14 @@ let user=null, timer=null;
 
 document.getElementById('btnLogin').onclick = async ()=>{
   const res = await fetch('/api/login',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      usuario: usuario.value.trim(),
-      clave: clave.value.trim()
-    })
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ usuario: usuario.value.trim(), clave: clave.value.trim() })
   });
   const r = await res.json();
   if(!r.ok){ alert('Usuario o clave inválidos'); return; }
-
   user = r.usuario;
-  document.querySelector('.card').style.display='none';
-  panel.style.display='block';
-  bienvenida.textContent = `Bienvenido ${user.nombre} (${user.cargo}) — ${user.brigada || ''} ${user.zona || ''} ${user.contrata || ''}`;
+  login.style.display='none'; panel.style.display='block';
+  bienvenida.textContent = `Bienvenido ${user.nombre} (${user.cargo}) — ${user.brigada||''} ${user.zona||''} ${user.contrata||''}`;
 };
 
 document.getElementById('btnIniciar').onclick = ()=>{
@@ -63,8 +57,7 @@ document.getElementById('btnIniciar').onclick = ()=>{
 
   const send = (pos)=>{
     fetch('/api/posicion',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         usuario_id: user.id,
         tecnico: user.nombre,
@@ -80,7 +73,7 @@ document.getElementById('btnIniciar').onclick = ()=>{
     });
   };
 
-  navigator.geolocation.getCurrentPosition(send);
+  navigator.geolocation.getCurrentPosition(send, ()=>{}, { enableHighAccuracy:true, timeout:8000, maximumAge:0 });
   timer = setInterval(()=> navigator.geolocation.getCurrentPosition(send), 15000);
 };
 
