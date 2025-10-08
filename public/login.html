@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Login</title>
+<input id="email" placeholder="email" />
+<input id="pass" type="password" placeholder="password" />
+<button id="go">Entrar</button>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script>
+// Rellena con tus claves de Supabase
+const SUPABASE_URL = "https://fcyerlaliiiuutdzinvg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjeWVybGFsaWlpdXV0ZHppbnZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwMTMyMzUsImV4cCI6MjA2OTU4OTIzNX0.fgKF7aE7kiUYGpgom34taZw-1PsYJJ1wlwI5urADc6s";
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+go.onclick = async ()=>{
+  const { data, error } = await supa.auth.signInWithPassword({ email: email.value, password: pass.value });
+  if (error) return alert(error.message);
+  location.href = "/";
+};
+</script>

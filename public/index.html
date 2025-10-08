@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Emisor</title>
+<div>
+  <button id="start">Iniciar trabajo</button>
+  <button id="stop" disabled>Detener</button>
+  <span id="gps">GPS: inactivo</span>
+</div>
+
+<div id="profile" style="margin-top:12px; display:none">
+  <h3>Completa tu perfil</h3>
+  <input id="nombre" placeholder="Nombre completo"/>
+  <input id="telefono" placeholder="Teléfono"/>
+  <input id="brigada" placeholder="Brigada"/>
+  <input id="contrata" placeholder="Contrata"/>
+  <input id="zona" placeholder="Zona"/>
+  <button id="saveProfile">Guardar</button>
+</div>
+
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://fcyerlaliiiuutdzinvg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjeWVybGFsaWlpdXV0ZHppbnZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwMTMyMzUsImV4cCI6MjA2OTU4OTIzNX0.fgKF7aE7kiUYGpgom34taZw-1PsYJJ1wlwI5urADc6s";
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let session, ws, trackId, watchId;
+
+(async ()=>{
+  const { data } = await supa.auth.getSession();
+  session = data.session;
+  if (!session) return location.href="/login.html";
+  const me = await supa.from('technicians').select('*').eq('user_id', session.user.id).maybeSingle();
+  if (!me.data) document.getElementById('profile').style.display = 'block';
+})();
+
+saveProfile.onclick = async ()=>{
+  const me = await supa.auth.getUser();
+  const { data, error } = await supa.from('technicians').upsert({
+    user_id: me.data.user.id,
+    username: me.data.user.email,
+    nombre: nombre.value, telefono: telefono.value,
+    brigada: brigada.value, contrata: contrata.value, zona: zona.value, role: 'tecnico'
+  }).select().single();
+  if (error) return alert(error.message);
+  document.getElementById('profile').style.display = 'none';
+  alert('Perfil guardado');
+};
+
+start.onclick = async ()=>{
+  const token = (await supa.auth.getSession()).data.session.access_token;
+  ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws?token=${token}`);
+  ws.onopen = ()=> ws.send(JSON.stringify({ type:"start" }));
+  ws.onmessage = (e)=>{
+    const m = JSON.parse(e.data);
+    if (m.type==='ack' && m.what==='start') {
+      trackId = m.track_id; start.disabled = true; stop.disabled = false;
+      watchId = navigator.geolocation.watchPosition(p=>{
+        const { latitude:lat, longitude:lng, accuracy:acc, speed:spd } = p.coords;
+        ws.send(JSON.stringify({ type:'pos', track_id: trackId, lat, lng, acc, spd, ts: Date.now() }));
+        gps.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc||0)} m)`;
+      }, err=>{ gps.textContent = "GPS: error"; console.error(err); }, { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+    }
+  };
+};
+
+stop.onclick = ()=>{
+  ws?.send(JSON.stringify({ type:'stop', track_id: trackId }));
+  if (watchId) navigator.geolocation.clearWatch(watchId);
+  ws?.close();
+  start.disabled=false; stop.disabled=true; gps.textContent="GPS: inactivo";
+};
+</script>

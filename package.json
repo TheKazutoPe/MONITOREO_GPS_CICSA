@@ -1,0 +1,14 @@
+{
+  "name": "realtime_coords",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.46.1",
+    "adm-zip": "^0.5.10",
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
