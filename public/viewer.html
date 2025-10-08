@@ -1,35 +1,87 @@
-<!doctype html><html lang="es"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Viewer</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>body{margin:0;background:#0b1220;color:#e6edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
-#map{position:fixed;inset:0 320px 0 0}aside{position:fixed;right:0;top:0;bottom:0;width:320px;background:#0f172a;border-left:1px solid #1f2937;overflow:auto}
-header{padding:10px 12px;border-bottom:1px solid #1f2937}.item{padding:10px 12px;border-bottom:1px solid #111827;cursor:pointer}.item:hover{background:#111827}
-.small{color:#93a3b8;font-size:.85rem}.row{display:flex;justify-content:space-between;align-items:center}.pill{padding:2px 8px;border:1px solid #334155;border-radius:999px;font-size:.75rem}.ok{color:#22c55e;border-color:#14532d}</style>
-</head><body>
-<div id="map"></div><aside><header><strong>Brigadas (hoy)</strong><div class="small">Click para enfocar</div></header><div id="list"></div></aside>
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>(function(){var p=L.Marker.prototype,s=p._setPos;p._setPos=function(pos){s.call(this,pos);if(this.options.rotationAngle){this._icon.style.transformOrigin=this.options.rotationOrigin||'center';this._icon.style.transform+=' rotate('+this.options.rotationAngle+'deg)';}};p.setRotationAngle=function(a){this.options.rotationAngle=a;this.update();return this;};p.setRotationOrigin=function(o){this.options.rotationOrigin=o;this.update();return this;};})();</script>
-<script>
-const SUPABASE_URL="{{SUPABASE_URL}}", SUPABASE_ANON_KEY="{{SUPABASE_ANON_KEY}}"; const supa=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-const map=L.map('map').setView([-12.05,-77.05],12); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-const carIcon=L.icon({iconUrl:'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 36 36"><g transform="translate(1,3)"><rect x="3" y="12" rx="2" ry="2" width="28" height="9" fill="#2563eb"/><path d="M9 12l4-6h10l4 6z" fill="#1e40af"/><circle cx="9" cy="23" r="3" fill="#0b1220"/><circle cx="25" cy="23" r="3" fill="#0b1220"/><circle cx="9" cy="23" r="1.5" fill="#94a3b8"/><circle cx="25" cy="23" r="1.5" fill="#94a3b8"/></g></svg>`),iconSize:[38,38],iconAnchor:[19,28],tooltipAnchor:[0,-24]});
-const markers=new Map(), lastLL=new Map(), polylines=new Map(), brigadaByUser=new Map(); let token;
-(async()=>{const {data}=await supa.auth.getSession(); if(!data.session) return location.href='/login.html'; token=data.session.access_token; await loadActiveToday(); connectWS();})();
-async function loadActiveToday(){const r=await fetch('/api/active-today',{headers:{Authorization:'Bearer '+token}}); const {tracks=[]}=await r.json(); const panel=document.getElementById('list'); panel.innerHTML='';
-  tracks.forEach(t=>{ const br=t.technicians?.brigada||'—'; brigadaByUser.set(t.user_id, br);
-    const li=document.createElement('div'); li.className='item'; li.innerHTML=`<div class="row"><div><b>${br}</b></div><div class="pill ok">online</div></div><div class="small">${t.technicians?.username||t.user_id}</div>`; li.onclick=()=>focusTrack(t.id); panel.appendChild(li);
-    fetch(`/api/track/${t.id}`,{headers:{Authorization:'Bearer '+token}}).then(r=>r.json()).then(({positions=[]})=>{
-      if(!positions.length) return; const coords=positions.map(p=>[p.lat,p.lng]); const pl=L.polyline(coords,{weight:4}).addTo(map); polylines.set(t.id,pl);
-      const last=coords.at(-1); let mk=markers.get(t.user_id); if(!mk){ mk=L.marker(last,{icon:carIcon,rotationOrigin:'center'}).addTo(map); mk.bindTooltip(br,{permanent:false,direction:'top'}); markers.set(t.user_id,mk);} else mk.setLatLng(last);
-      if(coords.length>1){ lastLL.set(t.user_id,L.latLng(coords.at(-2)[0],coords.at(-2)[1])); mk.setRotationAngle(bearing(lastLL.get(t.user_id), L.latLng(last[0],last[1]))); } else lastLL.set(t.user_id, L.latLng(last[0],last[1]));
-    }); }); }
-function focusTrack(id){ const pl=polylines.get(id); if(pl) map.fitBounds(pl.getBounds().pad(0.2)); }
-function connectWS(){ const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws?token=${token}`);
-  ws.onmessage=(e)=>{const m=JSON.parse(e.data||'{}'); if(m.type==='snapshot'){ for(const [uid,p] of Object.entries(m.data||{})) upsertPoint(uid,p.lat,p.lng); }
-    if(m.type==='point'){ const {user_id,track_id,lat,lng}=m.data; upsertPoint(user_id,lat,lng); let pl=polylines.get(track_id); if(!pl){ pl=L.polyline([], {weight:4}).addTo(map); polylines.set(track_id,pl);} pl.addLatLng([lat,lng]); } };}
-function bearing(a,b){const r=d=>d*Math.PI/180,t=r(a.lat),u=r(b.lat),dl=r(b.lng-a.lng),y=Math.sin(dl)*Math.cos(u),x=Math.cos(t)*Math.sin(u)-Math.sin(t)*Math.cos(u)*Math.cos(dl);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
-function upsertPoint(uid,lat,lng){ const br=brigadaByUser.get(uid)||'Brigada', ll=L.latLng(lat,lng); let mk=markers.get(uid);
-  if(!mk){ mk=L.marker(ll,{icon:carIcon,rotationOrigin:'center'}).addTo(map); mk.bindTooltip(br,{permanent:false,direction:'top'}); markers.set(uid,mk); } else { const prev=lastLL.get(uid); if(prev) mk.setRotationAngle(bearing(prev,ll)); mk.setLatLng(ll); } lastLL.set(uid,ll); }
-</script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Viewer | Monitoreo GPS</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    :root{color-scheme:dark}
+    body{margin:0;background:#0b1220;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto}
+    header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid #1f2937;background:#0b1220;position:sticky;top:0}
+    .pill{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #374151}
+    .ok{color:#22c55e;border-color:#22c55e}
+    .bad{color:#f87171;border-color:#f87171}
+    #map{height:calc(100svh - 56px)}
+    #warn{color:#fca5a5;padding:8px 12px}
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Viewer</strong>
+    <span id="wsState" class="pill bad">WS: desconectado</span>
+    <a class="pill" href="/login.html" style="text-decoration:none">Login</a>
+  </header>
+  <div id="warn"></div>
+  <div id="map"></div>
+
+  <script src="/env.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  (async () => {
+    const warn = document.getElementById('warn');
+    const wsState = document.getElementById('wsState');
+
+    if (!window.ENV?.SUPABASE_URL || !window.ENV?.SUPABASE_ANON_KEY) {
+      warn.textContent = "Faltan variables (env.js)."; return;
+    }
+    const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+
+    // requiere sesión para abrir WS
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) { warn.textContent = "Primero inicia sesión."; return; }
+
+    // mapa
+    const map = L.map('map').setView([-12.0464, -77.0428], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    const carIcon = L.icon({ iconUrl: '/img/car.svg', iconSize:[28,14], iconAnchor:[14,7] });
+
+    // Marcadores por user_id
+    const markers = new Map();
+
+    const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?token=" + encodeURIComponent(session.access_token);
+    const ws = new WebSocket(wsUrl);
+
+    ws.addEventListener("open", () => { wsState.classList.remove('bad'); wsState.classList.add('ok'); wsState.textContent = "WS: conectado"; });
+    ws.addEventListener("close", () => { wsState.classList.remove('ok'); wsState.classList.add('bad'); wsState.textContent = "WS: desconectado"; });
+
+    function upsertMarker(u) {
+      const key = u.user_id || u.id;
+      let mk = markers.get(key);
+      if (!mk) {
+        mk = L.marker([u.lat,u.lng], { icon: carIcon }).addTo(map);
+        markers.set(key, mk);
+      } else {
+        mk.setLatLng([u.lat,u.lng]);
+      }
+      // Tooltip con el id/brigada si la tienes en tu snapshot
+      mk.bindTooltip(u.brigada ? u.brigada : (key ?? 'brigada'), { permanent:false });
+    }
+
+    ws.addEventListener('message', (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "snapshot") {
+          const entries = Object.values(msg.data || {});
+          entries.forEach(upsertMarker);
+          if (entries.length) map.setView([entries[0].lat, entries[0].lng], 14);
+        }
+        if (msg.type === "point") upsertMarker(msg.data);
+      } catch {}
+    });
+  })();
+  </script>
+</body>
+</html>

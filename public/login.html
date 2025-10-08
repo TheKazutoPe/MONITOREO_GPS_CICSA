@@ -1,128 +1,81 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Ingresar | Monitoreo GPS</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Monitoreo GPS — Login</title>
   <style>
     :root{color-scheme:dark light}
-    body{margin:0;min-height:100svh;display:grid;place-items:center;background:#0b1220;color:#e6edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif}
-    .card{width:min(420px,92vw);background:#0f172a;border:1px solid #1f2937;border-radius:16px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-    h1{margin:0 0 6px;font-size:1.25rem}
-    p.muted{margin:0 0 18px;color:#93a3b8;font-size:.9rem}
-    label{display:block;margin:10px 0 6px;color:#93a3b8;font-size:.85rem}
-    input{width:100%;padding:12px;border-radius:12px;border:1px solid #334155;background:#0b1220;color:#e6edf6}
-    .row{display:flex;justify-content:space-between;align-items:center;margin:10px 0}
-    .checkbox{display:flex;gap:8px;align-items:center;color:#cbd5e1;font-size:.9rem}
-    button.primary{width:100%;padding:13px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-weight:700;font-size:1rem;cursor:pointer}
-    button.primary[disabled]{opacity:.6;cursor:not-allowed}
-    .links{display:flex;gap:10px;justify-content:space-between;margin-top:12px}
-    a{color:#60a5fa;text-decoration:none}
-    .msg{margin-top:10px;min-height:1.2em;font-size:.9rem}
-    .err{color:#f87171}.ok{color:#34d399}
+    body{margin:0;min-height:100svh;display:grid;place-items:center;background:#0b1220;color:#e5e7eb;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    .card{width:min(420px,90vw);background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h1{font-size:20px;margin:0 0 16px}
+    label{display:block;font-size:12px;margin:10px 0 6px;color:#9ca3af}
+    input[type="email"],input[type="password"]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb;outline:none}
+    .row{display:flex;justify-content:space-between;align-items:center;margin:8px 0 16px}
+    .btn{width:100%;padding:12px;border-radius:10px;background:#3b82f6;color:white;border:0;font-weight:600}
+    .btn:disabled{opacity:.5}
+    .muted{font-size:12px;color:#9ca3af;margin-top:8px}
+    #warn{color:#fca5a5;margin-top:8px;font-size:13px;min-height:1.4em}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Monitoreo GPS</h1>
-    <p class="muted">Ingresa con tu correo</p>
-
-    <label for="email">Correo</label>
-    <input id="email" type="email" placeholder="tecnico@empresa.com" autocomplete="username" />
-
-    <label for="password">Contraseña</label>
-    <input id="password" type="password" placeholder="********" autocomplete="current-password" />
-
+    <label>Correo</label>
+    <input id="email" type="email" placeholder="correo@dominio.com" autocomplete="username"/>
+    <label>Contraseña</label>
+    <input id="password" type="password" placeholder="********" autocomplete="current-password"/>
     <div class="row">
-      <label class="checkbox"><input id="remember" type="checkbox" checked /> Mantener sesión</label>
-      <a href="#" id="reset">¿Olvidaste tu contraseña?</a>
+      <label style="display:flex;gap:8px;align-items:center">
+        <input id="keep" type="checkbox" checked/>
+        <span>Mantener sesión</span>
+      </label>
+      <a class="muted" href="#" onclick="alert('Pide reset de contraseña a un admin.');return false;">¿Olvidaste tu contraseña?</a>
     </div>
-
-    <button id="login" class="primary">Ingresar</button>
-    <div id="msg" class="msg"></div>
-
-    <div class="links">
-      <a href="/viewer.html">Ir al viewer</a>
-      <a href="/admin.html">Panel supervisor</a>
+    <button id="btnLogin" class="btn" disabled>Ingresar</button>
+    <div id="warn"></div>
+    <div class="row" style="margin-top:8px">
+      <a class="muted" href="/viewer.html">Ir al viewer</a>
+      <span class="muted">•</span>
+      <a class="muted" href="/index.html">Ir al emisor</a>
     </div>
   </div>
 
+  <script src="/env.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', async () => {
-      const SUPABASE_URL = "{{SUPABASE_URL}}";
-      const SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
-      const email = document.getElementById('email');
-      const password = document.getElementById('password');
-      const remember = document.getElementById('remember');
-      const loginBtn = document.getElementById('login');
-      const msg = document.getElementById('msg');
-      const reset = document.getElementById('reset');
+  (async () => {
+    const btn = document.getElementById('btnLogin');
+    const email = document.getElementById('email');
+    const password = document.getElementById('password');
+    const keep = document.getElementById('keep');
+    const warn = document.getElementById('warn');
 
-      // Guard por si no se inyectaron las envs
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY ||
-          SUPABASE_URL.includes('{{') || SUPABASE_ANON_KEY.includes('{{')) {
-        loginBtn.disabled = true;
-        msg.className = 'msg err';
-        msg.textContent = 'Faltan variables SUPABASE_URL / SUPABASE_ANON_KEY en el servidor.';
-        return;
+    if (!window.ENV?.SUPABASE_URL || !window.ENV?.SUPABASE_ANON_KEY) {
+      warn.textContent = "Faltan variables (env.js). Revisa SUPABASE_URL y ANON en Render."; return;
+    }
+    const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+    btn.disabled = false;
+
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      btn.disabled = true; warn.textContent = "";
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.value.trim(),
+        password: password.value
+      });
+      if (error) { warn.textContent = error.message || "Error de autenticación."; btn.disabled = false; return; }
+
+      if (!keep.checked) {
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token
+        });
       }
-
-      const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-      try {
-        const { data } = await supa.auth.getSession();
-        if (data.session) return location.replace('/');
-      } catch {}
-
-      function show(text, ok=false){
-        msg.className = 'msg ' + (ok ? 'ok':'err');
-        msg.textContent = text || '';
-      }
-
-      async function doLogin(){
-        show('');
-        const mail = (email.value || '').trim();
-        const pass = password.value || '';
-        if (!mail || !pass) return show('Ingresa tu correo y contraseña.');
-        try {
-          loginBtn.disabled = true;
-          loginBtn.textContent = 'Ingresando…';
-          const { error } = await supa.auth.signInWithPassword({ email: mail, password: pass });
-          if (error) return show(error.message);
-          if (!remember.checked) {
-            window.addEventListener('beforeunload', () => { supa.auth.signOut(); }, { once:true });
-          }
-          location.replace('/');
-        } catch (e) {
-          show('Error de autenticación.');
-          console.error(e);
-        } finally {
-          loginBtn.disabled = false;
-          loginBtn.textContent = 'Ingresar';
-        }
-      }
-
-      async function doReset(e){
-        e.preventDefault();
-        const mail = (email.value || '').trim();
-        if (!mail) return show('Escribe tu correo para enviar el enlace.');
-        try {
-          const { error } = await supa.auth.resetPasswordForEmail(mail, {
-            redirectTo: window.location.origin + '/login.html'
-          });
-          if (error) return show(error.message);
-          show('Te enviamos un enlace para restablecer la contraseña.', true);
-        } catch (e) {
-          console.error(e);
-          show('No se pudo enviar el correo.');
-        }
-      }
-
-      loginBtn.addEventListener('click', doLogin);
-      password.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter') doLogin(); });
-      reset.addEventListener('click', doReset);
+      location.href = "/index.html";
     });
+  })();
   </script>
 </body>
 </html>
