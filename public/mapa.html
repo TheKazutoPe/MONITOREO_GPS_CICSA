@@ -1,121 +1,209 @@
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-// Configurar mapa base
-const map = L.map('map').setView([-12.0464, -77.0428], 11);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap'
-}).addTo(map);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoreo en Tiempo Real - Brigadas</title>
 
-// -------- VARIABLES PRINCIPALES --------
-const markers = new Map();
-const trails = new Map();
-const startPoints = new Map();
-const lastSeen = new Map();
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-const carIcon = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png', // 🚗 icono auto
-  iconSize: [34, 34],
-  iconAnchor: [17, 17]
-});
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background: #0e1621;
+      color: #fff;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
 
-const startIcon = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', // 📍 icono inicio
-  iconSize: [24, 24],
-  iconAnchor: [12, 12]
-});
+    #map {
+      flex: 1;
+      height: 100vh;
+    }
 
-const colors = ["#007bff","#28a745","#ff5722","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
-const colorMap = new Map();
-function colorFor(id){
-  if(!colorMap.has(id))
-    colorMap.set(id, colors[colorMap.size % colors.length]);
-  return colorMap.get(id);
-}
+    #side {
+      width: 320px;
+      background: #111c2e;
+      padding: 12px;
+      overflow-y: auto;
+      border-left: 2px solid #1f2a3d;
+    }
 
-// -------- FUNCIONES DE DIBUJO --------
-function addOrUpdateCar(id, lat, lng, meta, ts){
-  const name = meta?.display || id;
-  const popup = `<b>${name}</b><br>${meta?.brigada||''} / ${meta?.zona||''} / ${meta?.contrata||''}<br>${new Date(ts).toLocaleString()}`;
-  
-  // Si no existe el marcador
-  let marker = markers.get(id);
-  if(!marker){
-    marker = L.marker([lat, lng], { icon: carIcon }).addTo(map).bindPopup(popup);
-    markers.set(id, marker);
-  }else{
-    marker.setLatLng([lat, lng]).setPopupContent(popup);
+    #side h3 {
+      margin-top: 0;
+      color: #00bcd4;
+      text-align: center;
+    }
+
+    #wsdot {
+      width: 10px;
+      height: 10px;
+      display: inline-block;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    .ok { background: #4caf50; }
+    .bad { background: #f44336; }
+
+    .brigada-card {
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: #14263f;
+      border-left: 4px solid #00bcd4;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .brigada-card:hover {
+      background: #1d3557;
+      transform: scale(1.02);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <aside id="side">
+    <h3>Brigadas conectadas</h3>
+    <div style="margin-bottom:8px">
+      <span id="wsdot" class="bad"></span><small id="wslabel">WS: desconectado</small>
+    </div>
+    <div id="onlineList"><p style="color:#8a96a8">Sin brigadas conectadas.</p></div>
+  </aside>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+  const map = L.map('map').setView([-12.0464, -77.0428], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  // --- ICONOS ---
+  const carIcon = L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png',
+    iconSize: [34, 34],
+    iconAnchor: [17, 17]
+  });
+
+  const startIcon = L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+
+  // --- VARIABLES GLOBALES ---
+  const markers = new Map();
+  const trails = new Map();
+  const startPoints = new Map();
+  const lastSeen = new Map();
+  const colorMap = new Map();
+  const palette = ["#007bff","#28a745","#ff5722","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
+
+  function colorFor(id) {
+    if (!colorMap.has(id)) colorMap.set(id, palette[colorMap.size % palette.length]);
+    return colorMap.get(id);
   }
 
-  // Añadir recorrido
-  let line = trails.get(id);
-  if(!line){
-    const color = colorFor(id);
-    line = L.polyline([[lat, lng]], { color, weight: 4, opacity: 0.8 }).addTo(map);
-    trails.set(id, line);
+  // --- FUNCIONES DE MAPA ---
+  function addOrUpdateBrigada(id, lat, lng, meta, ts) {
+    const name = meta?.display || id;
+    const popup = `<b>${name}</b><br>${meta?.brigada||''} / ${meta?.zona||''} / ${meta?.contrata||''}<br>${new Date(ts).toLocaleString()}`;
 
-    // PUNTO INICIAL
-    const start = L.marker([lat, lng], { icon: startIcon }).addTo(map);
-    startPoints.set(id, start);
-  }else{
-    const arr = line.getLatLngs();
-    arr.push([lat, lng]);
-    if(arr.length > 2000) arr.splice(0, arr.length - 2000);
-    line.setLatLngs(arr);
-  }
+    // 🚗 marcador principal
+    let mk = markers.get(id);
+    if (!mk) {
+      mk = L.marker([lat, lng], { icon: carIcon }).addTo(map).bindPopup(popup);
+      markers.set(id, mk);
+    } else {
+      mk.setLatLng([lat, lng]).setPopupContent(popup);
+    }
 
-  lastSeen.set(id, { ts, meta, lat, lng });
-  renderSidebar();
-}
-
-// -------- PANEL DE CONECTADOS --------
-function renderSidebar(){
-  const div = document.getElementById('onlineList');
-  div.innerHTML = '';
-  const now = Date.now();
-
-  if(lastSeen.size === 0){
-    div.innerHTML = '<p style="color:#8a96a8">Sin brigadas conectadas.</p>';
-    return;
-  }
-
-  [...lastSeen.entries()]
-    .sort((a,b)=>b[1].ts - a[1].ts)
-    .forEach(([id, obj])=>{
+    // 🟩 línea de recorrido
+    let pl = trails.get(id);
+    if (!pl) {
       const color = colorFor(id);
-      const age = (now - obj.ts) / 1000;
-      const online = age < 60;
-      const el = document.createElement('div');
-      el.style.padding = '6px 8px';
-      el.style.marginBottom = '6px';
-      el.style.borderLeft = `4px solid ${color}`;
-      el.style.borderRadius = '6px';
-      el.style.background = online ? '#122940' : '#1b1f2b';
-      el.style.cursor = 'pointer';
-      el.innerHTML = `
+      pl = L.polyline([[lat, lng]], { color, weight: 4, opacity: 0.8 }).addTo(map);
+      trails.set(id, pl);
+
+      // 📍 punto inicial
+      const start = L.marker([lat, lng], { icon: startIcon }).addTo(map);
+      startPoints.set(id, start);
+    } else {
+      const arr = pl.getLatLngs();
+      arr.push([lat, lng]);
+      if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+      pl.setLatLngs(arr);
+    }
+
+    lastSeen.set(id, { ts, meta, lat, lng });
+    renderSidebar();
+  }
+
+  // --- PANEL LATERAL ---
+  function renderSidebar() {
+    const list = document.getElementById('onlineList');
+    list.innerHTML = '';
+    if (lastSeen.size === 0) {
+      list.innerHTML = '<p style="color:#8a96a8">Sin brigadas conectadas.</p>';
+      return;
+    }
+
+    const now = Date.now();
+    [...lastSeen.entries()].sort((a,b)=>b[1].ts - a[1].ts).forEach(([id, obj]) => {
+      const color = colorFor(id);
+      const active = (now - obj.ts) / 1000 < 60;
+      const card = document.createElement('div');
+      card.className = 'brigada-card';
+      card.style.borderLeftColor = color;
+      card.innerHTML = `
         <div><b style="color:${color}">${obj.meta?.display || id}</b></div>
         <div style="color:#b7c1d1">${obj.meta?.brigada||''} / ${obj.meta?.zona||''} / ${obj.meta?.contrata||''}</div>
-        <div style="color:#7e8ba0;font-size:.8rem">${online?'🟢 En línea':'⚫ Inactivo'} — ${new Date(obj.ts).toLocaleTimeString()}</div>
+        <div style="color:#7e8ba0;font-size:.8rem">${active?'🟢 En línea':'⚫ Inactivo'} — ${new Date(obj.ts).toLocaleTimeString()}</div>
       `;
-      el.onclick = ()=>{ 
+      card.onclick = () => {
         const mk = markers.get(id);
-        if(mk){ map.setView(mk.getLatLng(), 17); mk.openPopup(); }
+        if (mk) {
+          map.setView(mk.getLatLng(), 16, { animate: true });
+          mk.openPopup();
+        }
       };
-      div.appendChild(el);
+      list.appendChild(card);
     });
-}
+  }
 
-// -------- WEBSOCKET EN VIVO --------
-const ws = new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
+  // --- WEBSOCKET ---
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws');
+  const dot = document.getElementById('wsdot');
+  const label = document.getElementById('wslabel');
 
-ws.onopen = ()=> console.log("✅ WS conectado");
-ws.onclose = ()=> console.warn("❌ WS desconectado");
-ws.onmessage = (ev)=>{
-  let msg;
-  try { msg = JSON.parse(ev.data); } catch { return; }
-  if(msg.type !== 'point') return;
-  const d = msg.data;
-  addOrUpdateCar(d.id, d.lat, d.lng, d.meta, d.ts || Date.now());
-};
-</script>
+  ws.onopen = () => {
+    dot.className = 'ok';
+    label.textContent = 'WS: conectado';
+    console.log('✅ WebSocket conectado');
+  };
 
+  ws.onclose = () => {
+    dot.className = 'bad';
+    label.textContent = 'WS: desconectado';
+    console.warn('❌ WebSocket cerrado');
+  };
+
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type !== 'point') return;
+    const d = msg.data;
+    addOrUpdateBrigada(d.id, d.lat, d.lng, d.meta, d.ts || Date.now());
+  };
+  </script>
+</body>
+</html>
