@@ -1,3 +1,10 @@
+// server.js (primeras líneas)
+// Cargar .env SOLO si no vienen variables del entorno (local)
+if (!process.env.SUPABASE_URL) {
+  try { require('dotenv').config(); } catch {}
+}
+
+
 // server.js
 // npm i express ws @supabase/supabase-js adm-zip
 require("dotenv").config();
