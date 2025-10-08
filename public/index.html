@@ -1,71 +1,155 @@
 <!doctype html>
-<meta charset="utf-8" />
-<title>Emisor</title>
-<div>
-  <button id="start">Iniciar trabajo</button>
-  <button id="stop" disabled>Detener</button>
-  <span id="gps">GPS: inactivo</span>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Emisor de coordenadas</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    :root { color-scheme: dark light; }
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:#0b1220;color:#e6edf6}
+    header{padding:12px 16px;background:#0f172a;border-bottom:1px solid #1f2937;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+    .pill{font-size:.8rem;padding:4px 8px;border-radius:999px;border:1px solid #334155;background:#0b1220}
+    .ok{color:#22c55e;border-color:#14532d}
+    .bad{color:#ef4444;border-color:#7f1d1d}
+    .wrap{padding:12px 16px}
+    .card{background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:12px}
+    label{display:block;font-size:.8rem;margin:10px 0 6px;color:#93a3b8}
+    input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e6edf6}
+    button.primary{width:100%;padding:14px;border-radius:14px;border:none;background:#2563eb;color:#fff;font-weight:700;font-size:1.05rem}
+    button.secondary{padding:10px 14px;border-radius:12px;border:1px solid #334155;background:#0b1220;color:#e6edf6}
+    #map{height:42vh;border-radius:14px;border:1px solid #1f2937}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .footer{position:sticky;bottom:0;background:#0f172a;border-top:1px solid #1f2937;padding:12px 16px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .muted{color:#93a3b8;font-size:.9rem}
+  </style>
+</head>
+<body>
+
+<header>
+  <strong>Emisor</strong>
+  <span id="wsState" class="pill bad">WS: desconectado</span>
+  <span id="gpsState" class="pill bad">GPS: inactivo</span>
+</header>
+
+<div class="wrap">
+  <!-- Perfil -->
+  <div id="profileCard" class="card" style="display:none">
+    <h3 style="margin:0 0 8px">Completa tu perfil</h3>
+    <div class="grid">
+      <div><label>Nombre completo</label><input id="nombre"/></div>
+      <div><label>Teléfono</label><input id="telefono"/></div>
+      <div><label>Brigada</label><input id="brigada"/></div>
+      <div><label>Contrata</label><input id="contrata"/></div>
+      <div><label>Zona</label><input id="zona"/></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="saveProfile" class="secondary">Guardar</button>
+      <span id="saveMsg" class="muted"></span>
+    </div>
+  </div>
+
+  <!-- Mapa -->
+  <div id="map" class="card"></div>
+
+  <!-- Info -->
+  <div class="card" style="margin-top:12px">
+    <div class="row">
+      <span id="gpsText" class="muted">GPS: …</span>
+      <span id="lastSent" class="muted">Último envío: —</span>
+    </div>
+  </div>
 </div>
 
-<div id="profile" style="margin-top:12px; display:none">
-  <h3>Completa tu perfil</h3>
-  <input id="nombre" placeholder="Nombre completo"/>
-  <input id="telefono" placeholder="Teléfono"/>
-  <input id="brigada" placeholder="Brigada"/>
-  <input id="contrata" placeholder="Contrata"/>
-  <input id="zona" placeholder="Zona"/>
-  <button id="saveProfile">Guardar</button>
+<div class="footer">
+  <button id="startStop" class="primary">Iniciar trabajo</button>
 </div>
 
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const SUPABASE_URL = "https://fcyerlaliiiuutdzinvg.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjeWVybGFsaWlpdXV0ZHppbnZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwMTMyMzUsImV4cCI6MjA2OTU4OTIzNX0.fgKF7aE7kiUYGpgom34taZw-1PsYJJ1wlwI5urADc6s";
+const SUPABASE_URL = "{{SUPABASE_URL}}";
+const SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let session, ws, trackId, watchId;
+
+let session, ws, trackId=null, watchId=null, pathLine=null;
+let map = L.map('map', { zoomControl:true }).setView([-12.05,-77.05], 15);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+const wsState = document.getElementById('wsState');
+const gpsState = document.getElementById('gpsState');
+const gpsText  = document.getElementById('gpsText');
+const lastSent = document.getElementById('lastSent');
+const startStop= document.getElementById('startStop');
+const profileCard = document.getElementById('profileCard');
+
+const state = { sending:false, connected:false };
+
+function setWS(ok){ state.connected = ok; wsState.textContent = 'WS: ' + (ok?'conectado':'desconectado'); wsState.className = 'pill ' + (ok?'ok':'bad'); }
+function setGPS(ok){ gpsState.textContent = 'GPS: ' + (ok?'activo':'inactivo'); gpsState.className='pill ' + (ok?'ok':'bad'); }
 
 (async ()=>{
   const { data } = await supa.auth.getSession();
   session = data.session;
   if (!session) return location.href="/login.html";
+
+  // Si no hay perfil, muestra card de edición
   const me = await supa.from('technicians').select('*').eq('user_id', session.user.id).maybeSingle();
-  if (!me.data) document.getElementById('profile').style.display = 'block';
+  if (!me.data || !me.data.nombre) profileCard.style.display='block';
 })();
 
-saveProfile.onclick = async ()=>{
-  const me = await supa.auth.getUser();
-  const { data, error } = await supa.from('technicians').upsert({
-    user_id: me.data.user.id,
-    username: me.data.user.email,
+document.getElementById('saveProfile').onclick = async ()=>{
+  const u = (await supa.auth.getUser()).data.user;
+  const payload = {
+    user_id: u.id, username: u.email, role: 'tecnico',
     nombre: nombre.value, telefono: telefono.value,
-    brigada: brigada.value, contrata: contrata.value, zona: zona.value, role: 'tecnico'
-  }).select().single();
-  if (error) return alert(error.message);
-  document.getElementById('profile').style.display = 'none';
-  alert('Perfil guardado');
+    brigada: brigada.value, contrata: contrata.value, zona: zona.value
+  };
+  const { error } = await supa.from('technicians').upsert(payload).select().single();
+  saveMsg.textContent = error ? error.message : '¡Guardado!';
+  if (!error) profileCard.style.display='none';
 };
 
-start.onclick = async ()=>{
+startStop.onclick = async ()=>{ if (!state.sending) startSending(); else stopSending(); };
+
+async function startSending(){
   const token = (await supa.auth.getSession()).data.session.access_token;
   ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws?token=${token}`);
-  ws.onopen = ()=> ws.send(JSON.stringify({ type:"start" }));
+  ws.onopen = ()=>{ setWS(true); ws.send(JSON.stringify({ type:"start" })); };
+  ws.onclose= ()=> setWS(false);
   ws.onmessage = (e)=>{
-    const m = JSON.parse(e.data);
+    const m = JSON.parse(e.data||'{}');
     if (m.type==='ack' && m.what==='start') {
-      trackId = m.track_id; start.disabled = true; stop.disabled = false;
-      watchId = navigator.geolocation.watchPosition(p=>{
-        const { latitude:lat, longitude:lng, accuracy:acc, speed:spd } = p.coords;
-        ws.send(JSON.stringify({ type:'pos', track_id: trackId, lat, lng, acc, spd, ts: Date.now() }));
-        gps.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc||0)} m)`;
-      }, err=>{ gps.textContent = "GPS: error"; console.error(err); }, { enableHighAccuracy:true, maximumAge:0, timeout:10000 });
+      trackId = m.track_id; state.sending = true; startStop.textContent = 'Detener';
+      if (pathLine) { pathLine.remove(); pathLine=null; }
+      pathLine = L.polyline([], {weight:5}).addTo(map);
+      watchId = navigator.geolocation.watchPosition(onGeo, onGeoError, {enableHighAccuracy:true, maximumAge:0, timeout:12000});
     }
   };
-};
+}
 
-stop.onclick = ()=>{
-  ws?.send(JSON.stringify({ type:'stop', track_id: trackId }));
+function stopSending(){
+  try { ws?.send(JSON.stringify({ type:'stop', track_id: trackId })); } catch {}
   if (watchId) navigator.geolocation.clearWatch(watchId);
-  ws?.close();
-  start.disabled=false; stop.disabled=true; gps.textContent="GPS: inactivo";
-};
+  ws?.close(); state.sending = false; startStop.textContent = 'Iniciar trabajo'; setGPS(false);
+}
+
+function onGeo(p){
+  const { latitude:lat, longitude:lng, accuracy:acc, speed:spd } = p.coords;
+  setGPS(true);
+  gpsText.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc||0)} m)`;
+  lastSent.textContent = `Último envío: ${new Date().toLocaleTimeString()}`;
+  ws?.send(JSON.stringify({ type:'pos', track_id: trackId, lat, lng, acc, spd, ts: Date.now() }));
+  if (pathLine) {
+    pathLine.addLatLng([lat,lng]);
+    map.panTo([lat,lng], { animate:true });
+  }
+}
+function onGeoError(err){
+  setGPS(false);
+  gpsText.textContent = 'GPS: error ('+err.code+')';
+}
 </script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Administración – Crear usuario</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:#0b1220;color:#e6edf6}
+  .wrap{max-width:860px;margin:24px auto;padding:0 16px}
+  .card{background:#0f172a;border:1px solid #1f2937;border-radius:14px;padding:16px}
+  label{display:block;font-size:.85rem;margin:10px 0 6px;color:#93a3b8}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e6edf6}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  button{padding:12px 16px;border-radius:12px;border:none;background:#2563eb;color:#fff;font-weight:700}
+  .muted{color:#93a3b8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Crear usuario (solo supervisor/admin)</h2>
+  <div class="card">
+    <div class="grid">
+      <div><label>Email</label><input id="email" placeholder="tecnico@empresa.com"></div>
+      <div><label>Contraseña</label><input id="pass" type="password" placeholder="Mín. 8 caracteres"></div>
+      <div><label>Nombre</label><input id="nombre"></div>
+      <div><label>Teléfono</label><input id="telefono"></div>
+      <div><label>Brigada</label><input id="brigada"></div>
+      <div><label>Contrata</label><input id="contrata"></div>
+      <div><label>Zona</label><input id="zona"></div>
+      <div><label>Rol</label>
+        <select id="role"><option>tecnico</option><option>supervisor</option><option>admin</option></select>
+      </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <button id="go">Crear usuario</button>
+      <span id="msg" class="muted"></span>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "{{SUPABASE_URL}}";
+const SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+(async ()=>{
+  const { data } = await supa.auth.getSession();
+  if (!data.session) return location.href='/login.html';
+})();
+
+go.onclick = async ()=>{
+  msg.textContent = 'Creando…';
+  const { data } = await supa.auth.getSession();
+  const token = data.session.access_token;
+  const payload = {
+    email: email.value.trim(),
+    password: pass.value,
+    metadata: {
+      nombre: nombre.value, telefono: telefono.value,
+      brigada: brigada.value, contrata: contrata.value, zona: zona.value,
+      role: role.value
+    }
+  };
+  const r = await fetch('/api/admin/create-user', {
+    method:'POST',
+    headers:{'Content-Type':'application/json', Authorization:'Bearer '+token},
+    body: JSON.stringify(payload)
+  });
+  const j = await r.json().catch(()=> ({}));
+  msg.textContent = r.ok ? `OK: ${j.user_id}` : ('Error: ' + (j.error||r.statusText));
+};
+</script>
+</body>
+</html>
