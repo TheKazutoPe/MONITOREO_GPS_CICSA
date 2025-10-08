@@ -2,10 +2,9 @@
   "name": "realtime_coords_app",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=18.0.0" },
   "scripts": {
     "start": "node server.js",
-    "postinstall": "mkdir -p public/vendor && cp node_modules/@supabase/supabase-js/dist/umd/supabase.min.js public/vendor/supabase.min.js"
+    "postinstall": "sh -c 'mkdir -p public/vendor && if [ -f node_modules/@supabase/supabase-js/dist/umd/supabase.min.js ]; then cp node_modules/@supabase/supabase-js/dist/umd/supabase.min.js public/vendor/supabase.min.js; else cp node_modules/@supabase/supabase-js/dist/umd/supabase.js public/vendor/supabase.min.js; fi'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
