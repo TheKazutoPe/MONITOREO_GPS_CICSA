@@ -5,14 +5,13 @@
   "engines": { "node": ">=18.0.0" },
   "scripts": {
     "start": "node server.js",
-    "render-build": "npm install"
+    "postinstall": "mkdir -p public/vendor && cp node_modules/@supabase/supabase-js/dist/umd/supabase.min.js public/vendor/supabase.min.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.44.4",
-    "adm-zip": "^0.5.12",
+    "@supabase/supabase-js": "^2.45.0",
+    "adm-zip": "^0.5.10",
     "compression": "^1.7.4",
     "express": "^4.19.2",
-    "helmet": "^7.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.17.1"
   }
 }

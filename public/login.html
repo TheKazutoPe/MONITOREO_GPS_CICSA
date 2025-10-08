@@ -30,9 +30,9 @@
         <input id="keep" type="checkbox" checked/>
         <span>Mantener sesión</span>
       </label>
-      <a class="muted" href="#" onclick="alert('Pide reset de contraseña a un admin.');return false;">¿Olvidaste tu contraseña?</a>
+      <a class="muted" href="#" id="forgot">¿Olvidaste tu contraseña?</a>
     </div>
-    <button id="btnLogin" class="btn" disabled>Ingresar</button>
+    <button id="btnLogin" class="btn">Ingresar</button>
     <div id="warn"></div>
     <div class="row" style="margin-top:8px">
       <a class="muted" href="/viewer.html">Ir al viewer</a>
@@ -41,41 +41,9 @@
     </div>
   </div>
 
-  <script src="/env.js"></script>
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script>
-  (async () => {
-    const btn = document.getElementById('btnLogin');
-    const email = document.getElementById('email');
-    const password = document.getElementById('password');
-    const keep = document.getElementById('keep');
-    const warn = document.getElementById('warn');
-
-    if (!window.ENV?.SUPABASE_URL || !window.ENV?.SUPABASE_ANON_KEY) {
-      warn.textContent = "Faltan variables (env.js). Revisa SUPABASE_URL y ANON en Render."; return;
-    }
-    const supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
-    btn.disabled = false;
-
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      btn.disabled = true; warn.textContent = "";
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.value.trim(),
-        password: password.value
-      });
-      if (error) { warn.textContent = error.message || "Error de autenticación."; btn.disabled = false; return; }
-
-      if (!keep.checked) {
-        await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token
-        });
-      }
-      location.href = "/index.html";
-    });
-  })();
-  </script>
+  <!-- Todo viene del mismo origin: cumple CSP 'self' -->
+  <script src="/env.js" defer></script>
+  <script src="/vendor/supabase.min.js" defer></script>
+  <script src="/js/login.js" defer></script>
 </body>
 </html>
