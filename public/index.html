@@ -28,7 +28,7 @@
   </div>
 
   <div class="footer">
-    <button id="startStop" class="primary" disabled>Iniciar trabajo</button>
+    <button id="startStop" class="primary">Iniciar trabajo</button>
   </div>
 
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
@@ -41,12 +41,10 @@
 
   <script>
   document.addEventListener('DOMContentLoaded', async () => {
-    // ======= CONFIG / CLIENTES =======
     const SUPABASE_URL = "{{SUPABASE_URL}}";
     const SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
     const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // ======= UI =======
     const wsState   = document.getElementById('wsState');
     const gpsState  = document.getElementById('gpsState');
     const gpsText   = document.getElementById('gpsText');
@@ -65,48 +63,32 @@
     function setGPS(ok){ gpsState.textContent = 'GPS: ' + (ok?'activo':'inactivo'); gpsState.className = 'pill ' + (ok?'ok':'bad'); }
     function bearing(a,b){const r=d=>d*Math.PI/180,t=r(a.lat),u=r(b.lat),dl=r(b.lng-a.lng),y=Math.sin(dl)*Math.cos(u),x=Math.cos(t)*Math.sin(u)-Math.sin(t)*Math.cos(u)*Math.cos(dl);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
 
-    // ======= ESTADO =======
     let session, token, ws = null, trackId = null, watchId = null;
     let pathLine = null, meMarker = null, lastLatLng = null;
 
-    // ======= SESIÓN =======
-    try {
-      const s = await supa.auth.getSession();
-      session = s.data.session;
-      if (!session) { location.replace('/login.html'); return; }
-      token = session.access_token;
-      // Habilita el botón sólo cuando tenemos sesión
-      startStop.disabled = false;
-    } catch (err) {
-      console.error('Error obteniendo sesión:', err);
-      return;
-    }
+    const s = await supa.auth.getSession();
+    session = s.data.session || null;
+    token = session?.access_token || null;
 
-    // ======= GEO =======
     function onGeo(p){
       const { latitude:lat, longitude:lng, accuracy:acc, speed:spd } = p.coords;
       setGPS(true);
       gpsText.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc||0)} m)`;
       lastSent.textContent = `Último envío: ${new Date().toLocaleTimeString()}`;
-
       if (ws && ws.readyState === 1) {
         ws.send(JSON.stringify({ type:'pos', track_id:trackId, lat, lng, acc, spd, ts:Date.now() }));
       }
-
       const ll = L.latLng(lat, lng);
       if (!pathLine) pathLine = L.polyline([], { weight:5 }).addTo(map);
       pathLine.addLatLng(ll);
-
-      if (!meMarker) meMarker = L.marker(ll, {icon:carIcon, rotationOrigin: 'center'}).addTo(map);
+      if (!meMarker) meMarker = L.marker(ll, {icon:carIcon, rotationOrigin:'center'}).addTo(map);
       if (lastLatLng) meMarker.setRotationAngle( bearing(lastLatLng, ll) );
       meMarker.setLatLng(ll);
       lastLatLng = ll;
-
       map.panTo(ll, { animate:true });
     }
     function onErr(err){ setGPS(false); gpsText.textContent = 'GPS: error ('+err.code+')'; console.error('Geoloc error', err); }
 
-    // ======= WS =======
     async function startSending(){
       startStop.disabled = true;
       startStop.textContent = 'Conectando…';
@@ -119,12 +101,10 @@
           const m = JSON.parse(e.data||'{}');
           if (m.type === 'ack' && m.what === 'start') {
             trackId = m.track_id;
-            // Preparar UI de tracking
             if (pathLine) { pathLine.remove(); pathLine = null; }
             lastLatLng = null;
             startStop.textContent = 'Detener';
             startStop.disabled = false;
-            // Inicia geolocalización
             watchId = navigator.geolocation.watchPosition(onGeo, onErr, { enableHighAccuracy:true, maximumAge:0, timeout:12000 });
           }
           if (m.type === 'err') console.error('WS error:', m.msg);
@@ -146,35 +126,23 @@
       startStop.disabled = false;
     }
 
-    function isRunning(){ return startStop.textContent.trim().toLowerCase().startsWith('detener'); }
-
     startStop.addEventListener('click', async () => {
-  try {
-    // Relee sesión por si el usuario acaba de iniciar/cerrar sesión en otra pestaña
-    const { data } = await supa.auth.getSession();
-    const sess = data?.session || null;
-    if (!sess) { 
-      location.href = '/login.html'; 
-      return; 
-    }
-    token = sess.access_token;
+      try {
+        // Relee sesión por si cambió
+        const { data } = await supa.auth.getSession();
+        const sess = data?.session || null;
+        if (!sess) { location.href = '/login.html'; return; }
+        token = sess.access_token;
 
-    // ¿Estamos corriendo? (botón dice Detener)
-    const running = startStop.textContent.trim().toLowerCase().startsWith('detener');
-    if (!running) {
-      // iniciar
-      startSending(); 
-    } else {
-      // detener
-      stopSending();
-    }
-  } catch (e) {
-    console.error('No se pudo leer la sesión:', e);
-    location.href = '/login.html';
-  }
-});
-
+        const running = startStop.textContent.trim().toLowerCase().startsWith('detener');
+        if (!running) startSending(); else stopSending();
+      } catch (e) {
+        console.error('No se pudo leer la sesión:', e);
+        location.href = '/login.html';
+      }
+    });
   });
   </script>
 </body>
 </html>
+
