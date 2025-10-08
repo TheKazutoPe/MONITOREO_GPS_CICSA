@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "postinstall": "sh -c 'mkdir -p public/vendor && if [ -f node_modules/@supabase/supabase-js/dist/umd/supabase.min.js ]; then cp node_modules/@supabase/supabase-js/dist/umd/supabase.min.js public/vendor/supabase.min.js; else cp node_modules/@supabase/supabase-js/dist/umd/supabase.js public/vendor/supabase.min.js; fi'"
+    "postinstall": "node -e \"const fs=require('fs');const path=require('path');const min='node_modules/@supabase/supabase-js/dist/umd/supabase.min.js';const norm='node_modules/@supabase/supabase-js/dist/umd/supabase.js';const dst=path.join('public','vendor','supabase.min.js');fs.mkdirSync(path.dirname(dst),{recursive:true});fs.copyFileSync(fs.existsSync(min)?min:norm,dst);console.log('Copied Supabase UMD ->',dst);\""
   },
-  "dependencies": {
+  \"dependencies\": {
     "@supabase/supabase-js": "^2.45.0",
     "adm-zip": "^0.5.10",
     "compression": "^1.7.4",
