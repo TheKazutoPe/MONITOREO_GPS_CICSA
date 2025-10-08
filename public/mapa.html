@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mapa de Brigadas</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  body{margin:0;font-family:system-ui,Arial,sans-serif}
+  header{padding:10px 14px;border-bottom:1px solid #eee;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select, input, button{padding:.5rem;border:1px solid #ced4da;border-radius:8px}
+  #map{height: calc(100vh - 58px);}
+  .badge{background:#0d6efd;color:white;padding:.25rem .5rem;border-radius:999px;font-size:.8rem}
+</style>
+</head>
+<body>
+  <header>
+    <span class="badge">MONITOREO</span>
+    <select id="zona"><option value="">Zona (todas)</option><option>NORTE</option><option>SUR</option><option>CENTRO</option><option>LIMA</option></select>
+    <select id="contrata"><option value="">Contrata (todas)</option><option>CICSA</option><option>SAFESA</option><option>COMATEL</option><option>DOLAN</option><option>ECYTEL</option></select>
+    <select id="cargo"><option value="">Cargo (todos)</option><option>TECNICO</option><option>SUPERVISOR</option><option>MONITOREO</option></select>
+    <input id="brigada" placeholder="Brigada (opcional)" />
+    <button id="btnRef">Actualizar</button>
+  </header>
+  <div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([-9.2, -75.0], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+const markers = new Map(); // key = brigada/tecnico
+
+function upsertMarker(key, lat, lng, label){
+  let m = markers.get(key);
+  if(!m){
+    m = L.marker([lat,lng]).addTo(map).bindPopup(label);
+    markers.set(key, m);
+  } else {
+    m.setLatLng([lat,lng]); m.setPopupContent(label);
+  }
+}
+
+async function loadData(){
+  const p = new URLSearchParams();
+  if(zona.value) p.set('zona', zona.value);
+  if(contrata.value) p.set('contrata', contrata.value);
+  if(cargo.value) p.set('cargo', cargo.value);
+  if(brigada.value.trim()) p.set('brigada', brigada.value.trim());
+  const res = await fetch('/api/ubicaciones?'+p.toString());
+  const r = await res.json();
+  if(!r.ok) return;
+
+  r.data.forEach(row=>{
+    const key = row.brigada || row.tecnico || row.usuario_id;
+    const label = `<b>${row.tecnico || '-'}</b><br>${row.brigada || ''} / ${row.zona || ''} / ${row.contrata || ''}<br>${new Date(row.timestamp).toLocaleString()}`;
+    if(row.latitud && row.longitud) upsertMarker(key, row.latitud, row.longitud, label);
+  });
+}
+
+btnRef.onclick = loadData;
+loadData();
+setInterval(loadData, 10000); // refresco cada 10s
+
+// También escucha posiciones en vivo vía WS (si usas el broadcast)
+const ws = new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
+ws.onmessage = (e)=>{
+  const msg = JSON.parse(e.data);
+  if(msg.type==='point'){
+    const d = msg.data;
+    const key = d.id;
+    const label = `<b>${key}</b><br>Lat:${d.lat.toFixed(5)} Lng:${d.lng.toFixed(5)}<br>${new Date(d.ts).toLocaleString()}`;
+    upsertMarker(key, d.lat, d.lng, label);
+  }
+};
+</script>
+</body>
+</html>
