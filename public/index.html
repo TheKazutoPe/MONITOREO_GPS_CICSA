@@ -1,37 +1,159 @@
-<!doctype html><html lang="es"><head>
+<!doctype html>
+<html lang="es">
+<head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Emisor</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>body{margin:0;background:#0b1220;color:#e6edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
-header{padding:12px 16px;background:#0f172a;border-bottom:1px solid #1f2937;display:flex;gap:10px;position:sticky;top:0;z-index:5}
-.pill{padding:4px 8px;border:1px solid #334155;border-radius:999px}.ok{color:#22c55e;border-color:#14532d}.bad{color:#ef4444;border-color:#7f1d1d}
-#map{height:55vh;margin:12px;border-radius:12px;border:1px solid #1f2937}
-.footer{position:sticky;bottom:0;background:#0f172a;border-top:1px solid #1f2937;padding:12px;z-index:6}
-button.primary{width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-weight:700}</style>
-</head><body>
-<header><strong>Emisor</strong><span id="wsState" class="pill bad">WS: desconectado</span><span id="gpsState" class="pill bad">GPS: inactivo</span></header>
-<div id="map"></div>
-<div style="padding:0 12px 12px;color:#93a3b8"><span id="gpsText">GPS: …</span> · <span id="lastSent">Último envío: —</span></div>
-<div class="footer"><button id="startStop" class="primary" onclick="window._startStop && window._startStop()">Iniciar trabajo</button></div>
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>(function(){var p=L.Marker.prototype,s=p._setPos;p._setPos=function(pos){s.call(this,pos);if(this.options.rotationAngle){this._icon.style.transformOrigin=this.options.rotationOrigin||'center';this._icon.style.transform+=' rotate('+this.options.rotationAngle+'deg)';}};p.setRotationAngle=function(a){this.options.rotationAngle=a;this.update();return this;};p.setRotationOrigin=function(o){this.options.rotationOrigin=o;this.update();return this;};})();</script>
-<script>
-const SUPABASE_URL="{{SUPABASE_URL}}", SUPABASE_ANON_KEY="{{SUPABASE_ANON_KEY}}"; const supa=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-let session, ws, trackId=null, watchId=null, pathLine=null, meMarker=null, lastLatLng=null;
-const map=L.map('map').setView([-12.05,-77.05],15); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-const carIcon=L.icon({iconUrl:'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><g transform="translate(1,3)"><rect x="3" y="12" rx="2" ry="2" width="28" height="9" fill="#2563eb"/><path d="M9 12l4-6h10l4 6z" fill="#1e40af"/><circle cx="9" cy="23" r="3" fill="#0b1220"/><circle cx="25" cy="23" r="3" fill="#0b1220"/><circle cx="9" cy="23" r="1.5" fill="#94a3b8"/><circle cx="25" cy="23" r="1.5" fill="#94a3b8"/></g></svg>`),iconSize:[36,36],iconAnchor:[18,26]});
-const wsState=document.getElementById('wsState'), gpsState=document.getElementById('gpsState'), gpsText=document.getElementById('gpsText'), lastSent=document.getElementById('lastSent'), startStop=document.getElementById('startStop');
-function setWS(ok){wsState.textContent='WS: '+(ok?'conectado':'desconectado'); wsState.className='pill '+(ok?'ok':'bad');}
-function setGPS(ok){gpsState.textContent='GPS: '+(ok?'activo':'inactivo'); gpsState.className='pill '+(ok?'ok':'bad');}
-supa.auth.getSession().then(({data})=>{ if(!data.session) location.href='/login.html'; else session=data.session; });
-function bearing(a,b){const r=d=>d*Math.PI/180,t=r(a.lat),u=r(b.lat),dl=r(b.lng-a.lng),y=Math.sin(dl)*Math.cos(u),x=Math.cos(t)*Math.sin(u)-Math.sin(t)*Math.cos(u)*Math.cos(dl);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
-async function startSending(){const token=(await supa.auth.getSession()).data.session.access_token; ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws?token=${token}`);
- ws.onopen=()=>{setWS(true); ws.send(JSON.stringify({type:'start'}));}; ws.onclose=()=>setWS(false);
- ws.onmessage=(e)=>{const m=JSON.parse(e.data||'{}'); if(m.type==='ack'&&m.what==='start'){trackId=m.track_id; startStop.textContent='Detener'; pathLine&&pathLine.remove(); pathLine=L.polyline([], {weight:5}).addTo(map); meMarker|| (meMarker=L.marker(map.getCenter(),{icon:carIcon,rotationOrigin:'center'}).addTo(map)); watchId=navigator.geolocation.watchPosition(onGeo,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:12000});}};}
-function stopSending(){try{ws&&ws.send(JSON.stringify({type:'stop',track_id:trackId}));}catch{} if(watchId) navigator.geolocation.clearWatch(watchId); ws&&ws.close(); startStop.textContent='Iniciar trabajo'; setGPS(false);}
-function onGeo(p){const {latitude:lat,longitude:lng,accuracy:acc,speed:spd}=p.coords; setGPS(true); gpsText.textContent=`GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc||0)} m)`; lastSent.textContent=`Último envío: ${new Date().toLocaleTimeString()}`;
-  ws&&ws.send(JSON.stringify({type:'pos',track_id:trackId,lat,lng,acc,spd,ts:Date.now()})); const ll=L.latLng(lat,lng); pathLine&&pathLine.addLatLng(ll); if(meMarker){ if(lastLatLng){ meMarker.setRotationAngle(bearing(lastLatLng,ll)); } meMarker.setLatLng(ll);} lastLatLng=ll; map.panTo(ll,{animate:true}); }
-function onErr(err){ setGPS(false); gpsText.textContent='GPS: error ('+err.code+')'; }
-window._startStop=()=>{ if(startStop.textContent.startsWith('Iniciar')) startSending(); else stopSending(); }; startStop.onclick=window._startStop;
-</script></body></html>
+<style>
+  :root{color-scheme:dark}
+  body{margin:0;background:#0b1220;color:#e6edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
+  header{padding:12px 16px;background:#0f172a;border-bottom:1px solid #1f2937;display:flex;gap:10px;position:sticky;top:0;z-index:5}
+  .pill{padding:4px 8px;border:1px solid #334155;border-radius:999px}.ok{color:#22c55e;border-color:#14532d}.bad{color:#ef4444;border-color:#7f1d1d}
+  #map{height:55vh;margin:12px;border-radius:12px;border:1px solid #1f2937}
+  .footer{position:fixed;left:0;right:0;bottom:0;background:#0f172a;border-top:1px solid #1f2937;padding:12px;z-index:20}
+  button.primary{width:100%;padding:14px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
+  button.primary[disabled]{opacity:.6;cursor:not-allowed}
+</style>
+</head>
+<body>
+  <header>
+    <strong>Emisor</strong>
+    <span id="wsState" class="pill bad">WS: desconectado</span>
+    <span id="gpsState" class="pill bad">GPS: inactivo</span>
+  </header>
+
+  <div id="map"></div>
+  <div style="padding:0 12px 88px 12px;color:#93a3b8">
+    <span id="gpsText">GPS: …</span> · <span id="lastSent">Último envío: —</span>
+  </div>
+
+  <div class="footer">
+    <button id="startStop" class="primary" disabled>Iniciar trabajo</button>
+  </div>
+
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Rotated marker helper -->
+  <script>
+    (function(){var p=L.Marker.prototype,s=p._setPos;p._setPos=function(pos){s.call(this,pos);if(this.options.rotationAngle){this._icon.style.transformOrigin=this.options.rotationOrigin||'center';this._icon.style.transform+=' rotate('+this.options.rotationAngle+'deg)';}};p.setRotationAngle=function(a){this.options.rotationAngle=a;this.update();return this;};p.setRotationOrigin=function(o){this.options.rotationOrigin=o;this.update();return this;};})();
+  </script>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    // ======= CONFIG / CLIENTES =======
+    const SUPABASE_URL = "{{SUPABASE_URL}}";
+    const SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
+    const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ======= UI =======
+    const wsState   = document.getElementById('wsState');
+    const gpsState  = document.getElementById('gpsState');
+    const gpsText   = document.getElementById('gpsText');
+    const lastSent  = document.getElementById('lastSent');
+    const startStop = document.getElementById('startStop');
+
+    const map = L.map('map').setView([-12.05, -77.05], 15);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+
+    const carIcon = L.icon({
+      iconUrl: 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><g transform="translate(1,3)"><rect x="3" y="12" rx="2" ry="2" width="28" height="9" fill="#2563eb"/><path d="M9 12l4-6h10l4 6z" fill="#1e40af"/><circle cx="9" cy="23" r="3" fill="#0b1220"/><circle cx="25" cy="23" r="3" fill="#0b1220"/><circle cx="9" cy="23" r="1.5" fill="#94a3b8"/><circle cx="25" cy="23" r="1.5" fill="#94a3b8"/></g></svg>`),
+      iconSize: [36,36], iconAnchor: [18,26]
+    });
+
+    function setWS(ok){ wsState.textContent = 'WS: ' + (ok?'conectado':'desconectado'); wsState.className = 'pill ' + (ok?'ok':'bad'); }
+    function setGPS(ok){ gpsState.textContent = 'GPS: ' + (ok?'activo':'inactivo'); gpsState.className = 'pill ' + (ok?'ok':'bad'); }
+    function bearing(a,b){const r=d=>d*Math.PI/180,t=r(a.lat),u=r(b.lat),dl=r(b.lng-a.lng),y=Math.sin(dl)*Math.cos(u),x=Math.cos(t)*Math.sin(u)-Math.sin(t)*Math.cos(u)*Math.cos(dl);return (Math.atan2(y,x)*180/Math.PI+360)%360;}
+
+    // ======= ESTADO =======
+    let session, token, ws = null, trackId = null, watchId = null;
+    let pathLine = null, meMarker = null, lastLatLng = null;
+
+    // ======= SESIÓN =======
+    try {
+      const s = await supa.auth.getSession();
+      session = s.data.session;
+      if (!session) { location.replace('/login.html'); return; }
+      token = session.access_token;
+      // Habilita el botón sólo cuando tenemos sesión
+      startStop.disabled = false;
+    } catch (err) {
+      console.error('Error obteniendo sesión:', err);
+      return;
+    }
+
+    // ======= GEO =======
+    function onGeo(p){
+      const { latitude:lat, longitude:lng, accuracy:acc, speed:spd } = p.coords;
+      setGPS(true);
+      gpsText.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc||0)} m)`;
+      lastSent.textContent = `Último envío: ${new Date().toLocaleTimeString()}`;
+
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type:'pos', track_id:trackId, lat, lng, acc, spd, ts:Date.now() }));
+      }
+
+      const ll = L.latLng(lat, lng);
+      if (!pathLine) pathLine = L.polyline([], { weight:5 }).addTo(map);
+      pathLine.addLatLng(ll);
+
+      if (!meMarker) meMarker = L.marker(ll, {icon:carIcon, rotationOrigin: 'center'}).addTo(map);
+      if (lastLatLng) meMarker.setRotationAngle( bearing(lastLatLng, ll) );
+      meMarker.setLatLng(ll);
+      lastLatLng = ll;
+
+      map.panTo(ll, { animate:true });
+    }
+    function onErr(err){ setGPS(false); gpsText.textContent = 'GPS: error ('+err.code+')'; console.error('Geoloc error', err); }
+
+    // ======= WS =======
+    async function startSending(){
+      startStop.disabled = true;
+      startStop.textContent = 'Conectando…';
+      try{
+        ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws?token=${token}`);
+        ws.onopen = () => { setWS(true); ws.send(JSON.stringify({type:'start'})); };
+        ws.onclose = () => { setWS(false); };
+
+        ws.onmessage = (e) => {
+          const m = JSON.parse(e.data||'{}');
+          if (m.type === 'ack' && m.what === 'start') {
+            trackId = m.track_id;
+            // Preparar UI de tracking
+            if (pathLine) { pathLine.remove(); pathLine = null; }
+            lastLatLng = null;
+            startStop.textContent = 'Detener';
+            startStop.disabled = false;
+            // Inicia geolocalización
+            watchId = navigator.geolocation.watchPosition(onGeo, onErr, { enableHighAccuracy:true, maximumAge:0, timeout:12000 });
+          }
+          if (m.type === 'err') console.error('WS error:', m.msg);
+        };
+      } catch (e) {
+        console.error('WS error:', e);
+        startStop.textContent = 'Iniciar trabajo';
+        startStop.disabled = false;
+      }
+    }
+
+    function stopSending(){
+      startStop.disabled = true;
+      try { ws && ws.send(JSON.stringify({type:'stop', track_id:trackId})); } catch {}
+      try { watchId && navigator.geolocation.clearWatch(watchId); } catch {}
+      try { ws && ws.close(); } catch {}
+      setGPS(false);
+      startStop.textContent = 'Iniciar trabajo';
+      startStop.disabled = false;
+    }
+
+    function isRunning(){ return startStop.textContent.trim().toLowerCase().startsWith('detener'); }
+
+    // ======= CLICK (sin inline) =======
+    startStop.addEventListener('click', () => {
+      if (!isRunning()) startSending(); else stopSending();
+    });
+
+  });
+  </script>
+</body>
+</html>
