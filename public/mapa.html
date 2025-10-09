@@ -23,16 +23,16 @@
       z-index: 1;
     }
 
-    /* LOGO Y BARRA SUPERIOR */
+    /* LOGO */
     #logo-container {
       position: absolute;
       top: 10px;
       left: 15px;
-      z-index: 5000;
+      z-index: 3000;
       display: flex;
       align-items: center;
       gap: 8px;
-      background: rgba(255,255,255,0.98);
+      background: rgba(255,255,255,0.97);
       padding: 8px 15px;
       border-radius: 10px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
@@ -48,12 +48,13 @@
       font-size: 15px;
     }
 
+    /* FILTROS */
     .topbar {
       position: absolute;
-      left: 260px;
+      left: 230px;
       top: 10px;
-      z-index: 4000;
-      background: rgba(255,255,255,0.97);
+      z-index: 3500;
+      background: rgba(255,255,255,0.98);
       border-radius: 10px;
       padding: 6px 10px;
       display: flex;
@@ -66,6 +67,7 @@
       padding: 6px 8px;
       border-radius: 6px;
       border: 1px solid #ccc;
+      font-size: 14px;
     }
 
     button {
@@ -144,9 +146,10 @@
     </div>
   </div>
 
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map("map").setView([-12.06, -77.04], 13);
+    const map = L.map("map").setView([-12.06, -77.04], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
@@ -160,6 +163,7 @@
     const markers = {}, trails = {}, coords = {}, lastUpdate = {};
     const listDiv = document.getElementById("list");
 
+    // Renderiza la lista lateral
     function renderList() {
       listDiv.innerHTML = '';
       for (const id in markers) {
@@ -183,6 +187,7 @@
       }
     }
 
+    // Dibuja cada punto y recorrido
     function drawLive(id, lat, lng, meta) {
       lastUpdate[id] = new Date();
       if (!markers[id]) {
@@ -193,38 +198,33 @@
 
       if (!coords[id]) coords[id] = [];
       coords[id].push([lat, lng]);
-      if (coords[id].length > 1000) coords[id].shift();
+      if (coords[id].length > 2000) coords[id].shift();
 
       if (trails[id]) trails[id].setLatLngs(coords[id]);
-      else trails[id] = L.polyline(coords[id], { color: '#002D62', weight: 3, opacity: 0.8 }).addTo(map);
+      else trails[id] = L.polyline(coords[id], { color: '#003366', weight: 3, opacity: 0.8 }).addTo(map);
 
       renderList();
     }
 
-    function wsURL() {
-      return (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
-    }
+    // -------------------------------
+    // WEBSOCKET
+    // -------------------------------
+    const socket = io({ transports: ['websocket'] });
 
-    function connectWS() {
-      const ws = new WebSocket(wsURL());
-      ws.onopen = () => console.log('🟢 WS conectado');
-      ws.onmessage = e => {
-        let msg; try { msg = JSON.parse(e.data); } catch { return; }
-        if (msg.type === 'snapshot')
-          for (const [id, v] of Object.entries(msg.data))
-            drawLive(id, v.lat, v.lng, v.meta);
-        if (msg.type === 'point') {
-          const v = msg.data;
-          drawLive(v.id, v.lat, v.lng, v.meta);
-        }
-      };
-      ws.onclose = () => {
-        console.warn('⚠️ WS cerrado, reconectando...');
-        setTimeout(connectWS, 3000);
-      };
-    }
-    connectWS();
+    socket.on("connect", () => console.log("🟢 WS conectado"));
+    socket.on("disconnect", () => console.warn("🔴 WS desconectado"));
+    socket.on("snapshot", msg => {
+      for (const [id, v] of Object.entries(msg.data))
+        drawLive(id, v.lat, v.lng, v.meta);
+    });
+    socket.on("point", msg => {
+      const v = msg.data;
+      drawLive(v.id, v.lat, v.lng, v.meta);
+    });
 
+    // -------------------------------
+    // BOTÓN ACTUALIZAR
+    // -------------------------------
     document.getElementById('refresh').onclick = async () => {
       const btn = document.getElementById('refresh');
       btn.style.background = '#004c2c';
@@ -232,12 +232,15 @@
       try {
         const res = await fetch('/api/recorridos');
         const j = await res.json();
-        if (!j.ok) return;
+        if (!j.ok) return alert("Error al cargar recorridos");
         for (const [id, arr] of Object.entries(j.data)) {
           for (const p of arr) drawLive(id, p.lat, p.lng, p.meta);
         }
-      } catch { alert("Error al cargar recorridos"); }
+      } catch (err) {
+        alert("Error al conectar con el servidor.");
+      }
     };
   </script>
 </body>
 </html>
+
