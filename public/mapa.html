@@ -6,31 +6,74 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    :root{
-      --brand:#00e676; --bg:#0b1b2a; --card:#102840;
+    :root {
+      --brand: #00e676;
+      --bg: #0b1b2a;
+      --card: #102840;
     }
-    *{box-sizing:border-box}
-    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto}
-    .app{display:flex;height:100%}
-    #map{flex:1;min-width:0}
-    .side{
-      width:320px;background:var(--bg);color:#fff;display:flex;flex-direction:column;
-      padding:10px;gap:8px;overflow:auto
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: "Segoe UI", sans-serif; }
+    .app { display: flex; height: 100%; }
+    #map { flex: 1; min-width: 0; }
+
+    .side {
+      width: 320px;
+      background: var(--bg);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      gap: 8px;
+      overflow: auto;
     }
-    .side h4{margin:0 0 6px;font-size:16px;color:var(--brand);text-align:center}
-    .card{background:var(--card);border-radius:10px;padding:10px}
-    .item{background:#0e2a45;padding:8px;border-radius:8px;margin:6px 0}
-    .online{color:#2bff90;font-size:12px}
-    .topbar{
-      position:absolute;left:12px;top:12px;z-index:999;background:#fff;border-radius:10px;
-      box-shadow:0 4px 16px rgba(0,0,0,.18);display:flex;gap:6px;align-items:center;padding:6px 8px
+    .side h4 {
+      margin: 0 0 6px;
+      font-size: 16px;
+      color: var(--brand);
+      text-align: center;
     }
-    .brand{display:flex;align-items:center;gap:8px;font-weight:700}
-    .brand img{height:24px}
-    select,button{border:1px solid #d0d7de;border-radius:8px;padding:6px 8px}
-    button{background:#00b050;color:#fff;border-color:#00b050;cursor:pointer}
-    button:hover{filter:brightness(.95)}
-    .muted{opacity:.7}
+    .card {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .item {
+      background: #0e2a45;
+      padding: 8px;
+      border-radius: 8px;
+      margin: 6px 0;
+      cursor: pointer;
+    }
+    .online { color: #2bff90; font-size: 12px; }
+
+    .topbar {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      z-index: 999;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      padding: 6px 8px;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+    .brand img { height: 28px; }
+    select, button {
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+    button {
+      background: #00b050;
+      color: #fff;
+      border-color: #00b050;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(.95); }
+    .muted { opacity: .7; }
   </style>
 </head>
 <body>
@@ -41,15 +84,16 @@
       <h4>🛰 Brigadas Conectadas</h4>
       <div id="list" class="card"></div>
       <div class="card muted" id="hint">
-        Consejo: usa “Actualizar” para cargar recorrido histórico (últimas 3h) con los filtros.
+        Consejo: las ubicaciones se actualizan en <b>tiempo real</b>.  
+        Usa “Actualizar” si deseas ver el historial completo.
       </div>
     </div>
   </div>
 
-  <!-- barra superior -->
+  <!-- Barra superior -->
   <div class="topbar">
     <div class="brand">
-      <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/Cicsa_logo.png" alt="CICSA" />
+      <img src="/static/logo_cicsa.png" alt="CICSA" />
       CICSA Monitoreo GPS
     </div>
     <select id="zona"><option value="">Zona (todas)</option></select>
@@ -61,177 +105,160 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // --------- MAPA ----------
-    const map = L.map('map', { zoomControl:true }).setView([-12.06,-77.04], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    // ----- MAPA -----
+    const map = L.map('map', { zoomControl: true }).setView([-12.06, -77.04], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    // Icono “carrito” desde CDN (no hace falta archivo local)
+    // Ícono de vehículo profesional
     const carIcon = L.icon({
-      iconUrl: 'https://cdn-icons-png.flaticon.com/512/3468/3468365.png',
-      iconSize: [30,30], iconAnchor:[15,15]
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/743/743922.png',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
     });
 
-    // Estado en cliente
-    const markers = {};   // id -> {marker, meta}
-    const trails  = {};   // id -> polyline
-    const coords  = {};   // id -> [[lat,lng],...]
+    const markers = {};
+    const trails = {};
+    const coords = {};
     const listDiv = document.getElementById('list');
 
-    // Helpers UI
-    function upsertSelect(id, values){
+    function upsertSelect(id, values) {
       const sel = document.getElementById(id);
-      const label = id.charAt(0).toUpperCase()+id.slice(1);
+      const label = id.charAt(0).toUpperCase() + id.slice(1);
       sel.innerHTML = `<option value="">${label} (todas)</option>`;
-      Array.from(values).filter(Boolean).sort().forEach(v=>{
+      Array.from(values).filter(Boolean).sort().forEach(v => {
         sel.insertAdjacentHTML('beforeend', `<option>${v}</option>`);
       });
     }
 
-    function updateList(){
+    function updateList() {
       listDiv.innerHTML = '';
       const items = Object.values(markers);
-      if (!items.length){
+      if (!items.length) {
         listDiv.innerHTML = '<div class="muted">No hay brigadas en línea.</div>';
         return;
       }
-      items.sort((a,b)=> (a.meta.display||'').localeCompare(b.meta.display||''));
-      for (const {marker, meta} of items){
+      items.sort((a, b) => (a.meta.display || '').localeCompare(b.meta.display || ''));
+      for (const { marker, meta } of items) {
         const el = document.createElement('div');
         el.className = 'item';
-        el.innerHTML =
-          `<b>${meta.display || '—'}</b><br>`+
-          `${meta.contrata || '—'} / ${meta.zona || '—'} / ${meta.brigada || '—'}<br>`+
-          `<span class="online">🟢 En línea</span>`;
-        el.onclick = ()=> { map.setView(marker.getLatLng(), 17); marker.openPopup(); };
+        el.innerHTML = `
+          <b>${meta.display || '—'}</b><br>
+          ${meta.contrata || '—'} / ${meta.zona || '—'} / ${meta.brigada || '—'}<br>
+          <span class="online">🟢 En línea</span>
+        `;
+        el.onclick = () => {
+          map.setView(marker.getLatLng(), 17);
+          marker.openPopup();
+        };
         listDiv.appendChild(el);
       }
     }
 
-    function fitAll(){
+    function fitAll() {
       const bounds = [];
       for (const id in markers) bounds.push(markers[id].marker.getLatLng());
-      if (bounds.length) map.fitBounds(bounds, { padding:[40,40] });
+      if (bounds.length) map.fitBounds(bounds, { padding: [40, 40] });
     }
 
-    // Dibuja/actualiza punto en vivo
-    function drawLive(id, lat, lng, meta){
-      // marcador
-      if (!markers[id]){
-        const m = L.marker([lat,lng], { icon: carIcon }).addTo(map);
+    function drawLive(id, lat, lng, meta) {
+      if (!markers[id]) {
+        const m = L.marker([lat, lng], { icon: carIcon }).addTo(map);
         m.bindPopup(`<b>${meta.display || id}</b><br>${meta.contrata || ''} / ${meta.zona || ''} / ${meta.brigada || ''}`);
-        markers[id] = { marker:m, meta };
+        markers[id] = { marker: m, meta };
       } else {
-        markers[id].marker.setLatLng([lat,lng]);
+        markers[id].marker.setLatLng([lat, lng]);
         markers[id].meta = meta;
         markers[id].marker.setPopupContent(
           `<b>${meta.display || id}</b><br>${meta.contrata || ''} / ${meta.zona || ''} / ${meta.brigada || ''}`
         );
       }
-      // cola de coords para la polyline en tiempo real
-      (coords[id] ||= []).push([lat,lng]);
-      if (coords[id].length > 200) coords[id].shift();
+      (coords[id] ||= []).push([lat, lng]);
+      if (coords[id].length > 400) coords[id].shift();
 
       if (trails[id]) trails[id].setLatLngs(coords[id]);
-      else trails[id] = L.polyline(coords[id], { color:'#00e676', weight:3 }).addTo(map);
+      else trails[id] = L.polyline(coords[id], { color: '#002D62', weight: 3 }).addTo(map);
 
       updateList();
     }
 
-    // --------- WS EN TIEMPO REAL ----------
-    function wsURL(){
+    // ---- WebSocket tiempo real ----
+    function wsURL() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       return `${proto}://${location.host}/ws`;
     }
-    function connectWS(){
+
+    function connectWS() {
       const ws = new WebSocket(wsURL());
-      ws.onopen   = () => console.log('WS conectado');
-      ws.onclose  = () => setTimeout(connectWS, 2000);
-      ws.onerror  = () => {}; // silencioso
-      ws.onmessage = (e)=>{
-        try{
+      ws.onopen = () => console.log('WS conectado');
+      ws.onclose = () => setTimeout(connectWS, 2000);
+      ws.onerror = () => {};
+      ws.onmessage = (e) => {
+        try {
           const msg = JSON.parse(e.data);
-          if (msg.type === 'snapshot'){
-            let first = true;
-            for (const [id, v] of Object.entries(msg.data)){
+          if (msg.type === 'snapshot') {
+            for (const [id, v] of Object.entries(msg.data)) {
               drawLive(id, v.lat, v.lng, v.meta || {});
-              if (first){ first=false; fitAll(); }
             }
+            fitAll();
           }
-          if (msg.type === 'point'){
+          if (msg.type === 'point') {
             const v = msg.data;
             drawLive(v.id, v.lat, v.lng, v.meta || {});
           }
-        }catch(_){}
+        } catch {}
       };
     }
     connectWS();
 
-    // --------- HISTÓRICO / FILTROS ----------
-    async function cargarRecorridos(){
-      const zona     = document.getElementById('zona').value;
+    // ---- Filtros ----
+    async function cargarRecorridos() {
+      const zona = document.getElementById('zona').value;
       const contrata = document.getElementById('contrata').value;
-      const brigada  = document.getElementById('brigada').value;
+      const brigada = document.getElementById('brigada').value;
       const qs = new URLSearchParams({ zona, contrata, brigada }).toString();
       const url = qs ? `/api/recorridos?${qs}` : '/api/recorridos';
 
-      try{
+      try {
         const res = await fetch(url);
-        if (!res.ok) throw new Error('HTTP '+res.status);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const { ok, data } = await res.json();
         if (!ok) throw new Error('Respuesta inválida');
 
-        // limpiar polylines antiguas (no tocamos marcadores en vivo)
-        for (const id in trails){ map.removeLayer(trails[id]); delete trails[id]; }
-        for (const id in coords){ delete coords[id]; }
+        for (const id in trails) { map.removeLayer(trails[id]); delete trails[id]; }
+        for (const id in coords) { delete coords[id]; }
 
-        const zonas=new Set(), contratas=new Set(), brigadas=new Set();
+        const zonas = new Set(), contratas = new Set(), brigadas = new Set();
         const bounds = [];
 
-        for (const [id, arr] of Object.entries(data)){
-          arr.forEach((p, i)=>{
+        for (const [id, arr] of Object.entries(data)) {
+          arr.forEach((p) => {
             (coords[id] ||= []).push([p.lat, p.lng]);
-            zonas.add(p.meta?.zona); contratas.add(p.meta?.contrata); brigadas.add(p.meta?.brigada);
-            if (!markers[id]) {
-              // crea marcador si no existe aún
-              drawLive(id, p.lat, p.lng, p.meta || {});
-            }
+            zonas.add(p.meta?.zona);
+            contratas.add(p.meta?.contrata);
+            brigadas.add(p.meta?.brigada);
+            if (!markers[id]) drawLive(id, p.lat, p.lng, p.meta || {});
           });
-          if (coords[id]?.length){
-            trails[id] = L.polyline(coords[id], { color:'#00e676', weight:3 }).addTo(map);
+          if (coords[id]?.length) {
+            trails[id] = L.polyline(coords[id], { color: '#002D62', weight: 3 }).addTo(map);
             bounds.push(...coords[id]);
           }
         }
         upsertSelect('zona', zonas);
         upsertSelect('contrata', contratas);
         upsertSelect('brigada', brigadas);
-
-        if (bounds.length) map.fitBounds(bounds, { padding:[40,40] });
-      }catch(err){
+        if (bounds.length) map.fitBounds(bounds, { padding: [40, 40] });
+      } catch (err) {
         console.warn('Error al cargar recorridos:', err.message);
       }
-    }
-
-    // Al cargar: tomar conectados para la lista
-    async function cargarConectados(){
-      try{
-        const r = await fetch('/api/conectados');
-        const { ok, data } = await r.json();
-        if (!ok) return;
-        data.forEach(({id, lat, lng, meta})=>{
-          drawLive(id, lat, lng, meta || {});
-        });
-        fitAll();
-      }catch(_){}
     }
 
     document.getElementById('refresh').addEventListener('click', cargarRecorridos);
     document.getElementById('fit').addEventListener('click', fitAll);
 
-    // Primeros datos
-    cargarConectados();    // lista + marcadores en vivo
-    cargarRecorridos();    // histórico 3h (sin filtros)
+    // Carga inicial
+    cargarRecorridos();
   </script>
 </body>
 </html>

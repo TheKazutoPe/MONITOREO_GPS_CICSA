@@ -2,47 +2,26 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Ingreso Técnico - Monitoreo GPS CICSA</title>
+  <title>Ingreso Brigadas - Monitoreo GPS CICSA</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-  >
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body {
       background: linear-gradient(135deg, #0b1b2a, #002244);
-      color: #fff;
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      color: #fff; height: 100vh;
+      display: flex; justify-content: center; align-items: center;
       font-family: 'Segoe UI', sans-serif;
     }
     .card {
-      background: #112d4e;
-      border: none;
-      border-radius: 12px;
+      background: #112d4e; border: none; border-radius: 12px;
       box-shadow: 0 0 15px rgba(0,0,0,0.5);
-      padding: 25px;
-      width: 360px;
+      padding: 25px; width: 360px;
     }
-    .logo {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 10px;
-    }
-    .logo img { height: 40px; margin-right: 8px; }
-    .btn-primary {
-      background: #00b050;
-      border: none;
-    }
-    .btn-primary:hover {
-      background: #009944;
-    }
-    .spinner-border {
-      display: none;
-    }
+    .logo { display:flex; align-items:center; justify-content:center; margin-bottom:10px;}
+    .logo img { height:40px; margin-right:8px; }
+    .btn-primary { background:#00b050; border:none; }
+    .btn-primary:hover { background:#009944; }
+    .spinner-border { display:none; }
   </style>
 </head>
 <body>
@@ -51,9 +30,7 @@
       <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/Cicsa_logo.png" alt="CICSA">
       <h5 class="m-0">Monitoreo GPS</h5>
     </div>
-    <p class="text-center text-light mb-4">
-      Ingreso de técnicos y supervisores
-    </p>
+    <p class="text-center text-light mb-4">Ingreso de brigadas y supervisores</p>
 
     <div class="mb-3">
       <label class="form-label">Usuario</label>
@@ -69,14 +46,15 @@
       <div class="spinner-border spinner-border-sm ms-2 text-light" role="status"></div>
     </button>
 
-    <p class="text-center text-muted mt-3" style="font-size: 12px;">
-      © 2025 InsightPy Solutions L&P · CICSA
-    </p>
+    <p class="text-center text-muted mt-3" style="font-size:12px;">© 2025 InsightPy Solutions L&P · CICSA</p>
+    <div id="status" class="text-center mt-2 text-success fw-bold"></div>
   </div>
 
   <script>
     const btn = document.getElementById("loginBtn");
     const spinner = document.querySelector(".spinner-border");
+    const statusEl = document.getElementById("status");
+    let watchId = null;
 
     btn.addEventListener("click", async () => {
       const usuario = document.getElementById("usuario").value.trim();
@@ -91,23 +69,62 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ usuario, clave })
         });
-        if (!res.ok) throw new Error("Error HTTP " + res.status);
         const data = await res.json();
 
-        if (data.ok) {
-          localStorage.setItem("usuario", JSON.stringify(data.usuario));
-          alert("✅ Bienvenido " + (data.usuario.tecnico || data.usuario.usuario));
+        if (!data.ok) return alert("Credenciales incorrectas");
+
+        const user = data.usuario;
+        localStorage.setItem("usuario", JSON.stringify(user));
+
+        if ((user.cargo || "").toLowerCase().includes("supervisor")) {
+          alert("Bienvenido supervisor, redirigiendo al mapa...");
           window.location.href = "mapa.html";
         } else {
-          alert("Credenciales incorrectas");
+          alert("Bienvenido técnico. Iniciando envío de ubicación...");
+          iniciarGPS(user);
         }
       } catch (e) {
-        console.error(e);
         alert("Error al conectar con el servidor");
       } finally {
         btn.disabled = false; spinner.style.display = "none";
       }
     });
+
+    async function iniciarGPS(user){
+      if (!navigator.geolocation){
+        alert("Tu navegador no soporta geolocalización");
+        return;
+      }
+
+      const enviarPosicion = async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        statusEl.textContent = "✅ Conectado. Enviando posición...";
+        try {
+          await fetch("/api/posicion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              usuario_id: user.id || user.usuario_id,
+              tecnico: user.tecnico || user.usuario,
+              brigada: user.brigada,
+              contrata: user.contrata,
+              zona: user.zona,
+              cargo: user.cargo,
+              lat: latitude,
+              lng: longitude
+            })
+          });
+        } catch {
+          statusEl.textContent = "⚠️ Error al enviar ubicación";
+        }
+      };
+
+      // Enviar posición cada 10 segundos
+      watchId = navigator.geolocation.watchPosition(enviarPosicion, 
+        (err)=>alert("Error GPS: "+err.message),
+        { enableHighAccuracy:true, maximumAge:5000, timeout:10000 }
+      );
+    }
   </script>
 </body>
 </html>
