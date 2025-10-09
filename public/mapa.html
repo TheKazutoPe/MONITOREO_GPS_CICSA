@@ -15,55 +15,48 @@
     #map {
       height: 100%;
       width: 100%;
+      z-index: 1;
     }
 
-    /* Panel lateral */
-    #sidebar {
+    /* Logo fijo superior izquierda */
+    #logo-container {
       position: absolute;
-      right: 10px;
       top: 10px;
-      width: 310px;
-      max-height: 95%;
-      background: #0b1b2a;
-      color: #fff;
+      left: 15px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.95);
+      padding: 6px 12px;
       border-radius: 10px;
-      padding: 10px;
-      overflow-y: auto;
-      z-index: 999;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
-    h4 {
-      text-align: center;
-      color: #00e676;
-      margin: 0 0 8px;
+    #logo-container img {
+      height: 32px;
     }
-    .item {
-      background: #112d4e;
-      padding: 8px;
-      border-radius: 8px;
-      margin: 4px 0;
-    }
-    .online {
-      color: #00e676;
-      font-size: 12px;
+    #logo-container span {
+      font-weight: bold;
+      color: #003366;
+      font-size: 15px;
     }
 
-    /* Barra superior */
+    /* Barra superior de filtros */
     .topbar {
       position: absolute;
-      left: 10px;
+      left: 220px;
       top: 10px;
       z-index: 999;
-      background: #fff;
+      background: rgba(255,255,255,0.95);
       border-radius: 10px;
-      padding: 8px;
+      padding: 6px 10px;
       display: flex;
-      gap: 6px;
+      gap: 8px;
       align-items: center;
       box-shadow: 0 2px 10px rgba(0,0,0,.3);
     }
     select, button {
-      padding: 6px;
+      padding: 5px;
       border-radius: 6px;
       border: 1px solid #ccc;
     }
@@ -72,19 +65,51 @@
       color: #fff;
       border: none;
       cursor: pointer;
+      transition: background .2s;
     }
-    button:hover {
-      background: #009944;
-    }
+    button:hover { background: #009944; }
 
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: bold;
+    /* Panel lateral */
+    #sidebar {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      width: 330px;
+      max-height: 95%;
+      background: rgba(11, 27, 42, 0.97);
+      color: #fff;
+      border-radius: 10px;
+      padding: 10px;
+      overflow-y: auto;
+      z-index: 999;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      backdrop-filter: blur(4px);
     }
-    .logo img {
-      height: 28px;
+    h4 {
+      text-align: center;
+      color: #00e676;
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .item {
+      background: #112d4e;
+      padding: 10px;
+      border-radius: 8px;
+      margin: 6px 0;
+      cursor: pointer;
+      transition: background .2s, transform .2s;
+    }
+    .item:hover {
+      background: #163a5e;
+      transform: scale(1.02);
+    }
+    .online {
+      color: #00e676;
+      font-size: 12px;
+    }
+    .time {
+      color: #ccc;
+      font-size: 12px;
     }
 
   </style>
@@ -92,31 +117,27 @@
 <body>
   <div id="map"></div>
 
+  <!-- Logo -->
+  <div id="logo-container">
+    <img src="/static/logo_cicsa.png" alt="CICSA" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3790/3790033.png'">
+    <span>CICSA Monitoreo GPS</span>
+  </div>
+
+  <!-- Filtros -->
+  <div class="topbar">
+    <select id="zona"><option value="">Zona</option></select>
+    <select id="contrata"><option value="">Contrata</option></select>
+    <select id="brigada"><option value="">Brigada</option></select>
+    <button id="refresh">Actualizar</button>
+  </div>
+
   <!-- Panel lateral -->
   <div id="sidebar">
     <h4>🛰 Brigadas Conectadas</h4>
     <div id="list"></div>
     <div style="margin-top:10px;font-size:13px;color:#ccc;">
-      Consejo: usa <b>"Actualizar"</b> para cargar recorrido histórico (últimas 3h) con los filtros.
+      Consejo: usa <b>"Actualizar"</b> para cargar recorrido histórico (últimas 3h).
     </div>
-  </div>
-
-  <!-- Barra superior -->
-  <div class="topbar">
-    <div class="logo">
-      <img src="/static/logo_cicsa.png" alt="CICSA" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3790/3790033.png'">
-      <span>CICSA Monitoreo GPS</span>
-    </div>
-    <select id="zona">
-      <option value="">Zona</option>
-    </select>
-    <select id="contrata">
-      <option value="">Contrata</option>
-    </select>
-    <select id="brigada">
-      <option value="">Brigada</option>
-    </select>
-    <button id="refresh">Actualizar</button>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -126,25 +147,37 @@
 
     const carIcon = L.icon({
       iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png',
-      iconSize: [34,34],
-      iconAnchor: [17,17]
+      iconSize: [36,36],
+      iconAnchor: [18,18]
     });
 
-    const markers = {}, trails = {}, coords = {};
+    const markers = {}, trails = {}, coords = {}, lastUpdate = {};
     const listDiv = document.getElementById("list");
 
     function renderList() {
       listDiv.innerHTML = '';
       for (const id in markers) {
         const meta = markers[id].meta;
+        const time = lastUpdate[id] ? new Date(lastUpdate[id]).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
         const el = document.createElement('div');
         el.className = 'item';
-        el.innerHTML = `<b>${meta.display || id}</b><br>${meta.contrata || '—'} / ${meta.zona || '—'} / ${meta.brigada || '—'}<br><span class="online">🟢 En línea</span>`;
+        el.innerHTML = `
+          <b>${meta.display || id}</b><br>
+          ${meta.contrata || '—'} / ${meta.zona || '—'} / ${meta.brigada || '—'}<br>
+          <span class="online">🟢 En línea</span> · <span class="time">${time}</span>
+        `;
+        el.onclick = () => {
+          const marker = markers[id].marker;
+          map.setView(marker.getLatLng(), 16, { animate: true });
+          marker.openPopup();
+        };
         listDiv.appendChild(el);
       }
     }
 
     function drawLive(id, lat, lng, meta) {
+      const now = new Date();
+      lastUpdate[id] = now;
       if (!markers[id]) {
         const m = L.marker([lat, lng], { icon: carIcon }).addTo(map);
         m.bindPopup(`<b>${meta.display}</b><br>${meta.contrata || ''} / ${meta.zona || ''}`);
@@ -153,17 +186,12 @@
         markers[id].marker.setLatLng([lat, lng]);
       }
 
-      // --- Guardar coordenadas del recorrido ---
       if (!coords[id]) coords[id] = [];
       coords[id].push([lat, lng]);
       if (coords[id].length > 1000) coords[id].shift();
 
-      // --- Dibuja línea azul oscuro ---
-      if (trails[id]) {
-        trails[id].setLatLngs(coords[id]);
-      } else {
-        trails[id] = L.polyline(coords[id], { color: '#002D62', weight: 3 }).addTo(map);
-      }
+      if (trails[id]) trails[id].setLatLngs(coords[id]);
+      else trails[id] = L.polyline(coords[id], { color: '#002D62', weight: 3, opacity: 0.8 }).addTo(map);
 
       renderList();
     }
@@ -195,8 +223,10 @@
     }
     connectWS();
 
-    // Botón para cargar histórico (últimas 3h)
-    document.getElementById('refresh').onclick = async () => {
+    // Botón actualizar (recorrido histórico)
+    document.getElementById('refresh').onclick = async (btn => {
+      btn.target.style.background = '#004c2c';
+      setTimeout(() => btn.target.style.background = '#00b050', 500);
       try {
         const res = await fetch('/api/recorridos');
         const j = await res.json();
@@ -207,8 +237,7 @@
       } catch {
         alert("Error al cargar recorridos");
       }
-    };
+    });
   </script>
 </body>
 </html>
-
