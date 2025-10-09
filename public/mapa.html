@@ -14,86 +14,51 @@
 
   /* Barra superior */
   .topbar{
-    position: absolute; inset:10px 10px auto 10px; z-index: 1000;
-    display:flex; align-items:center; gap:12px; padding:10px 12px;
-    background: rgba(13, 30, 44, .92); color:#eaf6ff; border:1px solid #1d3a4f;
-    border-radius:12px; backdrop-filter: blur(6px); box-shadow: 0 6px 14px rgba(0,0,0,.25);
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(10,24,38,.92); color: #cde8ff;
+    padding: 10px 14px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.45);
+    display:flex; gap:10px; align-items:center; z-index:1000; backdrop-filter: blur(6px);
   }
-  .brand{
-    display:flex; align-items:center; gap:10px; padding-right:8px; border-right:1px solid #254a63;
-  }
-  .brand img{ height:26px; }
-  .brand .fallback{ font-weight:700; letter-spacing:.2px; }
-  .bar-group{ display:flex; align-items:center; gap:8px; }
-  .bar-group label{ font-size:13px; opacity:.8; }
-  .bar-group select{
-    background:#0b1f2e; color:#d8f0ff; border:1px solid #24465d;
-    border-radius:8px; padding:6px 8px; outline:none;
-  }
-  .btn{
-    background:#1db57a; color:#072018; border:none; padding:7px 12px;
-    border-radius:10px; font-weight:700; cursor:pointer; box-shadow: 0 2px 0 #118a59 inset;
-  }
-  .btn:active{ transform: translateY(1px); }
+  .topbar label{ font-size: 13px; color: #92b8d9; margin-right:6px; }
+  .topbar select{ background:#06121c; color:#e8f6ff; border:1px solid #1d3a53; border-radius:10px; padding:6px 8px; }
+  .btn { background:#033b5a; color:#cfeaff; border:none; border-radius:10px; padding:8px 12px; cursor:pointer; }
+  .btn:hover { background:#07547d; }
 
   /* Panel lateral */
   .panel{
-    position:absolute; right:12px; top:64px; z-index:1000; width:300px;
-    background:rgba(13,30,44,.92); color:#eaf6ff; border:1px solid #1d3a4f;
-    border-radius:12px; padding:12px; box-shadow:0 6px 14px rgba(0,0,0,.25);
-    max-height:78%; overflow:auto;
+    position: absolute; right: 10px; top: 70px;
+    width: 300px; height: calc(100% - 80px);
+    background: rgba(8,20,32,.92); color: #dcefff;
+    border-radius: 12px; padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.45);
+    overflow-y: auto; z-index:1000; backdrop-filter: blur(6px);
   }
-  .panel h3{ margin:0 0 10px; font-size:16px; display:flex; align-items:center; gap:8px; }
-  .dot{ width:9px; height:9px; border-radius:50%; background:#25d366; display:inline-block; }
-  .user{
-    display:flex; align-items: flex-start; gap:10px; padding:8px; border-radius:10px;
-    border:1px solid #21465f; margin:8px 0; cursor:pointer; background:#0b1f2e;
-  }
-  .user:hover{ background:#0d2536; }
-  .user b{ display:block; margin-bottom:2px; }
-  .user small{ opacity:.8; }
+  .panel h3{ margin: 8px 0 10px; font-weight:600; font-size:16px; color:#e9f5ff; }
+  .user{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:10px; background:#0c2033; margin-bottom:6px; }
+  .user:hover{ background:#10314e; }
+  .dot{ display:inline-block; width:10px; height:10px; background:#06d6a0; border-radius:50%; margin-right:6px; }
 
-  /* Popups */
-  .leaflet-popup-content b{ font-weight:700; }
-
-  /* Icono de carrito (divIcon) */
-  .car-icon { background: transparent; border: none; }
-  .car-icon img{
-    width:40px; height:40px;
-    transform-origin: 50% 50%;
-    filter: drop-shadow(0 2px 2px rgba(0,0,0,.45));
-    transition: transform .15s linear; /* rotación suave */
-    pointer-events: none;
-    user-select: none;
-  }
+  .legend{ position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.35); color:#e9f5ff; padding:6px 8px; border-radius:8px; font-size:12px; }
 </style>
 </head>
 <body>
   <div id="map"></div>
 
   <div class="topbar">
-    <div class="brand">
-      <img src="/static/logo_cicsa.png" alt="CICSA Logo" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fallback',textContent:'CICSA Monitoreo GPS'}))">
-      <span class="fallback" style="display:none;">CICSA Monitoreo GPS</span>
-    </div>
-
-    <div class="bar-group">
-      <label>Zona:</label>
+    <div>
+      <label>Zona</label>
       <select id="selZona">
         <option value="">Todas</option>
-        <option value="LIMA">LIMA</option>
         <option value="NORTE">NORTE</option>
-        <option value="SUR">SUR</option>
         <option value="CENTRO">CENTRO</option>
+        <option value="SUR">SUR</option>
       </select>
     </div>
-    <div class="bar-group">
-      <label>Contrata:</label>
+
+    <div>
+      <label>Contrata</label>
       <select id="selContrata">
         <option value="">Todas</option>
         <option value="CICSA">CICSA</option>
-        <option value="SAFESA">SAFESA</option>
-        <option value="COMATEL">COMATEL</option>
         <option value="DOLAN">DOLAN</option>
         <option value="ECYTEL">ECYTEL</option>
       </select>
@@ -124,68 +89,55 @@ const listaEl = document.getElementById('lista');
 const selZona = document.getElementById('selZona');
 const selContrata = document.getElementById('selContrata');
 
-/* ======= ICONO CARRITO (divIcon para rotación) ======= */
-function carDivIcon(){
-  return L.divIcon({
-    className: 'car-icon',
-    html: `<img src="${CAR_ICON_URL}" alt="car">`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20] // centro
-  });
-}
-
 /* ======= UTILS ======= */
-function fmtHora(ts){
-  if(!ts) return '-';
-  const d = typeof ts==='number' ? new Date(ts) : new Date(ts);
-  const diff = Math.floor((Date.now()-d.getTime())/1000);
-  if (diff < 60) return `hace ${diff}s`;
-  const m = Math.floor(diff/60);
-  if (m < 60) return `hace ${m}m`;
-  const h = Math.floor(m/60);
-  return `hace ${h}h`;
+function carDivIcon(){
+  return L.icon({ iconUrl: CAR_ICON_URL, iconSize:[36,36], iconAnchor:[18,18] });
 }
-function popupHtml(meta, ts){
-  return `
-    <b>${meta.display || '—'}</b><br>
-    ${meta.cargo || ''} | ${meta.brigada || ''}<br>
-    ${meta.zona || ''} | ${meta.contrata || ''}<br>
-    <small>Último: ${fmtHora(ts)}</small>
-  `;
+function kmh(prev, next, dtMs){
+  if (!prev || !next || dtMs<=0) return 0;
+  const R=6371e3;
+  const toRad = d=>d*Math.PI/180;
+  const [lat1,lon1]=prev, [lat2,lon2]=next;
+  const dphi=toRad(lat2-lat1), dl=toRad(lon2-lon1);
+  const a=Math.sin(dphi/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dl/2)**2;
+  const d=2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return (d/dtMs)*3.6e3;
 }
-/* Rumbo (grados desde el norte, horario) */
-function bearing(from, to){
-  const toRad = x => x*Math.PI/180, toDeg = x => x*180/Math.PI;
-  const φ1 = toRad(from[0]), φ2 = toRad(to[0]);
-  const Δλ = toRad(to[1]-from[1]);
-  const y = Math.sin(Δλ)*Math.cos(φ2);
-  const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*cos(φ2)*Math.cos(Δλ);
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+function bearing(a,b){
+  const toRad=d=>d*Math.PI/180,toDeg=r=>r*180/Math.PI;
+  const [lat1,lon1]=a.map(toRad), [lat2,lon2]=b.map(toRad);
+  const y=Math.sin(lon2-lon1)*Math.cos(lat2);
+  const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(lon2-lon1);
+  return (toDeg(Math.atan2(y,x))+360)%360;
 }
-function cos(x){ return Math.cos(x); }
-
-/* Animación simple de desplazamiento (sin plugins) */
-function animateMarker(marker, from, to, duration=700, onEnd){
-  const start = performance.now();
+function rotateMarker(marker, deg){ marker._icon && (marker._icon.style.transform = `rotate(${deg}deg)`) }
+function animateMarker(marker, from, to, dur=700, done){
+  const t0=performance.now();
   function step(t){
-    const p = Math.min((t - start) / duration, 1);
-    const lat = from[0] + (to[0]-from[0]) * p;
-    const lng = from[1] + (to[1]-from[1]) * p;
+    const k=Math.min(1,(t-t0)/dur);
+    const lat=from[0]+(to[0]-from[0])*k;
+    const lng=from[1]+(to[1]-from[1])*k;
     marker.setLatLng([lat,lng]);
-    if (p < 1) requestAnimationFrame(step);
-    else onEnd && onEnd();
+    if (k<1) requestAnimationFrame(step);
+    else done && done();
   }
   requestAnimationFrame(step);
 }
-/* Aplica rotación al <img> del icono */
-function rotateMarker(marker, angleDeg){
-  const el = marker.getElement();
-  if (!el) return;
-  const img = el.querySelector('img');
-  if (img) img.style.transform = `rotate(${angleDeg}deg)`;
+function fmtHora(ts){
+  const d=new Date(ts);
+  return d.toLocaleString("es-PE",{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function popupHtml(meta, ts){
+  return `
+    <div style="min-width:180px">
+      <b>${meta.display || '—'}</b><br>
+      ${meta.cargo || ''} • ${meta.brigada || ''}<br>
+      <small>${meta.zona || ''} | ${meta.contrata || ''}</small><br>
+      <small>Último: ${fmtHora(ts)}</small>
+    </div>`;
 }
 
-/* ======= CORE ======= */
+/* ======= CAPAS ======= */
 function ensureLayer(u){
   const id = u.id;
   const meta = u.meta || {};
@@ -201,12 +153,13 @@ function ensureLayer(u){
 
     rotateMarker(marker, 0); // inicial
 
-    state.set(id, { marker, line, meta, lastLatLng:pos, lastTs: u.ts || Date.now() });
+    state.set(id, { marker, line, meta, lastLatLng:pos, lastTs: u.ts || Date.now(), visible:true });
+    setVisible(state.get(id), matchesFilters(meta));
   } else {
     const s = state.get(id);
     const prev = s.lastLatLng || pos;
 
-    const ang = bearing(prev, pos);     // rumbo y rotación
+    const ang = bearing(prev, pos);
     rotateMarker(s.marker, ang);
 
     animateMarker(s.marker, prev, pos, 700, () => {
@@ -217,8 +170,41 @@ function ensureLayer(u){
     s.meta = meta;
     s.lastLatLng = pos;
     s.lastTs = u.ts || Date.now();
+    setVisible(s, matchesFilters(s.meta));
   }
 }
+
+// === NUEVO: filtros que también ocultan/mostrar capas ===
+function matchesFilters(meta){
+  const fZona = selZona.value.trim();
+  const fCon  = selContrata.value.trim();
+  if (fZona && (meta.zona || '') !== fZona) return false;
+  if (fCon  && (meta.contrata || '') !== fCon) return false;
+  return true;
+}
+
+function setVisible(entry, visible){
+  const { marker, line } = entry;
+  if (visible){
+    if (!map.hasLayer(marker)) marker.addTo(map);
+    if (!map.hasLayer(line))   line.addTo(map);
+  } else {
+    if (map.hasLayer(marker)) marker.remove();
+    if (map.hasLayer(line))   line.remove();
+  }
+  entry.visible = visible;
+}
+
+function applyFilters(){
+  state.forEach((entry)=>{
+    setVisible(entry, matchesFilters(entry.meta || {}));
+  });
+  renderList();
+}
+
+// Aplica filtros al cambiar selectores
+selZona.onchange = applyFilters;
+selContrata.onchange = applyFilters;
 
 function renderList(){
   const fZona = selZona.value.trim();
@@ -246,33 +232,34 @@ function renderList(){
         <small>Último: ${fmtHora(it.lastTs)}</small>
       </div>
     `;
-    div.onclick = ()=>{ if(it.lastLatLng) map.setView(it.lastLatLng, 16); };
     listaEl.appendChild(div);
   }
 }
 
+/* ======= CONTROLES ======= */
+document.getElementById('btnCenter').onclick = centerAll;
 function centerAll(){
-  const bounds = [];
-  state.forEach(s => { if(s.lastLatLng) bounds.push(s.lastLatLng); });
-  if (bounds.length){
-    map.fitBounds(L.latLngBounds(bounds).pad(0.2));
-  }
+  const pts = [];
+  state.forEach(s=>{
+    if (s.lastLatLng) pts.push(s.lastLatLng);
+  });
+  if (!pts.length) return;
+  const b = L.latLngBounds(pts);
+  map.fitBounds(b.pad(0.2));
 }
 
-document.getElementById('btnCenter').onclick = centerAll;
-selZona.onchange = renderList;
-selContrata.onchange = renderList;
-
-/* Carga inicial por REST – mantiene /api/conectados */
+/* ======= CARGA INICIAL ======= */
 async function loadInicial(){
   try{
-    const r = await fetch(`${API}/api/conectados`);
-    const js = await r.json();
-    if (js && js.ok){
-      (js.data || []).forEach(u => {
-        ensureLayer({ id: u.id, lat: u.lat, lng: u.lng, meta: u.meta, ts: Date.now() });
-      });
-      renderList();
+    const res = await fetch(`${API}/api/conectados`);
+    const j = await res.json();
+    if (j.ok){
+      for (const u of j.data){
+        ensureLayer({ id: u.id, lat:u.lat, lng:u.lng, meta:{
+          display:u.display, brigada:u.meta?.brigada, zona:u.meta?.zona, contrata:u.meta?.contrata, cargo:u.meta?.cargo
+        }, ts: u.ts || Date.now() });
+      }
+      applyFilters();
       centerAll();
     }
   }catch(e){ console.error('Error conectados:', e); }
@@ -289,11 +276,20 @@ ws.onmessage = ev => {
       Object.entries(snap).forEach(([id, d])=>{
         ensureLayer({ id, lat:d.lat, lng:d.lng, meta:d.meta, ts: Date.now() });
       });
-      renderList();
+      applyFilters();
+    } else if (msg.type === 'remove'){
+      const { id } = msg.data || {};
+      const s = state.get(id);
+      if (s){
+        if (s.marker) s.marker.remove();
+        if (s.line)   s.line.remove();
+        state.delete(id);
+        renderList();
+      }
     } else if (msg.type === 'point'){
       const d = msg.data || {};
       ensureLayer({ id:d.id, lat:d.lat, lng:d.lng, meta:d.meta, ts: d.ts || Date.now() });
-      renderList();
+      applyFilters();
     }
   }catch(e){ console.error('WS parse error', e); }
 };

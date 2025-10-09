@@ -14,43 +14,53 @@
   .card{background:rgba(10,30,50,.92);border-radius:14px;padding:25px;width:350px;text-align:center;
         box-shadow:0 0 20px rgba(0,255,200,.4);transition:.3s;}
   .card.glow{box-shadow:0 0 25px rgba(0,255,200,.8)}
-  .logo{height:60px;margin-bottom:10px}
-  input{width:90%;padding:8px;margin:6px 0;border:none;border-radius:6px;text-align:center}
-  button{background:#00b050;color:#fff;border:none;border-radius:6px;padding:10px 15px;cursor:pointer;
-         margin-top:8px;width:95%;font-weight:600}
-  button:hover{background:#009944}
-  #btnStop{background:#d9534f} #btnStop:hover{background:#c83f3b}
-  #status{margin-top:12px;font-size:14px;color:#00e676}
-  #info{background:rgba(0,0,0,.25);border-radius:8px;margin-top:10px;text-align:left;padding:8px 12px;
-        font-size:13px;display:none}
-  .error{color:#ff6666;font-size:14px}
+  .card h2{margin:10px 0 2px}
+  .card small{color:#a8d6ff}
+  .row{display:flex; gap:8px; margin:8px 0;}
+  input{
+    flex:1; padding:10px 12px; border-radius:10px; border:1px solid #0a2a3f;
+    background:#06121c; color:#dff1ff; outline:none;
+  }
+  button{
+    background:#0aa6a6; border:none; color:#002b36; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:600;
+  }
+  button:disabled{ opacity:.6; }
+  .danger{ background:#da3d5b; color:#fff; }
+  .info{ font-size:13px; color:#bfe9ff; display:none; margin-top:8px }
+  .error{ color:#ffb3c1; height:18px; margin-top:6px; }
 </style>
 </head>
 <body>
   <div class="card" id="panel">
-    <img src="/static/logo_cicsa.png" alt="CICSA" class="logo" />
     <h2>Monitoreo GPS</h2>
-    <p>Ingreso para técnicos / brigadas</p>
+    <small>CICSA • Tiempo real</small>
 
-    <input id="usuario" placeholder="Usuario" />
-    <input id="clave" type="password" placeholder="Clave" />
-
-    <button id="btnStart">Iniciar transmisión GPS</button>
-    <button id="btnStop" disabled>Detener transmisión</button>
-
-    <div id="status"></div>
-    <div id="info"></div>
-    <div id="error" class="error"></div>
+    <div class="row">
+      <input id="txtUser" placeholder="Usuario" />
+    </div>
+    <div class="row">
+      <input id="txtPass" placeholder="Clave" type="password" />
+    </div>
+    <div class="row">
+      <button id="btnStart">Iniciar transmisión</button>
+      <button id="btnStop" class="danger" disabled>Detener</button>
+    </div>
+    <div class="info" id="info">Enviando posición cada ~5 segundos…</div>
+    <div class="error" id="error"></div>
+    <div id="status" style="margin-top:8px;font-size:13px;color:#bde5ff"></div>
   </div>
 
 <script>
-const API = "https://monitoreo-gps-cicsa.onrender.com"; // Render
-const btnStart = document.getElementById("btnStart");
-const btnStop  = document.getElementById("btnStop");
-const statusEl = document.getElementById("status");
-const infoEl   = document.getElementById("info");
-const errorEl  = document.getElementById("error");
-const panel    = document.getElementById("panel");
+const API = location.origin;
+
+const panel = document.getElementById('panel');
+const btnStart = document.getElementById('btnStart');
+const btnStop  = document.getElementById('btnStop');
+const txtUser  = document.getElementById('txtUser');
+const txtPass  = document.getElementById('txtPass');
+const infoEl   = document.getElementById('info');
+const errorEl  = document.getElementById('error');
+const statusEl = document.getElementById('status');
 
 let user = null;
 let watchId = null;
@@ -83,69 +93,59 @@ function iniciarGPS(usr){
   infoEl.style.display = "block";
   errorEl.textContent = "";
 
-  if(!navigator.geolocation){
-    statusEl.textContent = "⚠️ Geolocalización no soportada.";
+  if (!navigator.geolocation){
+    errorEl.textContent = "Geolocalización no soportada en este navegador.";
     return;
   }
 
-  // Limpia un watcher previo si lo hubiera
-  if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-  }
-
-  watchId = navigator.geolocation.watchPosition(async pos=>{
-    const {latitude, longitude, accuracy, speed} = pos.coords;
-    const ahora = Date.now();
-    if (ahora - lastSend < 5000) return; // 5s debounce
-    lastSend = ahora;
+  const opts = { enableHighAccuracy:true, maximumAge:0, timeout:10000 };
+  watchId = navigator.geolocation.watchPosition(async (pos)=>{
+    const crd = pos.coords;
+    const now = Date.now();
+    if (now - lastSend < 4500) return; // throttling
+    lastSend = now;
 
     const payload = {
       usuario_id: user.id,
-      tecnico: user.nombre,
+      tecnico: user.tecnico,
       brigada: user.brigada,
       contrata: user.contrata,
       zona: user.zona,
       cargo: user.cargo,
-      lat: latitude,
-      lng: longitude
+      lat: crd.latitude,
+      lng: crd.longitude
     };
-
-    infoEl.innerHTML = `
-      <b>Coordenadas:</b> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br>
-      <b>Precisión:</b> ${accuracy?.toFixed?.(1) ?? "-"} m<br>
-      <b>Velocidad:</b> ${(speed || 0).toFixed(1)} km/h<br>
-      <b>Hora local:</b> ${new Date().toLocaleTimeString()}
-    `;
-    try { await enviarPosicion(payload); } catch(e){}
-  }, err=>{
-    statusEl.textContent = "⚠️ Error obteniendo posición.";
-    console.error(err);
-  }, { enableHighAccuracy:true, maximumAge:0, timeout:20000 });
+    try{
+      await enviarPosicion(payload);
+    }catch(e){
+      console.error(e);
+      errorEl.textContent = "No se pudo enviar posición.";
+    }
+  }, (err)=>{
+    errorEl.textContent = "No se puede obtener tu ubicación (" + err.message + ")";
+  }, opts);
 }
 
 function detenerGPSUI(){
   panel.classList.remove("glow");
   btnStart.disabled = false;
   btnStop.disabled  = true;
-  btnStart.textContent = "Iniciar transmisión GPS";
-  statusEl.textContent = "🔴 Transmisión detenida.";
+  btnStart.textContent = "Iniciar transmisión";
+  statusEl.textContent = "⏹️ Transmisión detenida.";
+  infoEl.style.display = "none";
 }
 
 btnStart.onclick = async ()=>{
-  const u = document.getElementById("usuario").value.trim();
-  const p = document.getElementById("clave").value.trim();
-  if(!u || !p){ errorEl.textContent = "Ingrese usuario y clave"; return; }
-  errorEl.textContent = "";
   try{
-    const usr = await login(u,p);
-    iniciarGPS(usr);
-  }catch(e){ errorEl.textContent = e.message; }
+    const u = await login(txtUser.value.trim(), txtPass.value.trim());
+    iniciarGPS(u);
+  }catch(e){
+    errorEl.textContent = e.message;
+  }
 };
 
 btnStop.onclick = async ()=>{
-  // corta el watcher local
-  if (watchId !== null) {
+  if (watchId != null){
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
