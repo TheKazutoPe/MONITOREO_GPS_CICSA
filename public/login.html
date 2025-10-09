@@ -60,6 +60,13 @@ const statusEl= document.getElementById('status');
 let user = null;
 let watchId = null;
 let lastSend = 0;
+let lastWeakSend = 0; // envíos con precisión intermedia
+
+// UMBRALES DE PRECISIÓN (en metros)
+const ACC_TARGET = 50;   // ideal
+const ACC_MAX    = 150;  // por encima de esto NO se envía
+const MIN_INTERVAL_MS       = 4500;  // intervalo normal (precisión buena)
+const MIN_INTERVAL_WEAK_MS  = 20000; // intervalo cuando precisión es 50..150
 
 async function login(usuario, clave){
   const res = await fetch(`${API}/api/login`,{
@@ -78,6 +85,15 @@ async function enviarPosicion(data){
   });
 }
 
+// Dispara un getCurrentPosition para “forzar” un fix GPS más preciso
+function warmupGPS(){
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    ()=>{}, ()=>{},
+    { enableHighAccuracy:true, maximumAge:0, timeout:20000 }
+  );
+}
+
 function iniciarGPS(usr){
   user = usr;
   panel.classList.add("glow");
@@ -93,20 +109,40 @@ function iniciarGPS(usr){
     return;
   }
 
-  const opts = { enableHighAccuracy:true, maximumAge:0, timeout:15000 };
+  // Warm-up: intenta fijar GPS antes del watch
+  warmupGPS();
+
+  const opts = { enableHighAccuracy:true, maximumAge:0, timeout:30000 };
   watchId = navigator.geolocation.watchPosition(async (pos)=>{
     const crd = pos.coords;
     const now = Date.now();
-    if (now - lastSend < 4500) return; // throttling
-
-    // === MEJORA DE PRECISIÓN: descartar lecturas con accuracy > 50m ===
     const acc = Number(crd.accuracy);
-    if (isFinite(acc) && acc > 50) {
-      // no enviamos posiciones de baja calidad
+
+    // Mostrar en UI siempre
+    infoEl.innerHTML = `
+      <b>Coordenadas:</b> ${crd.latitude.toFixed(5)}, ${crd.longitude.toFixed(5)}<br>
+      <b>Precisión:</b> ${isFinite(acc) ? acc.toFixed(1) : '—'} m<br>
+      <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}
+    `;
+
+    // 1) Si la precisión es muy mala, NO enviar y pedir un fix mejor en paralelo.
+    if (isFinite(acc) && acc > ACC_MAX) {
+      statusEl.textContent = "📡 Mejorando precisión (evitando envíos > 150 m)…";
+      warmupGPS(); // pide un fix más preciso sin bloquear
       return;
     }
 
-    lastSend = now;
+    // 2) Precisión intermedia (50..150 m): enviar solo cada 20s
+    if (isFinite(acc) && acc > ACC_TARGET && acc <= ACC_MAX) {
+      statusEl.textContent = "📡 Precisión intermedia, enviando menos frecuente…";
+      if (now - lastWeakSend < MIN_INTERVAL_WEAK_MS) return;
+      lastWeakSend = now;
+      // cae a enviar abajo (sin interferir con el intervalo normal)
+    } else {
+      // Precisión buena: respeta intervalo normal
+      if (now - lastSend < MIN_INTERVAL_MS) return;
+      lastSend = now;
+    }
 
     const payload = {
       usuario_id: user.id,
@@ -118,13 +154,9 @@ function iniciarGPS(usr){
       lat: crd.latitude,
       lng: crd.longitude
     };
-    infoEl.innerHTML = `
-      <b>Coordenadas:</b> ${crd.latitude.toFixed(5)}, ${crd.longitude.toFixed(5)}<br>
-      <b>Precisión:</b> ${isFinite(acc) ? acc.toFixed(1) : '—'} m (≤ 50 m)<br>
-      <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}
-    `;
     try{
       await enviarPosicion(payload);
+      statusEl.textContent = "🟢 Enviado";
     }catch(e){
       console.error(e);
       errorEl.textContent = "No se pudo enviar posición.";
@@ -173,3 +205,4 @@ btnStop.onclick = async ()=>{
 </script>
 </body>
 </html>
+
