@@ -199,48 +199,62 @@ function moveSmooth(marker, target, ms=350){
 
 /* ====== NUEVA POSICIÓN ====== */
 function nuevaPosicion(p){
-  // p: {usuario_id, lat, lng, tecnico/nombre, cargo, zona, contrata, brigada, timestamp}
-  const uid = p.usuario_id ?? p.uid ?? p.id;
-  if (!uid) return;
+  // Normalizar coordenadas y campos
+  const lat = p.lat ?? p.latitude ?? p.latitud;
+  const lng = p.lng ?? p.longitude ?? p.longitud;
+  const uid = p.usuario_id ?? p.uid ?? p.id ?? p.usuario; // por si viene 'usuario'
+
+  if (uid == null || lat == null || lng == null) {
+    // Opcional: para depurar si alguna vez no llegan coords
+    // console.warn('Mensaje sin coords/uid:', p);
+    return;
+  }
+
+  const latlng = L.latLng(lat, lng);
 
   let e = ents.get(uid);
-  const latlng = L.latLng(p.lat, p.lng);
-
   if (!e){
-    const poly = L.polyline([latlng], {color:ROUTE_COLOR, weight:4, opacity:0.85, className:'route'});
-    const m = L.marker(latlng, {icon:CarIcon, rotationAngle:0}); // rotación visual con transform
-    m.bindPopup(`<b>${(p.nombre||p.tecnico||'').toUpperCase()}</b><br>${(p.cargo||'').toUpperCase()} • ${(p.contrata||'').toUpperCase()}<br>${(p.zona||'').toUpperCase()} | ${(p.brigada||'').toUpperCase()}`);
+    const poly = L.polyline([latlng], {
+      color: ROUTE_COLOR, weight: 4, opacity: 0.85, className: 'route'
+    });
+    const m = L.marker(latlng, { icon: CarIcon });
+    m.bindPopup(
+      `<b>${(p.nombre || p.tecnico || '').toUpperCase()}</b><br>` +
+      `${(p.cargo || '').toUpperCase()} • ${(p.contrata || '').toUpperCase()}<br>` +
+      `${(p.zona || '').toUpperCase()} | ${(p.brigada || '').toUpperCase()}`
+    );
 
-    e = { marker:m, poly, lastTs:Date.now(), meta:{
-      nombre:p.nombre, tecnico:p.tecnico, cargo:p.cargo, zona:p.zona, contrata:p.contrata, brigada:p.brigada
-    }, lastLatLng:latlng };
-
+    e = {
+      marker: m,
+      poly,
+      lastTs: Date.now(),
+      meta: {
+        nombre: p.nombre, tecnico: p.tecnico, cargo: p.cargo,
+        zona: p.zona, contrata: p.contrata, brigada: p.brigada
+      },
+      lastLatLng: latlng
+    };
     ensureOptionBrigada(p.brigada);
     ents.set(uid, e);
 
-    if (cumpleFiltros(e.meta)){
-      poly.addTo(map); m.addTo(map);
-    }
-  }else{
-    // rotación según rumbo
+    if (cumpleFiltros(e.meta)){ poly.addTo(map); m.addTo(map); }
+  } else {
+    // Rotación según rumbo + animación suave
     const dir = bearing(e.lastLatLng, latlng);
     const el = e.marker.getElement();
-    if (el){
-      el.style.transform = `rotate(${dir}deg)`;
-    }
-    // animación suave y agrega punto a la ruta
+    if (el){ el.style.transform = `rotate(${dir}deg)`; }
+
     moveSmooth(e.marker, latlng, 350);
     e.poly.addLatLng(latlng);
     e.lastLatLng = latlng;
     e.lastTs = Date.now();
 
-    // si estaba filtrado, asegúrate de que su capa esté visible/oculta según corresponda
     if (cumpleFiltros(e.meta)){
       if (!map.hasLayer(e.marker)) e.marker.addTo(map);
       if (!map.hasLayer(e.poly))   e.poly.addTo(map);
-    }else{
-      try{e.marker.remove();}catch(_){}
-      try{e.poly.remove();}catch(_){}
+    } else {
+      try{ e.marker.remove(); }catch(_){}
+      try{ e.poly.remove(); }catch(_){}
     }
   }
   renderCards();
