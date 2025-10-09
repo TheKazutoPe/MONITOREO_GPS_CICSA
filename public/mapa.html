@@ -1,124 +1,79 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monitoreo GPS - Brigadas en Tiempo Real</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoreo de Brigadas</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body {
-      margin: 0;
+      background: #f5f6f8;
       font-family: "Segoe UI", sans-serif;
-      background: #0e1621;
-      color: #fff;
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
     }
-    #map { flex: 1; }
-    #side {
-      width: 300px;
-      background: #111c2e;
-      padding: 10px;
-      overflow-y: auto;
-      border-left: 2px solid #1f2a3d;
+    .login-box {
+      max-width: 400px;
+      margin: 80px auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      padding: 25px;
     }
-    h3 { color: #00bcd4; text-align: center; }
-    .brigada-card {
-      background: #14263f;
-      border-left: 4px solid #00bcd4;
-      border-radius: 8px;
-      margin-bottom: 6px;
-      padding: 6px;
-      transition: 0.2s;
-      cursor: pointer;
+    .btn-success {
+      background: #2e7d32;
+      border: none;
     }
-    .brigada-card:hover { background: #1d3557; transform: scale(1.02); }
-    .ok { background:#4caf50; }
-    .bad { background:#f44336; }
-    #wsdot { width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px; }
   </style>
 </head>
 <body>
-  <div id="map"></div>
-  <aside id="side">
-    <h3>Brigadas conectadas</h3>
-    <div><span id="wsdot" class="bad"></span><small id="wslabel">WS: desconectado</small></div>
-    <div id="onlineList"><p style="color:#8a96a8">Sin brigadas conectadas.</p></div>
-  </aside>
+  <div class="login-box">
+    <h4 class="text-center mb-3 fw-bold">Monitoreo de Brigadas</h4>
+    <p class="text-center text-muted">Inicia sesión con tu usuario y clave registrados.</p>
+    <div class="mb-3">
+      <label class="form-label">Usuario</label>
+      <input type="text" id="usuario" class="form-control" placeholder="Ej: jlopez">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Clave</label>
+      <input type="password" id="clave" class="form-control" placeholder="********">
+    </div>
+    <button id="loginBtn" class="btn btn-success w-100">Ingresar</button>
+    <div id="msg" class="text-center mt-3 text-danger"></div>
+  </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-  const map = L.map('map').setView([-12.0464, -77.0428], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+  document.getElementById("loginBtn").addEventListener("click", async () => {
+    const usuario = document.getElementById("usuario").value.trim();
+    const clave = document.getElementById("clave").value.trim();
+    const msg = document.getElementById("msg");
+    msg.textContent = "";
 
-  const carIcon = L.icon({ iconUrl:'https://cdn-icons-png.flaticon.com/512/3097/3097144.png', iconSize:[34,34], iconAnchor:[17,17] });
-  const startIcon = L.icon({ iconUrl:'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize:[24,24], iconAnchor:[12,12] });
+    if (!usuario || !clave) return msg.textContent = "Completa usuario y clave.";
 
-  const markers=new Map(), trails=new Map(), starts=new Map(), lastSeen=new Map(), colors=new Map();
-  const palette=["#007bff","#ff5722","#28a745","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
-  const colorFor=id=>colors.get(id)||colors.set(id,palette[colors.size%palette.length]).get(id);
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usuario, clave })
+      });
 
-  function moveSmoothly(marker,toLat,toLng){
-    const from=marker.getLatLng(), steps=10;
-    let i=0; const dLat=(toLat-from.lat)/steps,dLng=(toLng-from.lng)/steps;
-    const anim=setInterval(()=>{
-      marker.setLatLng([from.lat+dLat*i, from.lng+dLng*i]);
-      if(++i>steps) clearInterval(anim);
-    },100);
-  }
+      if (!res.ok) {
+        msg.textContent = "Error de conexión con el servidor.";
+        return;
+      }
 
-  function addOrUpdate(id,lat,lng,meta,ts){
-    const popup=`<b>${meta.display||id}</b><br>${meta.brigada||''} / ${meta.zona||''} / ${meta.contrata||''}<br>${new Date(ts).toLocaleTimeString()}`;
-    let mk=markers.get(id);
-    if(!mk){ mk=L.marker([lat,lng],{icon:carIcon}).addTo(map).bindPopup(popup); markers.set(id,mk); }
-    else { moveSmoothly(mk,lat,lng); mk.setPopupContent(popup); }
-
-    let pl=trails.get(id);
-    if(!pl){
-      pl=L.polyline([[lat,lng]],{color:colorFor(id),weight:4,opacity:.8}).addTo(map);
-      trails.set(id,pl);
-      const st=L.marker([lat,lng],{icon:startIcon}).addTo(map);
-      starts.set(id,st);
-    } else {
-      const arr=pl.getLatLngs(); arr.push([lat,lng]);
-      if(arr.length>2000) arr.splice(0,arr.length-2000);
-      pl.setLatLngs(arr);
+      const data = await res.json();
+      if (data.ok) {
+        localStorage.setItem("usuario", JSON.stringify(data.usuario));
+        window.location.href = "mapa.html";
+      } else {
+        msg.textContent = "Usuario o clave incorrectos.";
+      }
+    } catch (e) {
+      msg.textContent = "Error interno. Intenta de nuevo.";
+      console.error(e);
     }
-
-    lastSeen.set(id,{lat,lng,ts,meta});
-    renderSidebar();
-  }
-
-  function renderSidebar(){
-    const list=document.getElementById('onlineList');
-    list.innerHTML='';
-    const now=Date.now();
-    if(!lastSeen.size){ list.innerHTML='<p style="color:#8a96a8">Sin brigadas conectadas.</p>'; return; }
-    [...lastSeen.entries()].sort((a,b)=>b[1].ts-a[1].ts).forEach(([id,o])=>{
-      const color=colorFor(id), online=(now-o.ts)<60000;
-      const div=document.createElement('div');
-      div.className='brigada-card';
-      div.style.borderLeftColor=color;
-      div.innerHTML=`<b style="color:${color}">${o.meta.display}</b><br>
-      <small>${o.meta.brigada||''} / ${o.meta.zona||''} / ${o.meta.contrata||''}</small><br>
-      <span style="color:${online?'#0f0':'#888'}">${online?'🟢 En línea':'⚫ Inactivo'}</span>`;
-      div.onclick=()=>{ const mk=markers.get(id); if(mk){ map.setView(mk.getLatLng(),16,{animate:true}); mk.openPopup(); } };
-      list.appendChild(div);
-    });
-  }
-
-  // --- WEBSOCKET ---
-  const wsUrl=(location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws';
-  const ws=new WebSocket(wsUrl);
-  const dot=document.getElementById('wsdot'),label=document.getElementById('wslabel');
-  ws.onopen=()=>{dot.className='ok';label.textContent='WS: conectado';};
-  ws.onclose=()=>{dot.className='bad';label.textContent='WS: desconectado';setTimeout(()=>location.reload(),3000);};
-  ws.onmessage=e=>{
-    let msg;try{msg=JSON.parse(e.data);}catch{return;}
-    if(msg.type==='snapshot') Object.entries(msg.data).forEach(([id,p])=>addOrUpdate(id,p.lat,p.lng,p.meta,p.ts));
-    if(msg.type==='point'){const d=msg.data;addOrUpdate(d.id,d.lat,d.lng,d.meta,d.ts);}
-  };
+  });
   </script>
 </body>
 </html>
+
