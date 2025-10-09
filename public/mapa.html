@@ -7,25 +7,21 @@
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- NUEVO: JSZip para generar KMZ en cliente -->
+<!-- JSZip para generar KMZ -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
 <style>
   html, body { height: 100%; margin: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial; background:#0e1b26; }
   #map { height: 100%; width: 100%; }
 
-  /* Barra superior */
   .topbar{
     position: absolute; inset:10px 10px auto 10px; z-index: 1000;
     display:flex; align-items:center; gap:12px; padding:10px 12px;
     background: rgba(13, 30, 44, .92); color:#eaf6ff; border:1px solid #1d3a4f;
     border-radius:12px; backdrop-filter: blur(6px); box-shadow: 0 6px 14px rgba(0,0,0,.25);
   }
-  .brand{
-    display:flex; align-items:center; gap:10px; padding-right:8px; border-right:1px solid #254a63;
-  }
+  .brand{ display:flex; align-items:center; gap:10px; padding-right:8px; border-right:1px solid #254a63; }
   .brand img{ height:26px; }
-  .brand .fallback{ font-weight:700; letter-spacing:.2px; }
   .bar-group{ display:flex; align-items:center; gap:8px; }
   .bar-group label{ font-size:13px; opacity:.8; }
   .bar-group select{
@@ -36,9 +32,6 @@
     background:#1db57a; color:#072018; border:none; padding:7px 12px;
     border-radius:10px; font-weight:700; cursor:pointer; box-shadow: 0 2px 0 #118a59 inset;
   }
-  .btn:active{ transform: translateY(1px); }
-
-  /* Panel lateral */
   .panel{
     position:absolute; right:12px; top:64px; z-index:1000; width:300px;
     background:rgba(13,30,44,.92); color:#eaf6ff; border:1px solid #1d3a4f;
@@ -54,12 +47,6 @@
   .user:hover{ background:#0d2536; }
   .user b{ display:block; margin-bottom:2px; }
   .user small{ opacity:.8; }
-
-  /* Popups */
-  .leaflet-popup-content b{ font-weight:700; }
-
-  /* === Icono de carrito rotatorio === */
-  .car-icon { background: transparent; border: none; }
   .car-icon img{
     width:40px; height:40px;
     transform-origin: 50% 50%;
@@ -76,8 +63,8 @@
 
   <div class="topbar">
     <div class="brand">
-      <img src="/static/logo_cicsa.png" alt="CICSA Logo" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fallback',textContent:'CICSA Monitoreo GPS'}))">
-      <span class="fallback" style="display:none;">CICSA Monitoreo GPS</span>
+      <img src="/static/logo_cicsa.png" alt="CICSA" />
+      <span style="font-weight:700">Monitoreo GPS</span>
     </div>
 
     <div class="bar-group">
@@ -103,8 +90,7 @@
     </div>
 
     <button id="btnCenter" class="btn">Centrar</button>
-    <!-- NUEVO: Exportar KMZ -->
-    <button id="btnKMZ" class="btn" title="Exportar KMZ del recorrido actual">Exportar KMZ</button>
+    <button id="btnKMZ" class="btn" title="Exportar KMZ del día">Exportar KMZ</button>
   </div>
 
   <div class="panel">
@@ -116,8 +102,6 @@
 /* ======= CONFIG ======= */
 const API = location.origin;
 const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
-
-/* Carro top view (URL pública) */
 const CAR_ICON_URL = 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png';
 
 /* ======= MAPA ======= */
@@ -129,13 +113,12 @@ const listaEl = document.getElementById('lista');
 const selZona = document.getElementById('selZona');
 const selContrata = document.getElementById('selContrata');
 
-/* ======= ICONO CARRITO (divIcon para rotación) ======= */
 function carDivIcon(){
   return L.divIcon({
     className: 'car-icon',
     html: `<img src="${CAR_ICON_URL}" alt="car">`,
     iconSize: [40, 40],
-    iconAnchor: [20, 20] // centro
+    iconAnchor: [20, 20]
   });
 }
 
@@ -180,7 +163,16 @@ function rotateMarker(marker, angleDeg){
   if (img) img.style.transform = `rotate(${angleDeg}deg)`;
 }
 
-/* ======= FILTROS VISUALES (ocultan/mostrar capas) ======= */
+// === NUEVO: minutos transcurridos desde 00:00 (hora Lima) ===
+function minutesSinceLimaMidnight(){
+  const now = new Date();
+  const limaNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Lima" }));
+  const midnight = new Date(limaNow);
+  midnight.setHours(0,0,0,0);
+  return Math.ceil((limaNow - midnight) / 60000);
+}
+
+/* ======= FILTROS VISUALES ======= */
 function matchesFilters(meta){
   const fZona = selZona.value.trim();
   const fCon  = selContrata.value.trim();
@@ -224,7 +216,7 @@ function ensureLayer(u){
 
     const entry = { marker, line, meta, lastLatLng:pos, lastTs: u.ts || Date.now(), visible:true };
     state.set(id, entry);
-    setVisible(entry, matchesFilters(meta)); // aplicar filtro inicial
+    setVisible(entry, matchesFilters(meta));
   } else {
     const s = state.get(id);
     const prev = s.lastLatLng || pos;
@@ -240,7 +232,7 @@ function ensureLayer(u){
     s.meta = meta;
     s.lastLatLng = pos;
     s.lastTs = u.ts || Date.now();
-    setVisible(s, matchesFilters(s.meta)); // re-evaluar visibilidad
+    setVisible(s, matchesFilters(s.meta));
   }
 }
 
@@ -251,10 +243,10 @@ function renderList(){
   listaEl.innerHTML = '';
   const items = [];
   state.forEach((s, id)=>{
-    const { meta, lastTs, lastLatLng, visible } = s;
+    const { meta, lastTs, lastLatLng } = s;
     if (fZona && (meta.zona||'') !== fZona) return;
     if (fCon && (meta.contrata||'') !== fCon) return;
-    items.push({id, meta, lastTs, lastLatLng, visible});
+    items.push({id, meta, lastTs, lastLatLng});
   });
 
   items.sort((a,b)=> (b.lastTs||0)-(a.lastTs||0));
@@ -288,7 +280,9 @@ selContrata.onchange = applyFilters;
 
 function centerAll(){
   const pts = [];
-  state.forEach(s=>{ if(s.lastLatLng && s.visible!==false) pts.push(s.lastLatLng); });
+  state.forEach(s=>{
+    if (s.lastLatLng && s.visible!==false) pts.push(s.lastLatLng);
+  });
   if (!pts.length) return;
   const b = L.latLngBounds(pts);
   map.fitBounds(b.pad(0.2));
@@ -311,7 +305,7 @@ async function loadInicial(){
 
 /* ======= WS tiempo real ======= */
 const ws = new WebSocket(WS_URL);
-ws.onopen = ()=> console.log('WS conectado');
+ws.onopen = ()=> {};
 ws.onmessage = ev => {
   try{
     const msg = JSON.parse(ev.data);
@@ -338,54 +332,86 @@ ws.onmessage = ev => {
   }catch(e){ console.error('WS parse error', e); }
 };
 
-/* refresca el “Último: …” cada 10s */
+// refrescar “Último:” cada 10s
 setInterval(renderList, 10_000);
 
 loadInicial();
 
-/* ======= NUEVO: Exportar KMZ =======
-   - Recorre 'state', toma los puntos de cada polyline y el último punto.
-   - Crea doc.kml y lo empaqueta en KMZ (ZIP) con JSZip. */
-function exportKMZ(){
-  // Construir KML
-  const kmlParts = [];
-  kmlParts.push(`<?xml version="1.0" encoding="UTF-8"?>`);
-  kmlParts.push(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Recorridos CICSA</name>`);
+/* ======= Exportar KMZ: todo el día (hora Lima), respetando filtros actuales ======= */
+async function exportKMZ(){
+  try{
+    const mins = minutesSinceLimaMidnight();
+    const q = new URLSearchParams({ minutes: String(mins) });
+    const fZona = selZona.value.trim();
+    const fCon  = selContrata.value.trim();
+    if (fZona) q.set("zona", fZona);
+    if (fCon)  q.set("contrata", fCon);
 
-  state.forEach((s, id) => {
-    // saltar los ocultos por filtro para export actual visible
-    if (s.visible === false) return;
+    const url = `${API}/api/recorridos?${q.toString()}`;
+    const res = await fetch(url);
+    const js  = await res.json();
+    if (!js.ok) { alert("No se pudo obtener recorridos."); return; }
 
-    const name = s.meta?.brigada || s.meta?.display || id;
-    const coords = (s.line && s.line.getLatLngs ? s.line.getLatLngs() : [])
-      .map(ll => `${ll.lng},${ll.lat},0`).join(" ");
-
-    if (coords) {
-      kmlParts.push(`<Placemark><name>${escapeXml(name)} - Recorrido</name><Style><LineStyle><width>3</width><color>ff913d0b</color></LineStyle></Style><LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString></Placemark>`);
+    const grouped = js.data || {};
+    const ids = Object.keys(grouped);
+    if (!ids.length){
+      alert("No hay datos de recorridos para hoy con los filtros actuales.");
+      return;
     }
 
-    if (s.lastLatLng){
-      kmlParts.push(`<Placemark><name>${escapeXml(name)} - Última Posición</name><Point><coordinates>${s.lastLatLng[1]},${s.lastLatLng[0]},0</coordinates></Point></Placemark>`);
+    const kmlParts = [];
+    kmlParts.push(`<?xml version="1.0" encoding="UTF-8"?>`);
+    kmlParts.push(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Recorridos CICSA - Día</name>`);
+
+    for (const id of ids){
+      const arr = grouped[id] || [];
+      if (!arr.length) continue;
+
+      const meta0 = arr[arr.length-1]?.meta || arr[0]?.meta || {};
+      const name = meta0.brigada || meta0.display || id;
+
+      const coords = arr.map(p => `${p.lng},${p.lat},0`).join(" ");
+
+      if (coords){
+        kmlParts.push(
+          `<Placemark><name>${escapeXml(name)} - Recorrido del día</name>` +
+          `<Style><LineStyle><width>3</width><color>ff913d0b</color></LineStyle></Style>` +
+          `<LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString>` +
+          `</Placemark>`
+        );
+      }
+
+      const last = arr[arr.length-1];
+      if (last && last.lat!=null && last.lng!=null){
+        kmlParts.push(
+          `<Placemark><name>${escapeXml(name)} - Última posición</name>` +
+          `<Point><coordinates>${last.lng},${last.lat},0</coordinates></Point>` +
+          `</Placemark>`
+        );
+      }
     }
-  });
 
-  kmlParts.push(`</Document></kml>`);
-  const kml = kmlParts.join("");
+    kmlParts.push(`</Document></kml>`);
+    const kml = kmlParts.join("");
 
-  // Empaquetar como KMZ (ZIP con doc.kml)
-  const zip = new JSZip();
-  zip.file("doc.kml", kml);
-  zip.generateAsync({ type: "blob" }).then(blob => {
+    const zip = new JSZip();
+    zip.file("doc.kml", kml);
+    const blob = await zip.generateAsync({ type: "blob" });
+
     const a = document.createElement("a");
     const ts = new Date().toLocaleString("sv-SE", { timeZone:"America/Lima" }).replace(/[ :]/g,'-');
     a.href = URL.createObjectURL(blob);
-    a.download = `recorridos_cicsa_${ts}.kmz`;
+    a.download = `recorridos_cicsa_dia_${ts}.kmz`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-  });
+  }catch(e){
+    console.error("KMZ error:", e);
+    alert("Ocurrió un error al generar el KMZ.");
+  }
 }
+
 function escapeXml(s){
   return String(s||'').replace(/[<>&'"]/g, ch => ({
     '<':'&lt;','>':'&gt;','&':'&amp;',"'" :'&apos;','"':'&quot;'

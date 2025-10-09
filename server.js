@@ -1,4 +1,4 @@
-// server.js - Monitoreo GPS CICSA (versión estable)
+// server.js - Monitoreo GPS CICSA
 const express = require("express");
 const path = require("path");
 const http = require("http");
@@ -28,7 +28,7 @@ const lastPos = new Map();
 
 function heartbeat() { this.isAlive = true; }
 
-// === NUEVO: helper hora Perú en ISO ===
+// === Helper: fecha/hora de Lima (UTC-5) en ISO ===
 function nowLimaISO() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "America/Lima" })
@@ -38,10 +38,8 @@ function nowLimaISO() {
 wss.on("connection", (ws, req) => {
   ws.isAlive = true;
   ws.on("pong", heartbeat);
-  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-  console.log(`✅ WS conectado: ${ip}`);
 
-  // Snapshot inicial
+  // Snapshot inicial a cada nuevo cliente
   if (lastPos.size) {
     const snap = {};
     for (const [id, p] of lastPos.entries()) {
@@ -61,7 +59,7 @@ wss.on("connection", (ws, req) => {
     try { ws.send(JSON.stringify({ type: "snapshot", data: snap })); } catch {}
   }
 
-  ws.on("close", () => console.log("❌ WS desconectado"));
+  ws.on("close", () => {});
 });
 
 // Limpieza de WS inactivos
@@ -107,19 +105,18 @@ app.post("/api/posicion", async (req, res) => {
     // Guardar en Supabase (hora Perú)
     const row = {
       usuario_id, tecnico, brigada, contrata, zona, cargo,
-      latitud: lat, longitud: lng, timestamp: nowLimaISO() // <=== CAMBIO
+      latitud: lat, longitud: lng, timestamp: nowLimaISO()
     };
     const { error } = await supabase.from("ubicaciones_brigadas").insert(row);
     if (error) console.warn("Supabase insert error:", error.message);
 
-    // Guardar en memoria
+    // Guardar en memoria + broadcast
     const id = `u${usuario_id}`;
     const display = tecnico || brigada || `ID ${usuario_id}`;
     const ts = Date.now();
 
     lastPos.set(id, { lat, lng, ts, display, brigada, zona, contrata, cargo });
 
-    // Broadcast WS
     const payload = JSON.stringify({
       type: "point",
       data: { id, lat, lng, ts, meta: { display, brigada, zona, contrata, cargo } }
@@ -128,7 +125,6 @@ app.post("/api/posicion", async (req, res) => {
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("Error en /api/posicion:", e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -137,7 +133,7 @@ app.post("/api/posicion", async (req, res) => {
 // ENDPOINTS PARA MAPA Y FILTROS
 // ======================================================
 
-// /api/recorridos
+// /api/recorridos — histórico reciente (minutos) con filtros opcionales
 app.get("/api/recorridos", async (req, res) => {
   try {
     const minutes = Math.max(5, Math.min(24 * 60, parseInt(req.query.minutes || "180", 10)));
@@ -149,16 +145,17 @@ app.get("/api/recorridos", async (req, res) => {
       .gte("timestamp", since)
       .order("timestamp", { ascending: true });
 
-    if (req.query.zona) q = q.eq("zona", req.query.zona);
-    if (req.query.contrata) q = q.eq("contrata", req.query.contrata);
-    if (req.query.brigada) q = q.eq("brigada", req.query.brigada);
+    const { zona, contrata, brigada } = req.query;
+    if (zona) q = q.eq("zona", zona);
+    if (contrata) q = q.eq("contrata", contrata);
+    if (brigada) q = q.eq("brigada", brigada);
 
     const { data, error } = await q;
     if (error) throw error;
 
     const grouped = {};
-    for (const r of data) {
-      if (!r.latitud || !r.longitud) continue;
+    for (const r of data || []) {
+      if (r.latitud == null || r.longitud == null) continue;
       const id = `u${r.usuario_id}`;
       (grouped[id] ||= []).push({
         lat: r.latitud,
@@ -178,7 +175,7 @@ app.get("/api/recorridos", async (req, res) => {
   }
 });
 
-// /api/conectados
+// /api/conectados — últimos activos (≤60s)
 app.get("/api/conectados", (req, res) => {
   const now = Date.now();
   const activos = [];
@@ -214,7 +211,6 @@ app.post("/api/stop", async (req, res) => {
 
     return res.json({ ok: true, removed: !!existed });
   } catch (e) {
-    console.error("Error en /api/stop:", e);
     return res.status(500).json({ ok: false, error: e.message });
   }
 });

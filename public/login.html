@@ -8,174 +8,160 @@
   body {
     background: radial-gradient(circle at center, #001a2b, #000c14);
     color: #fff;
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    height: 100vh; display:flex; justify-content:center; align-items:center;
     font-family: "Segoe UI", sans-serif;
   }
-  .card {
-    background: rgba(10, 30, 50, 0.92);
-    border-radius: 14px;
-    padding: 25px;
-    width: 350px;
-    text-align: center;
-    box-shadow: 0 0 20px rgba(0, 255, 200, 0.4);
-    transition: all 0.3s;
+  .card{background:rgba(10,30,50,.92);border-radius:14px;padding:25px;width:350px;text-align:center;
+        box-shadow:0 0 20px rgba(0,255,200,.4);transition:.3s;}
+  .card.glow{box-shadow:0 0 25px rgba(0,255,200,.8)}
+  .logo{height:60px;margin-bottom:10px;}
+  input{
+    width: 90%; padding: 10px 12px; border-radius:10px; border:1px solid #0a2a3f;
+    background:#06121c; color:#dff1ff; outline:none; text-align:center; margin:6px 0;
   }
-  .card.glow { box-shadow: 0 0 25px rgba(0, 255, 200, 0.8); }
-  .logo { height: 60px; margin-bottom: 10px; }
-  input {
-    width: 90%; padding: 8px; margin: 6px 0; border: none;
-    border-radius: 6px; text-align: center;
+  .row{display:flex; gap:8px; margin:8px 0;}
+  button{
+    background:#0aa6a6; border:none; color:#002b36; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:600; width:100%;
   }
-  .row { display:flex; gap:8px; margin-top:8px; }
-  button {
-    background: #00b050; color: #fff; border: none;
-    border-radius: 6px; padding: 10px 15px;
-    cursor: pointer; margin-top: 8px; width: 100%; font-weight: 600;
-  }
-  button:hover { background: #009944; }
-  .danger { background:#d94156; }
-  #status { margin-top: 12px; font-size: 14px; color: #00e676; }
-  #info {
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: 8px;
-    margin-top: 10px;
-    text-align: left;
-    padding: 8px 12px;
-    font-size: 13px;
-    display: none;
-  }
-  .error { color: #ff6666; font-size: 14px; min-height:20px; }
+  button:disabled{ opacity:.6; }
+  .danger{ background:#da3d5b; color:#fff; }
+  .info{ font-size:13px; color:#bfe9ff; display:none; margin-top:8px; text-align:left; background:rgba(0,0,0,.25); padding:8px 12px; border-radius:8px; }
+  .error{ color:#ffb3c1; min-height:18px; margin-top:6px; }
+  #status{ margin-top:8px;font-size:13px;color:#bde5ff }
 </style>
 </head>
 <body>
   <div class="card" id="panel">
     <img src="/static/logo_cicsa.png" alt="CICSA" class="logo" />
     <h2>Monitoreo GPS</h2>
-    <p>Ingreso para técnicos / brigadas</p>
+    <small>CICSA • Tiempo real</small>
+
     <input id="usuario" placeholder="Usuario" />
-    <input id="clave" type="password" placeholder="Clave" />
+    <input id="clave" placeholder="Clave" type="password" />
     <div class="row">
-      <button id="btnStart">Iniciar transmisión GPS</button>
+      <button id="btnStart">Iniciar transmisión</button>
       <button id="btnStop" class="danger" disabled>Detener</button>
     </div>
+    <div class="info" id="info"></div>
+    <div class="error" id="error"></div>
     <div id="status"></div>
-    <div id="info"></div>
-    <div id="error" class="error"></div>
   </div>
 
-  <script>
-  const API = "https://monitoreo-gps-cicsa.onrender.com"; // Render domain
-  const btnStart = document.getElementById("btnStart");
-  const btnStop  = document.getElementById("btnStop");
-  const statusEl = document.getElementById("status");
-  const infoEl = document.getElementById("info");
-  const errorEl = document.getElementById("error");
-  const panel = document.getElementById("panel");
-  let lastSend = 0, user = null, watchId = null;
+<script>
+const API = location.origin;
 
-  async function login(usuario, clave) {
-    const res = await fetch(`${API}/api/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usuario, clave })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || "Login inválido");
-    return data.usuario;
+const panel   = document.getElementById('panel');
+const btnStart= document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+const infoEl  = document.getElementById('info');
+const errorEl = document.getElementById('error');
+const statusEl= document.getElementById('status');
+
+let user = null;
+let watchId = null;
+let lastSend = 0;
+
+async function login(usuario, clave){
+  const res = await fetch(`${API}/api/login`,{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({usuario, clave})
+  });
+  const data = await res.json();
+  if(!data.ok) throw new Error(data.error || "Login inválido");
+  return data.usuario;
+}
+
+async function enviarPosicion(data){
+  await fetch(`${API}/api/posicion`,{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(data)
+  });
+}
+
+function iniciarGPS(usr){
+  user = usr;
+  panel.classList.add("glow");
+  btnStart.disabled = true;
+  btnStop.disabled  = false;
+  btnStart.textContent = "Transmitiendo...";
+  statusEl.textContent = "🟢 Transmitiendo posición en tiempo real...";
+  infoEl.style.display = "block";
+  errorEl.textContent = "";
+
+  if (!navigator.geolocation){
+    errorEl.textContent = "Geolocalización no soportada en este navegador.";
+    return;
   }
 
-  async function enviarPosicion(data) {
-    await fetch(`${API}/api/posicion`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
-  }
+  const opts = { enableHighAccuracy:true, maximumAge:0, timeout:10000 };
+  watchId = navigator.geolocation.watchPosition(async (pos)=>{
+    const crd = pos.coords;
+    const now = Date.now();
+    if (now - lastSend < 4500) return; // throttling
+    lastSend = now;
 
-  function iniciarGPS(usuario) {
-    user = usuario;
-    panel.classList.add("glow");
-    btnStart.disabled = true;
-    btnStop.disabled = false;
-    btnStart.textContent = "Transmitiendo...";
-    statusEl.textContent = "🟢 Transmitiendo posición en tiempo real...";
-    infoEl.style.display = "block";
-
-    if (!navigator.geolocation) {
-      statusEl.textContent = "⚠️ Geolocalización no soportada.";
-      return;
-    }
-
-    watchId = navigator.geolocation.watchPosition(async pos => {
-      const { latitude, longitude, accuracy, speed } = pos.coords;
-      const ahora = Date.now();
-      if (ahora - lastSend < 5000) return;
-      lastSend = ahora;
-
-      const payload = {
-        usuario_id: usuario.id,
-        tecnico: usuario.nombre || usuario.tecnico,
-        brigada: usuario.brigada,
-        contrata: usuario.contrata,
-        zona: usuario.zona,
-        cargo: usuario.cargo,
-        lat: latitude,
-        lng: longitude
-      };
-      infoEl.innerHTML = `
-        <b>Coordenadas:</b> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br>
-        <b>Precisión:</b> ${accuracy?.toFixed ? accuracy.toFixed(1) : accuracy} m<br>
-        <b>Velocidad:</b> ${(speed || 0).toFixed(1)} km/h<br>
-        <b>Hora local:</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}
-      `;
-      try { await enviarPosicion(payload); } catch(e){ console.error(e); }
-    }, err => {
-      statusEl.textContent = "⚠️ Error obteniendo posición.";
-      console.error(err);
-    }, { enableHighAccuracy: true });
-  }
-
-  function detenerGPSUI(){
-    panel.classList.remove("glow");
-    btnStart.disabled = false;
-    btnStop.disabled = true;
-    btnStart.textContent = "Iniciar transmisión GPS";
-    statusEl.textContent = "⏹️ Transmisión detenida.";
-    infoEl.style.display = "none";
-  }
-
-  btnStart.onclick = async () => {
-    const u = document.getElementById("usuario").value.trim();
-    const p = document.getElementById("clave").value.trim();
-    if (!u || !p) return errorEl.textContent = "Ingrese usuario y clave";
-    errorEl.textContent = "";
-    try {
-      const usr = await login(u, p);
-      iniciarGPS(usr);
-    } catch (e) {
-      errorEl.textContent = e.message;
-    }
-  };
-
-  btnStop.onclick = async () => {
-    if (watchId != null){
-      navigator.geolocation.clearWatch(watchId);
-      watchId = null;
-    }
+    const payload = {
+      usuario_id: user.id,
+      tecnico: user.tecnico,
+      brigada: user.brigada,
+      contrata: user.contrata,
+      zona: user.zona,
+      cargo: user.cargo,
+      lat: crd.latitude,
+      lng: crd.longitude
+    };
+    infoEl.innerHTML = `
+      <b>Coordenadas:</b> ${crd.latitude.toFixed(5)}, ${crd.longitude.toFixed(5)}<br>
+      <b>Precisión:</b> ${crd.accuracy?.toFixed ? crd.accuracy.toFixed(1) : crd.accuracy} m<br>
+      <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}
+    `;
     try{
-      if (user?.id) {
-        await fetch(`${API}/api/stop`,{
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ usuario_id: user.id })
-        });
-      }
-    }catch(_e){}
-    detenerGPSUI();
-  };
-  </script>
+      await enviarPosicion(payload);
+    }catch(e){
+      console.error(e);
+      errorEl.textContent = "No se pudo enviar posición.";
+    }
+  }, (err)=>{
+    errorEl.textContent = "No se puede obtener tu ubicación (" + err.message + ")";
+  }, opts);
+}
+
+function detenerGPSUI(){
+  panel.classList.remove("glow");
+  btnStart.disabled = false;
+  btnStop.disabled  = true;
+  btnStart.textContent = "Iniciar transmisión";
+  statusEl.textContent = "⏹️ Transmisión detenida.";
+  infoEl.style.display = "none";
+}
+
+btnStart.onclick = async ()=>{
+  const u = document.getElementById('usuario').value.trim();
+  const p = document.getElementById('clave').value.trim();
+  if (!u || !p) { errorEl.textContent = "Ingrese usuario y clave"; return; }
+  try{
+    const usr = await login(u, p);
+    iniciarGPS(usr);
+  }catch(e){
+    errorEl.textContent = e.message;
+  }
+};
+
+btnStop.onclick = async ()=>{
+  if (watchId != null){
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  try{
+    if (user?.id) {
+      await fetch(`${API}/api/stop`,{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ usuario_id: user.id })
+      });
+    }
+  }catch(_e){}
+  detenerGPSUI();
+};
+</script>
 </body>
 </html>
-
