@@ -62,11 +62,11 @@ let watchId = null;
 let lastSend = 0;
 let lastWeakSend = 0; // envíos con precisión intermedia
 
-// UMBRALES DE PRECISIÓN (en metros)
+// UMBRALES internos (no se muestran)
 const ACC_TARGET = 50;   // ideal
 const ACC_MAX    = 150;  // por encima de esto NO se envía
 const MIN_INTERVAL_MS       = 4500;  // intervalo normal (precisión buena)
-const MIN_INTERVAL_WEAK_MS  = 20000; // intervalo cuando precisión es 50..150
+const MIN_INTERVAL_WEAK_MS  = 20000; // intervalo cuando precisión 50..150
 
 async function login(usuario, clave){
   const res = await fetch(`${API}/api/login`,{
@@ -85,7 +85,7 @@ async function enviarPosicion(data){
   });
 }
 
-// Dispara un getCurrentPosition para “forzar” un fix GPS más preciso
+// Dispara un getCurrentPosition para intentar un fix más preciso (no bloquea)
 function warmupGPS(){
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
@@ -118,28 +118,32 @@ function iniciarGPS(usr){
     const now = Date.now();
     const acc = Number(crd.accuracy);
 
-    // Mostrar en UI siempre
+    // UI: mostrar datos del usuario + coordenadas y hora (SIN precisión)
     infoEl.innerHTML = `
       <b>Coordenadas:</b> ${crd.latitude.toFixed(5)}, ${crd.longitude.toFixed(5)}<br>
-      <b>Precisión:</b> ${isFinite(acc) ? acc.toFixed(1) : '—'} m<br>
-      <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}
+      <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}<br>
+      <hr style="border:0;border-top:1px solid rgba(255,255,255,.1);margin:6px 0;">
+      <b>Técnico:</b> ${user.tecnico || '—'}<br>
+      <b>Brigada:</b> ${user.brigada || '—'}<br>
+      <b>Contrata:</b> ${user.contrata || '—'}<br>
+      <b>Zona:</b> ${user.zona || '—'}<br>
+      <b>Cargo:</b> ${user.cargo || '—'}
     `;
 
     // 1) Si la precisión es muy mala, NO enviar y pedir un fix mejor en paralelo.
     if (isFinite(acc) && acc > ACC_MAX) {
-      statusEl.textContent = "📡 Mejorando precisión (evitando envíos > 150 m)…";
-      warmupGPS(); // pide un fix más preciso sin bloquear
+      statusEl.textContent = "📡 Optimizando señal…";
+      warmupGPS();
       return;
     }
 
-    // 2) Precisión intermedia (50..150 m): enviar solo cada 20s
+    // 2) Señal intermedia: enviar solo cada 20s
     if (isFinite(acc) && acc > ACC_TARGET && acc <= ACC_MAX) {
-      statusEl.textContent = "📡 Precisión intermedia, enviando menos frecuente…";
+      statusEl.textContent = "📡 Señal inestable, enviando menos frecuente…";
       if (now - lastWeakSend < MIN_INTERVAL_WEAK_MS) return;
       lastWeakSend = now;
-      // cae a enviar abajo (sin interferir con el intervalo normal)
     } else {
-      // Precisión buena: respeta intervalo normal
+      // Señal buena: respeta intervalo normal
       if (now - lastSend < MIN_INTERVAL_MS) return;
       lastSend = now;
     }
@@ -205,4 +209,3 @@ btnStop.onclick = async ()=>{
 </script>
 </body>
 </html>
-
