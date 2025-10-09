@@ -3,11 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monitoreo en Tiempo Real - Brigadas</title>
-
-  <!-- Leaflet CSS -->
+  <title>Monitoreo GPS - Brigadas en Tiempo Real</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
   <style>
     body {
       margin: 0;
@@ -18,191 +15,109 @@
       height: 100vh;
       overflow: hidden;
     }
-
-    #map {
-      flex: 1;
-      height: 100vh;
-    }
-
+    #map { flex: 1; }
     #side {
-      width: 320px;
+      width: 300px;
       background: #111c2e;
-      padding: 12px;
+      padding: 10px;
       overflow-y: auto;
       border-left: 2px solid #1f2a3d;
     }
-
-    #side h3 {
-      margin-top: 0;
-      color: #00bcd4;
-      text-align: center;
-    }
-
-    #wsdot {
-      width: 10px;
-      height: 10px;
-      display: inline-block;
-      border-radius: 50%;
-      margin-right: 6px;
-    }
-
-    .ok { background: #4caf50; }
-    .bad { background: #f44336; }
-
+    h3 { color: #00bcd4; text-align: center; }
     .brigada-card {
-      padding: 6px 8px;
-      border-radius: 6px;
       background: #14263f;
       border-left: 4px solid #00bcd4;
-      margin-bottom: 8px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      padding: 6px;
+      transition: 0.2s;
       cursor: pointer;
-      transition: all 0.2s ease;
     }
-
-    .brigada-card:hover {
-      background: #1d3557;
-      transform: scale(1.02);
-    }
+    .brigada-card:hover { background: #1d3557; transform: scale(1.02); }
+    .ok { background:#4caf50; }
+    .bad { background:#f44336; }
+    #wsdot { width:10px; height:10px; display:inline-block; border-radius:50%; margin-right:5px; }
   </style>
 </head>
-
 <body>
   <div id="map"></div>
-
   <aside id="side">
     <h3>Brigadas conectadas</h3>
-    <div style="margin-bottom:8px">
-      <span id="wsdot" class="bad"></span><small id="wslabel">WS: desconectado</small>
-    </div>
+    <div><span id="wsdot" class="bad"></span><small id="wslabel">WS: desconectado</small></div>
     <div id="onlineList"><p style="color:#8a96a8">Sin brigadas conectadas.</p></div>
   </aside>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
   <script>
   const map = L.map('map').setView([-12.0464, -77.0428], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
 
-  // --- ICONOS ---
-  const carIcon = L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png',
-    iconSize: [34, 34],
-    iconAnchor: [17, 17]
-  });
+  const carIcon = L.icon({ iconUrl:'https://cdn-icons-png.flaticon.com/512/3097/3097144.png', iconSize:[34,34], iconAnchor:[17,17] });
+  const startIcon = L.icon({ iconUrl:'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize:[24,24], iconAnchor:[12,12] });
 
-  const startIcon = L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
-  });
+  const markers=new Map(), trails=new Map(), starts=new Map(), lastSeen=new Map(), colors=new Map();
+  const palette=["#007bff","#ff5722","#28a745","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
+  const colorFor=id=>colors.get(id)||colors.set(id,palette[colors.size%palette.length]).get(id);
 
-  // --- VARIABLES GLOBALES ---
-  const markers = new Map();
-  const trails = new Map();
-  const startPoints = new Map();
-  const lastSeen = new Map();
-  const colorMap = new Map();
-  const palette = ["#007bff","#28a745","#ff5722","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
-
-  function colorFor(id) {
-    if (!colorMap.has(id)) colorMap.set(id, palette[colorMap.size % palette.length]);
-    return colorMap.get(id);
+  function moveSmoothly(marker,toLat,toLng){
+    const from=marker.getLatLng(), steps=10;
+    let i=0; const dLat=(toLat-from.lat)/steps,dLng=(toLng-from.lng)/steps;
+    const anim=setInterval(()=>{
+      marker.setLatLng([from.lat+dLat*i, from.lng+dLng*i]);
+      if(++i>steps) clearInterval(anim);
+    },100);
   }
 
-  // --- FUNCIONES DE MAPA ---
-  function addOrUpdateBrigada(id, lat, lng, meta, ts) {
-    const name = meta?.display || id;
-    const popup = `<b>${name}</b><br>${meta?.brigada||''} / ${meta?.zona||''} / ${meta?.contrata||''}<br>${new Date(ts).toLocaleString()}`;
+  function addOrUpdate(id,lat,lng,meta,ts){
+    const popup=`<b>${meta.display||id}</b><br>${meta.brigada||''} / ${meta.zona||''} / ${meta.contrata||''}<br>${new Date(ts).toLocaleTimeString()}`;
+    let mk=markers.get(id);
+    if(!mk){ mk=L.marker([lat,lng],{icon:carIcon}).addTo(map).bindPopup(popup); markers.set(id,mk); }
+    else { moveSmoothly(mk,lat,lng); mk.setPopupContent(popup); }
 
-    // 🚗 marcador principal
-    let mk = markers.get(id);
-    if (!mk) {
-      mk = L.marker([lat, lng], { icon: carIcon }).addTo(map).bindPopup(popup);
-      markers.set(id, mk);
+    let pl=trails.get(id);
+    if(!pl){
+      pl=L.polyline([[lat,lng]],{color:colorFor(id),weight:4,opacity:.8}).addTo(map);
+      trails.set(id,pl);
+      const st=L.marker([lat,lng],{icon:startIcon}).addTo(map);
+      starts.set(id,st);
     } else {
-      mk.setLatLng([lat, lng]).setPopupContent(popup);
-    }
-
-    // 🟩 línea de recorrido
-    let pl = trails.get(id);
-    if (!pl) {
-      const color = colorFor(id);
-      pl = L.polyline([[lat, lng]], { color, weight: 4, opacity: 0.8 }).addTo(map);
-      trails.set(id, pl);
-
-      // 📍 punto inicial
-      const start = L.marker([lat, lng], { icon: startIcon }).addTo(map);
-      startPoints.set(id, start);
-    } else {
-      const arr = pl.getLatLngs();
-      arr.push([lat, lng]);
-      if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+      const arr=pl.getLatLngs(); arr.push([lat,lng]);
+      if(arr.length>2000) arr.splice(0,arr.length-2000);
       pl.setLatLngs(arr);
     }
 
-    lastSeen.set(id, { ts, meta, lat, lng });
+    lastSeen.set(id,{lat,lng,ts,meta});
     renderSidebar();
   }
 
-  // --- PANEL LATERAL ---
-  function renderSidebar() {
-    const list = document.getElementById('onlineList');
-    list.innerHTML = '';
-    if (lastSeen.size === 0) {
-      list.innerHTML = '<p style="color:#8a96a8">Sin brigadas conectadas.</p>';
-      return;
-    }
-
-    const now = Date.now();
-    [...lastSeen.entries()].sort((a,b)=>b[1].ts - a[1].ts).forEach(([id, obj]) => {
-      const color = colorFor(id);
-      const active = (now - obj.ts) / 1000 < 60;
-      const card = document.createElement('div');
-      card.className = 'brigada-card';
-      card.style.borderLeftColor = color;
-      card.innerHTML = `
-        <div><b style="color:${color}">${obj.meta?.display || id}</b></div>
-        <div style="color:#b7c1d1">${obj.meta?.brigada||''} / ${obj.meta?.zona||''} / ${obj.meta?.contrata||''}</div>
-        <div style="color:#7e8ba0;font-size:.8rem">${active?'🟢 En línea':'⚫ Inactivo'} — ${new Date(obj.ts).toLocaleTimeString()}</div>
-      `;
-      card.onclick = () => {
-        const mk = markers.get(id);
-        if (mk) {
-          map.setView(mk.getLatLng(), 16, { animate: true });
-          mk.openPopup();
-        }
-      };
-      list.appendChild(card);
+  function renderSidebar(){
+    const list=document.getElementById('onlineList');
+    list.innerHTML='';
+    const now=Date.now();
+    if(!lastSeen.size){ list.innerHTML='<p style="color:#8a96a8">Sin brigadas conectadas.</p>'; return; }
+    [...lastSeen.entries()].sort((a,b)=>b[1].ts-a[1].ts).forEach(([id,o])=>{
+      const color=colorFor(id), online=(now-o.ts)<60000;
+      const div=document.createElement('div');
+      div.className='brigada-card';
+      div.style.borderLeftColor=color;
+      div.innerHTML=`<b style="color:${color}">${o.meta.display}</b><br>
+      <small>${o.meta.brigada||''} / ${o.meta.zona||''} / ${o.meta.contrata||''}</small><br>
+      <span style="color:${online?'#0f0':'#888'}">${online?'🟢 En línea':'⚫ Inactivo'}</span>`;
+      div.onclick=()=>{ const mk=markers.get(id); if(mk){ map.setView(mk.getLatLng(),16,{animate:true}); mk.openPopup(); } };
+      list.appendChild(div);
     });
   }
 
   // --- WEBSOCKET ---
-  const ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws');
-  const dot = document.getElementById('wsdot');
-  const label = document.getElementById('wslabel');
-
-  ws.onopen = () => {
-    dot.className = 'ok';
-    label.textContent = 'WS: conectado';
-    console.log('✅ WebSocket conectado');
-  };
-
-  ws.onclose = () => {
-    dot.className = 'bad';
-    label.textContent = 'WS: desconectado';
-    console.warn('❌ WebSocket cerrado');
-  };
-
-  ws.onmessage = (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
-    if (msg.type !== 'point') return;
-    const d = msg.data;
-    addOrUpdateBrigada(d.id, d.lat, d.lng, d.meta, d.ts || Date.now());
+  const wsUrl=(location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws';
+  const ws=new WebSocket(wsUrl);
+  const dot=document.getElementById('wsdot'),label=document.getElementById('wslabel');
+  ws.onopen=()=>{dot.className='ok';label.textContent='WS: conectado';};
+  ws.onclose=()=>{dot.className='bad';label.textContent='WS: desconectado';setTimeout(()=>location.reload(),3000);};
+  ws.onmessage=e=>{
+    let msg;try{msg=JSON.parse(e.data);}catch{return;}
+    if(msg.type==='snapshot') Object.entries(msg.data).forEach(([id,p])=>addOrUpdate(id,p.lat,p.lng,p.meta,p.ts));
+    if(msg.type==='point'){const d=msg.data;addOrUpdate(d.id,d.lat,d.lng,d.meta,d.ts);}
   };
   </script>
 </body>
