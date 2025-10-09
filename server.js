@@ -1,6 +1,6 @@
 // server.js
-// Ejecuta: npm start
-// Requiere: express ws dotenv @supabase/supabase-js
+// Autor: Kevin Layme / InsightPy Solutions
+// Versión estable para Render (Monitoreo GPS CICSA)
 
 const express = require("express");
 const path = require("path");
@@ -10,27 +10,26 @@ require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-// ---- Supabase ----
+// === SUPABASE ===
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ---- Middlewares ----
+// === MIDDLEWARE ===
 app.use(express.json());
-app.use(
-  express.static(path.join(__dirname, "public"), { maxAge: "1h", etag: true })
-);
+app.use(express.static(path.join(__dirname, "public")));
 
-// ---- HTTP + WebSocket ----
+// === SERVIDOR HTTP + WS ===
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
-// Memoria temporal en RAM
-const ubicaciones = {}; // {id: {lat,lng,meta,ts,hist:[]}}
+// === MEMORIA DE UBICACIONES ===
+const ubicaciones = {}; // { usuario_id: { lat, lng, ts, meta, hist: [] } }
 
+// === WS CONNECTION ===
 function heartbeat() { this.isAlive = true; }
 
 wss.on("connection", (ws, req) => {
@@ -38,38 +37,34 @@ wss.on("connection", (ws, req) => {
   ws.on("pong", heartbeat);
 
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-  console.log(`✅ WS conectado: ${ip}`);
+  console.log(`✅ Cliente WS conectado (${ip})`);
 
-  // Snapshot inicial
+  // Enviar snapshot inicial
   if (Object.keys(ubicaciones).length > 0) {
-    ws.send(JSON.stringify({
-      type: "snapshot",
-      data: Object.fromEntries(
-        Object.entries(ubicaciones).map(([id, v]) => [
-          id, { lat: v.lat, lng: v.lng, ts: v.ts, meta: v.meta }
-        ])
-      )
-    }));
+    const snap = {};
+    for (const [id, v] of Object.entries(ubicaciones)) {
+      snap[id] = { lat: v.lat, lng: v.lng, ts: v.ts, meta: v.meta };
+    }
+    ws.send(JSON.stringify({ type: "snapshot", data: snap }));
   }
 
   ws.on("close", () => console.log("❌ WS desconectado"));
 });
 
-// Limpieza de WS inactivos
-const interval = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) return ws.terminate();
+// Mantener WS activos
+setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (!ws.isAlive) return ws.terminate();
     ws.isAlive = false;
     ws.ping();
   });
 }, 30000);
-wss.on("close", () => clearInterval(interval));
 
-// ===================================================
-//  LOGIN Y RECEPCIÓN DE POSICIONES DESDE LOS TÉCNICOS
-// ===================================================
+// ====================================================
+// LOGIN Y UBICACIONES
+// ====================================================
 
-// /api/login -> valida credenciales
+// /api/login
 app.post("/api/login", async (req, res) => {
   try {
     const { usuario, clave } = req.body;
@@ -81,31 +76,29 @@ app.post("/api/login", async (req, res) => {
       .eq("activo", true)
       .single();
 
-    if (error || !data)
-      return res.status(401).json({ ok: false, error: "Credenciales inválidas" });
-
-    const { clave: _, ...safe } = data;
+    if (error || !data) return res.status(401).json({ ok: false, error: "Credenciales inválidas" });
+    const { clave: _omit, ...safe } = data;
     res.json({ ok: true, usuario: safe });
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ ok: false, error: "Error interno" });
   }
 });
 
-// /api/posicion -> guarda ubicación y emite broadcast
+// /api/posicion
 app.post("/api/posicion", async (req, res) => {
   try {
-    const { usuario_id, tecnico, brigada, contrata, zona, cargo, lat, lng, acc, spd } = req.body;
+    const { usuario_id, tecnico, brigada, contrata, zona, cargo, lat, lng } = req.body;
+    if (!lat || !lng) return res.status(400).json({ ok: false, error: "Falta lat/lng" });
 
-    // Inserta en Supabase
-    const row = {
+    // Guardar en Supabase
+    const { error } = await supabase.from("ubicaciones_brigadas").insert({
       usuario_id, tecnico, brigada, contrata, zona, cargo,
       latitud: lat, longitud: lng
-    };
-    const { error } = await supabase.from("ubicaciones_brigadas").insert(row);
-    if (error) throw error;
+    });
+    if (error) console.warn("Supabase error (ubicaciones):", error.message);
 
-    // Actualiza en memoria
+    // Actualizar en memoria
     const id = `u${usuario_id}`;
     const meta = { display: tecnico || brigada || `ID ${usuario_id}`, brigada, zona, contrata, cargo };
     const ts = Date.now();
@@ -113,67 +106,65 @@ app.post("/api/posicion", async (req, res) => {
     if (!ubicaciones[id]) ubicaciones[id] = { hist: [] };
     ubicaciones[id].lat = lat;
     ubicaciones[id].lng = lng;
-    ubicaciones[id].meta = meta;
     ubicaciones[id].ts = ts;
-    ubicaciones[id].hist.push({ lat, lng, ts, meta });
-    if (ubicaciones[id].hist.length > 50) ubicaciones[id].hist.shift();
+    ubicaciones[id].meta = meta;
 
-    // Broadcast WS
-    const payload = JSON.stringify({
-      type: "point",
-      data: { id, lat, lng, ts, meta }
-    });
-    wss.clients.forEach(c => c.readyState === 1 && c.send(payload));
+    ubicaciones[id].hist.push({ lat, lng, ts, meta });
+    if (ubicaciones[id].hist.length > 80) ubicaciones[id].hist.shift();
+
+    // Broadcast a todos los clientes
+    const msg = JSON.stringify({ type: "point", data: { id, lat, lng, ts, meta } });
+    wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("Error guardando ubicación:", e.message);
+    console.error("Error en /api/posicion:", e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// ===================================================
-//   ENDPOINTS PARA MAPA Y FILTROS
-// ===================================================
+// ====================================================
+// API PARA EL MAPA
+// ====================================================
 
-// /api/ubicaciones -> snapshot actual
+// /api/recorridos -> últimos 3h (para mapa.html)
+app.get("/api/recorridos", (req, res) => {
+  try {
+    const { zona, contrata, brigada } = req.query;
+    const ahora = Date.now();
+    const data = {};
+
+    for (const [id, v] of Object.entries(ubicaciones)) {
+      const arr = (v.hist || []).filter(p => ahora - p.ts < 3 * 60 * 60 * 1000);
+      if (!arr.length) continue;
+
+      if (zona && v.meta?.zona !== zona) continue;
+      if (contrata && v.meta?.contrata !== contrata) continue;
+      if (brigada && v.meta?.brigada !== brigada) continue;
+
+      data[id] = arr;
+    }
+    res.json({ ok: true, data });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// /api/ubicaciones -> snapshot de todos los técnicos
 app.get("/api/ubicaciones", (req, res) => {
   const data = Object.entries(ubicaciones).map(([id, v]) => ({
     id,
     lat: v.lat,
     lng: v.lng,
-    zona: v.meta?.zona,
-    contrata: v.meta?.contrata,
-    brigada: v.meta?.brigada,
     meta: v.meta
   }));
   res.json({ ok: true, data });
 });
 
-// /api/recorridos -> histórico reciente (3h)
-app.get("/api/recorridos", (req, res) => {
-  const { zona, contrata, brigada } = req.query;
-  const ahora = Date.now();
-  const data = {};
-
-  for (const [id, v] of Object.entries(ubicaciones)) {
-    const arr = (v.hist || []).filter(p => ahora - p.ts < 3 * 60 * 60 * 1000);
-    if (!arr.length) continue;
-
-    if (zona && v.meta?.zona !== zona) continue;
-    if (contrata && v.meta?.contrata !== contrata) continue;
-    if (brigada && v.meta?.brigada !== brigada) continue;
-
-    data[id] = arr;
-  }
-
-  res.json({ ok: true, data });
-});
-
-// ===================================================
-// ARRANQUE
-// ===================================================
+// ====================================================
+// INICIO DEL SERVIDOR
+// ====================================================
 server.listen(PORT, () => {
-  console.log(`🚀 HTTP en http://localhost:${PORT}`);
-  console.log(`🔌 WS   en ws://localhost:${PORT}/ws`);
+  console.log(`🚀 Servidor HTTP en puerto ${PORT}`);
+  console.log(`🔌 WebSocket en ws://localhost:${PORT}/ws`);
 });
