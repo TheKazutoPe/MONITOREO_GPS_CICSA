@@ -3,51 +3,129 @@
 <head>
   <meta charset="UTF-8">
   <title>Monitoreo GPS - CICSA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/9/91/Cicsa_logo.png">
   <style>
-    html, body { margin:0; height:100%; font-family: "Segoe UI", sans-serif; }
-    #map { height:100%; width: calc(100% - 300px); float:left; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", sans-serif; background: #f1f3f6; }
+
+    /* Layout principal */
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    #map {
+      flex: 1;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Panel lateral */
     #sidebar {
-      width:300px; height:100%; float:right;
-      background:#0b1b2a; color:white; padding:10px; overflow-y:auto;
+      width: 320px;
+      background: #0b1b2a;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      overflow-y: auto;
     }
-    #sidebar h4 { text-align:center; color:#00e676; margin:5px 0 10px; }
-    .item { background:#102840; margin:6px 0; padding:8px; border-radius:6px; font-size:13px; }
-    .online { color:#00ff80; font-size:11px; }
-    .filters { background:#fff; padding:8px; position:absolute; top:10px; left:10px; border-radius:6px; box-shadow:0 0 8px rgba(0,0,0,0.3); }
-    select { margin:3px; padding:5px; border-radius:4px; border:1px solid #ccc; }
+
+    #sidebar h4 {
+      color: #00e676;
+      text-align: center;
+      margin: 8px 0 12px;
+      font-size: 16px;
+    }
+
+    .item {
+      background: #102840;
+      padding: 8px;
+      margin: 5px 0;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .online { color: #00ff80; font-size: 11px; }
+
+    /* Barra superior */
+    #topbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 340px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 0 6px rgba(0,0,0,0.3);
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    select, button {
+      padding: 4px 6px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background: #00b050;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    button:hover { background: #008f40; }
+
     #logo {
-      position:absolute; top:10px; right:320px; background:white; padding:6px 12px; border-radius:8px;
-      box-shadow:0 0 6px rgba(0,0,0,0.2); font-weight:bold; display:flex; align-items:center; gap:6px;
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      border-radius: 8px;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+      gap: 6px;
+      font-weight: bold;
+      z-index: 2000;
     }
-    #logo img { height:26px; }
+
+    #logo img { height: 28px; }
   </style>
 </head>
 <body>
-  <div id="logo">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Claro_logo_2023.svg/2560px-Claro_logo_2023.svg.png" alt="Logo CICSA">
-    <span>CICSA - Monitoreo</span>
+  <div class="container">
+    <div id="map"></div>
+    <div id="sidebar">
+      <h4>🛰 Brigadas Conectadas</h4>
+      <div id="list"></div>
+    </div>
   </div>
 
-  <div class="filters">
+  <div id="topbar">
     <select id="zona"><option value="">Zona (todas)</option></select>
     <select id="contrata"><option value="">Contrata (todas)</option></select>
     <select id="brigada"><option value="">Brigada (todas)</option></select>
     <button id="btnFiltrar">Actualizar</button>
   </div>
 
-  <div id="map"></div>
-  <div id="sidebar">
-    <h4>🛰 Brigadas Conectadas</h4>
-    <div id="list"></div>
+  <div id="logo">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/Cicsa_logo.png" alt="CICSA">
+    <span>Monitoreo GPS</span>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-  const map = L.map('map').setView([-12.06, -77.04], 12);
+  const map = L.map('map').setView([-12.0464, -77.0428], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+    attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
 
   const markers = {}, polylines = {};
@@ -57,15 +135,16 @@
     if (!markers[id]) {
       const icon = L.icon({
         iconUrl: 'https://cdn-icons-png.flaticon.com/512/3468/3468365.png',
-        iconSize: [32,32], iconAnchor:[16,16]
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
       });
-      const marker = L.marker([lat,lng], { icon }).addTo(map);
+      const marker = L.marker([lat, lng], { icon }).addTo(map);
       marker.bindPopup(`<b>${meta.display}</b><br>${meta.contrata || ''} / ${meta.zona || ''}`);
       markers[id] = { marker, meta, coords: [[lat, lng]] };
     } else {
       const m = markers[id];
-      m.marker.setLatLng([lat,lng]);
-      m.coords.push([lat,lng]);
+      m.marker.setLatLng([lat, lng]);
+      m.coords.push([lat, lng]);
       if (polylines[id]) map.removeLayer(polylines[id]);
       polylines[id] = L.polyline(m.coords, { color: '#00e676', weight: 3 }).addTo(map);
     }
@@ -83,39 +162,52 @@
     });
   }
 
-  // --- WS ---
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-  ws.onopen = () => console.log("✅ WS conectado");
-  ws.onmessage = e => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === "snapshot") {
-      for (const [id, v] of Object.entries(msg.data)) drawMarker(id, v.lat, v.lng, v.meta);
-    }
-    if (msg.type === "point") {
-      const v = msg.data; drawMarker(v.id, v.lat, v.lng, v.meta);
-    }
-  };
+  // --- WebSocket ---
+  function connectWS() {
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.onopen = () => console.log("✅ WS conectado");
+    ws.onclose = () => setTimeout(connectWS, 5000);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "snapshot") {
+        for (const [id, v] of Object.entries(msg.data)) drawMarker(id, v.lat, v.lng, v.meta);
+      }
+      if (msg.type === "point") {
+        const v = msg.data; drawMarker(v.id, v.lat, v.lng, v.meta);
+      }
+    };
+  }
+  connectWS();
 
-  // --- Filtros dinámicos (desde Supabase vía API) ---
+  // --- Filtros dinámicos ---
   async function cargarFiltros() {
     try {
-      const res = await fetch("/api/ubicaciones");
+      const res = await fetch("/api/recorridos?minutes=180");
+      if (!res.ok) throw new Error("Sin datos");
       const { data } = await res.json();
       const zonas = new Set(), contratas = new Set(), brigadas = new Set();
-      data.forEach(r => {
-        zonas.add(r.zona); contratas.add(r.contrata); brigadas.add(r.brigada);
-      });
+      for (const arr of Object.values(data)) {
+        arr.forEach(r => {
+          zonas.add(r.meta.zona);
+          contratas.add(r.meta.contrata);
+          brigadas.add(r.meta.brigada);
+        });
+      }
       fillSelect("zona", zonas);
       fillSelect("contrata", contratas);
       fillSelect("brigada", brigadas);
-    } catch(e){ console.error(e); }
+    } catch(e) {
+      console.error("Error al cargar filtros:", e.message);
+    }
   }
+
   function fillSelect(id, values) {
     const sel = document.getElementById(id);
     sel.innerHTML = `<option value="">${id.charAt(0).toUpperCase() + id.slice(1)} (todas)</option>`;
     values.forEach(v => v && sel.insertAdjacentHTML('beforeend', `<option>${v}</option>`));
   }
-  document.getElementById("btnFiltrar").addEventListener("click", async ()=>{
+
+  document.getElementById("btnFiltrar").addEventListener("click", async () => {
     const zona = document.getElementById("zona").value;
     const contrata = document.getElementById("contrata").value;
     const brigada = document.getElementById("brigada").value;
@@ -126,9 +218,7 @@
     Object.values(polylines).forEach(p => map.removeLayer(p));
     Object.keys(markers).forEach(k => delete markers[k]);
     for (const [id, arr] of Object.entries(data)) {
-      arr.forEach((p, i) => {
-        drawMarker(id, p.lat, p.lng, p.meta);
-      });
+      arr.forEach(p => drawMarker(id, p.lat, p.lng, p.meta));
     }
   });
 
