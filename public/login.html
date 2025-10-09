@@ -17,58 +17,62 @@
     }
 
     .card {
-      background: rgba(0, 20, 40, 0.9);
-      border: none;
+      background: rgba(0, 25, 45, 0.95);
+      border: 1px solid #00a2ff;
       border-radius: 15px;
       box-shadow: 0 0 25px rgba(0,0,0,0.5);
-      width: 350px;
+      width: 360px;
       padding: 25px;
       transition: all .3s ease;
     }
 
     .card.transmitting {
-      width: 420px;
-      background: rgba(0, 50, 80, 0.95);
-      border: 1px solid #00e676;
+      border: 2px solid transparent;
+      background: linear-gradient(#001a2b,#001a2b) padding-box,
+                  linear-gradient(120deg,#00a2ff,#00ffcc) border-box;
+      animation: borderGlow 3s linear infinite;
     }
 
-    .logo {
-      text-align: center;
-      margin-bottom: 10px;
+    @keyframes borderGlow {
+      0% { filter: drop-shadow(0 0 2px #00a2ff); }
+      50% { filter: drop-shadow(0 0 6px #00ffcc); }
+      100% { filter: drop-shadow(0 0 2px #00a2ff); }
     }
 
-    .logo img {
-      height: 40px;
+    .logo img { height: 45px; filter: drop-shadow(0 0 3px #00a2ff); }
+
+    h5, p { color: #e5f4ff !important; }
+
+    .form-label { color: #b8dfff !important; font-weight: 600; }
+
+    input.form-control {
+      background: #06253f;
+      color: #fff;
+      border: 1px solid #0a64a0;
+    }
+
+    input.form-control:focus {
+      border-color: #00aaff;
+      box-shadow: 0 0 5px #00aaff;
     }
 
     .btn-primary {
-      background: #00b050;
+      background: linear-gradient(90deg,#0099ff,#00c8b8);
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
       border: none;
-      transition: background .3s ease;
-    }
-
-    .btn-primary:hover {
-      background: #009944;
-    }
-
-    #status {
-      text-align: center;
-      margin-top: 10px;
-      font-size: 14px;
-      color: #00e676;
     }
 
     .data-block {
-      background: rgba(0, 0, 0, 0.3);
+      background: rgba(0,0,0,0.4);
+      color: #aee6ff;
+      border: 1px solid rgba(0,170,255,0.4);
       border-radius: 10px;
       padding: 10px;
-      margin-top: 15px;
-      font-size: 13px;
     }
 
     .pulse {
-      width: 10px;
-      height: 10px;
+      width: 10px; height: 10px;
       border-radius: 50%;
       background: #00e676;
       display: inline-block;
@@ -85,23 +89,23 @@
 </head>
 <body>
   <div class="card" id="login-card">
-    <div class="logo">
+    <div class="logo text-center mb-3">
       <img src="/static/logo_cicsa.png" alt="CICSA" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3790/3790033.png'">
-      <h5 class="mt-2 text-center text-light">Monitoreo GPS</h5>
-      <p class="text-center text-secondary" style="font-size:13px;">Ingreso para técnicos / brigadas</p>
+      <h5 class="mt-2">Monitoreo GPS</h5>
+      <p style="font-size:13px;">Ingreso para técnicos / brigadas</p>
     </div>
 
     <div id="login-form">
       <div class="mb-3">
-        <label class="form-label text-light">Usuario</label>
+        <label class="form-label">Usuario</label>
         <input type="text" id="usuario" class="form-control" placeholder="Ej: apradou" required>
       </div>
       <div class="mb-3">
-        <label class="form-label text-light">Clave</label>
+        <label class="form-label">Clave</label>
         <input type="password" id="clave" class="form-control" placeholder="*******" required>
       </div>
       <button class="btn btn-primary w-100" id="btnStart">Iniciar transmisión GPS</button>
-      <div id="status" class="text-muted mt-2">Esperando conexión...</div>
+      <div id="status" class="text-center mt-2 text-info">Esperando conexión...</div>
     </div>
 
     <div id="transmitiendo" style="display:none;">
@@ -166,4 +170,3 @@
   </script>
 </body>
 </html>
-
