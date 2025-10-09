@@ -1,228 +1,237 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Monitoreo GPS - CICSA</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <meta charset="UTF-8" />
+  <title>CICSA · Monitoreo GPS</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; height: 100%; font-family: "Segoe UI", sans-serif; background: #f1f3f6; }
-
-    /* Layout principal */
-    .container {
-      display: flex;
-      height: 100vh;
-      width: 100%;
-      overflow: hidden;
+    :root{
+      --brand:#00e676; --bg:#0b1b2a; --card:#102840;
     }
-
-    #map {
-      flex: 1;
-      height: 100%;
-      z-index: 1;
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto}
+    .app{display:flex;height:100%}
+    #map{flex:1;min-width:0}
+    .side{
+      width:320px;background:var(--bg);color:#fff;display:flex;flex-direction:column;
+      padding:10px;gap:8px;overflow:auto
     }
-
-    /* Panel lateral */
-    #sidebar {
-      width: 320px;
-      background: #0b1b2a;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      padding: 10px;
-      overflow-y: auto;
+    .side h4{margin:0 0 6px;font-size:16px;color:var(--brand);text-align:center}
+    .card{background:var(--card);border-radius:10px;padding:10px}
+    .item{background:#0e2a45;padding:8px;border-radius:8px;margin:6px 0}
+    .online{color:#2bff90;font-size:12px}
+    .topbar{
+      position:absolute;left:12px;top:12px;z-index:999;background:#fff;border-radius:10px;
+      box-shadow:0 4px 16px rgba(0,0,0,.18);display:flex;gap:6px;align-items:center;padding:6px 8px
     }
-
-    #sidebar h4 {
-      color: #00e676;
-      text-align: center;
-      margin: 8px 0 12px;
-      font-size: 16px;
-    }
-
-    .item {
-      background: #102840;
-      padding: 8px;
-      margin: 5px 0;
-      border-radius: 6px;
-      font-size: 13px;
-    }
-
-    .online { color: #00ff80; font-size: 11px; }
-
-    /* Barra superior */
-    #topbar {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      right: 340px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 0 6px rgba(0,0,0,0.3);
-      padding: 6px 12px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      z-index: 1000;
-    }
-
-    select, button {
-      padding: 4px 6px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-    }
-
-    button {
-      background: #00b050;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-
-    button:hover { background: #008f40; }
-
-    #logo {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: white;
-      border-radius: 8px;
-      padding: 6px 10px;
-      display: flex;
-      align-items: center;
-      box-shadow: 0 0 5px rgba(0,0,0,0.2);
-      gap: 6px;
-      font-weight: bold;
-      z-index: 2000;
-    }
-
-    #logo img { height: 28px; }
+    .brand{display:flex;align-items:center;gap:8px;font-weight:700}
+    .brand img{height:24px}
+    select,button{border:1px solid #d0d7de;border-radius:8px;padding:6px 8px}
+    button{background:#00b050;color:#fff;border-color:#00b050;cursor:pointer}
+    button:hover{filter:brightness(.95)}
+    .muted{opacity:.7}
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="app">
     <div id="map"></div>
-    <div id="sidebar">
+
+    <div class="side">
       <h4>🛰 Brigadas Conectadas</h4>
-      <div id="list"></div>
+      <div id="list" class="card"></div>
+      <div class="card muted" id="hint">
+        Consejo: usa “Actualizar” para cargar recorrido histórico (últimas 3h) con los filtros.
+      </div>
     </div>
   </div>
 
-  <div id="topbar">
+  <!-- barra superior -->
+  <div class="topbar">
+    <div class="brand">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/Cicsa_logo.png" alt="CICSA" />
+      CICSA Monitoreo GPS
+    </div>
     <select id="zona"><option value="">Zona (todas)</option></select>
     <select id="contrata"><option value="">Contrata (todas)</option></select>
     <select id="brigada"><option value="">Brigada (todas)</option></select>
-    <button id="btnFiltrar">Actualizar</button>
-  </div>
-
-  <div id="logo">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/Cicsa_logo.png" alt="CICSA">
-    <span>Monitoreo GPS</span>
+    <button id="refresh">Actualizar</button>
+    <button id="fit">Centrar</button>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-  const map = L.map('map').setView([-12.0464, -77.0428], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+    // --------- MAPA ----------
+    const map = L.map('map', { zoomControl:true }).setView([-12.06,-77.04], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
 
-  const markers = {}, polylines = {};
-  const listDiv = document.getElementById('list');
-
-  function drawMarker(id, lat, lng, meta) {
-    if (!markers[id]) {
-      const icon = L.icon({
-        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3468/3468365.png',
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
-      });
-      const marker = L.marker([lat, lng], { icon }).addTo(map);
-      marker.bindPopup(`<b>${meta.display}</b><br>${meta.contrata || ''} / ${meta.zona || ''}`);
-      markers[id] = { marker, meta, coords: [[lat, lng]] };
-    } else {
-      const m = markers[id];
-      m.marker.setLatLng([lat, lng]);
-      m.coords.push([lat, lng]);
-      if (polylines[id]) map.removeLayer(polylines[id]);
-      polylines[id] = L.polyline(m.coords, { color: '#00e676', weight: 3 }).addTo(map);
-    }
-    updateList();
-  }
-
-  function updateList() {
-    listDiv.innerHTML = '';
-    Object.entries(markers).forEach(([id, obj]) => {
-      const d = obj.meta;
-      const div = document.createElement('div');
-      div.className = 'item';
-      div.innerHTML = `<b>${d.display}</b><br>${d.contrata || ''} / ${d.zona || ''}<br><span class="online">🟢 En línea</span>`;
-      listDiv.appendChild(div);
+    // Icono “carrito” desde CDN (no hace falta archivo local)
+    const carIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/3468/3468365.png',
+      iconSize: [30,30], iconAnchor:[15,15]
     });
-  }
 
-  // --- WebSocket ---
-  function connectWS() {
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-    ws.onopen = () => console.log("✅ WS conectado");
-    ws.onclose = () => setTimeout(connectWS, 5000);
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "snapshot") {
-        for (const [id, v] of Object.entries(msg.data)) drawMarker(id, v.lat, v.lng, v.meta);
-      }
-      if (msg.type === "point") {
-        const v = msg.data; drawMarker(v.id, v.lat, v.lng, v.meta);
-      }
-    };
-  }
-  connectWS();
+    // Estado en cliente
+    const markers = {};   // id -> {marker, meta}
+    const trails  = {};   // id -> polyline
+    const coords  = {};   // id -> [[lat,lng],...]
+    const listDiv = document.getElementById('list');
 
-  // --- Filtros dinámicos ---
-  async function cargarFiltros() {
-    try {
-      const res = await fetch("/api/recorridos?minutes=180");
-      if (!res.ok) throw new Error("Sin datos");
-      const { data } = await res.json();
-      const zonas = new Set(), contratas = new Set(), brigadas = new Set();
-      for (const arr of Object.values(data)) {
-        arr.forEach(r => {
-          zonas.add(r.meta.zona);
-          contratas.add(r.meta.contrata);
-          brigadas.add(r.meta.brigada);
+    // Helpers UI
+    function upsertSelect(id, values){
+      const sel = document.getElementById(id);
+      const label = id.charAt(0).toUpperCase()+id.slice(1);
+      sel.innerHTML = `<option value="">${label} (todas)</option>`;
+      Array.from(values).filter(Boolean).sort().forEach(v=>{
+        sel.insertAdjacentHTML('beforeend', `<option>${v}</option>`);
+      });
+    }
+
+    function updateList(){
+      listDiv.innerHTML = '';
+      const items = Object.values(markers);
+      if (!items.length){
+        listDiv.innerHTML = '<div class="muted">No hay brigadas en línea.</div>';
+        return;
+      }
+      items.sort((a,b)=> (a.meta.display||'').localeCompare(b.meta.display||''));
+      for (const {marker, meta} of items){
+        const el = document.createElement('div');
+        el.className = 'item';
+        el.innerHTML =
+          `<b>${meta.display || '—'}</b><br>`+
+          `${meta.contrata || '—'} / ${meta.zona || '—'} / ${meta.brigada || '—'}<br>`+
+          `<span class="online">🟢 En línea</span>`;
+        el.onclick = ()=> { map.setView(marker.getLatLng(), 17); marker.openPopup(); };
+        listDiv.appendChild(el);
+      }
+    }
+
+    function fitAll(){
+      const bounds = [];
+      for (const id in markers) bounds.push(markers[id].marker.getLatLng());
+      if (bounds.length) map.fitBounds(bounds, { padding:[40,40] });
+    }
+
+    // Dibuja/actualiza punto en vivo
+    function drawLive(id, lat, lng, meta){
+      // marcador
+      if (!markers[id]){
+        const m = L.marker([lat,lng], { icon: carIcon }).addTo(map);
+        m.bindPopup(`<b>${meta.display || id}</b><br>${meta.contrata || ''} / ${meta.zona || ''} / ${meta.brigada || ''}`);
+        markers[id] = { marker:m, meta };
+      } else {
+        markers[id].marker.setLatLng([lat,lng]);
+        markers[id].meta = meta;
+        markers[id].marker.setPopupContent(
+          `<b>${meta.display || id}</b><br>${meta.contrata || ''} / ${meta.zona || ''} / ${meta.brigada || ''}`
+        );
+      }
+      // cola de coords para la polyline en tiempo real
+      (coords[id] ||= []).push([lat,lng]);
+      if (coords[id].length > 200) coords[id].shift();
+
+      if (trails[id]) trails[id].setLatLngs(coords[id]);
+      else trails[id] = L.polyline(coords[id], { color:'#00e676', weight:3 }).addTo(map);
+
+      updateList();
+    }
+
+    // --------- WS EN TIEMPO REAL ----------
+    function wsURL(){
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      return `${proto}://${location.host}/ws`;
+    }
+    function connectWS(){
+      const ws = new WebSocket(wsURL());
+      ws.onopen   = () => console.log('WS conectado');
+      ws.onclose  = () => setTimeout(connectWS, 2000);
+      ws.onerror  = () => {}; // silencioso
+      ws.onmessage = (e)=>{
+        try{
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'snapshot'){
+            let first = true;
+            for (const [id, v] of Object.entries(msg.data)){
+              drawLive(id, v.lat, v.lng, v.meta || {});
+              if (first){ first=false; fitAll(); }
+            }
+          }
+          if (msg.type === 'point'){
+            const v = msg.data;
+            drawLive(v.id, v.lat, v.lng, v.meta || {});
+          }
+        }catch(_){}
+      };
+    }
+    connectWS();
+
+    // --------- HISTÓRICO / FILTROS ----------
+    async function cargarRecorridos(){
+      const zona     = document.getElementById('zona').value;
+      const contrata = document.getElementById('contrata').value;
+      const brigada  = document.getElementById('brigada').value;
+      const qs = new URLSearchParams({ zona, contrata, brigada }).toString();
+      const url = qs ? `/api/recorridos?${qs}` : '/api/recorridos';
+
+      try{
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP '+res.status);
+        const { ok, data } = await res.json();
+        if (!ok) throw new Error('Respuesta inválida');
+
+        // limpiar polylines antiguas (no tocamos marcadores en vivo)
+        for (const id in trails){ map.removeLayer(trails[id]); delete trails[id]; }
+        for (const id in coords){ delete coords[id]; }
+
+        const zonas=new Set(), contratas=new Set(), brigadas=new Set();
+        const bounds = [];
+
+        for (const [id, arr] of Object.entries(data)){
+          arr.forEach((p, i)=>{
+            (coords[id] ||= []).push([p.lat, p.lng]);
+            zonas.add(p.meta?.zona); contratas.add(p.meta?.contrata); brigadas.add(p.meta?.brigada);
+            if (!markers[id]) {
+              // crea marcador si no existe aún
+              drawLive(id, p.lat, p.lng, p.meta || {});
+            }
+          });
+          if (coords[id]?.length){
+            trails[id] = L.polyline(coords[id], { color:'#00e676', weight:3 }).addTo(map);
+            bounds.push(...coords[id]);
+          }
+        }
+        upsertSelect('zona', zonas);
+        upsertSelect('contrata', contratas);
+        upsertSelect('brigada', brigadas);
+
+        if (bounds.length) map.fitBounds(bounds, { padding:[40,40] });
+      }catch(err){
+        console.warn('Error al cargar recorridos:', err.message);
+      }
+    }
+
+    // Al cargar: tomar conectados para la lista
+    async function cargarConectados(){
+      try{
+        const r = await fetch('/api/conectados');
+        const { ok, data } = await r.json();
+        if (!ok) return;
+        data.forEach(({id, lat, lng, meta})=>{
+          drawLive(id, lat, lng, meta || {});
         });
-      }
-      fillSelect("zona", zonas);
-      fillSelect("contrata", contratas);
-      fillSelect("brigada", brigadas);
-    } catch(e) {
-      console.error("Error al cargar filtros:", e.message);
+        fitAll();
+      }catch(_){}
     }
-  }
 
-  function fillSelect(id, values) {
-    const sel = document.getElementById(id);
-    sel.innerHTML = `<option value="">${id.charAt(0).toUpperCase() + id.slice(1)} (todas)</option>`;
-    values.forEach(v => v && sel.insertAdjacentHTML('beforeend', `<option>${v}</option>`));
-  }
+    document.getElementById('refresh').addEventListener('click', cargarRecorridos);
+    document.getElementById('fit').addEventListener('click', fitAll);
 
-  document.getElementById("btnFiltrar").addEventListener("click", async () => {
-    const zona = document.getElementById("zona").value;
-    const contrata = document.getElementById("contrata").value;
-    const brigada = document.getElementById("brigada").value;
-    const params = new URLSearchParams({ zona, contrata, brigada }).toString();
-    const res = await fetch("/api/recorridos?" + params);
-    const { data } = await res.json();
-    Object.values(markers).forEach(m => map.removeLayer(m.marker));
-    Object.values(polylines).forEach(p => map.removeLayer(p));
-    Object.keys(markers).forEach(k => delete markers[k]);
-    for (const [id, arr] of Object.entries(data)) {
-      arr.forEach(p => drawMarker(id, p.lat, p.lng, p.meta));
-    }
-  });
-
-  cargarFiltros();
+    // Primeros datos
+    cargarConectados();    // lista + marcadores en vivo
+    cargarRecorridos();    // histórico 3h (sin filtros)
   </script>
 </body>
 </html>
