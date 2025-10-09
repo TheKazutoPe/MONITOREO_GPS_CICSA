@@ -368,7 +368,8 @@ async function exportKMZ(){
       if (!arr.length) continue;
 
       const meta0 = arr[arr.length-1]?.meta || arr[0]?.meta || {};
-      const name = meta0.brigada || meta0.display || id;
+      // ← CAMBIO: preferir brigada, luego técnico, luego display
+      const name = meta0.brigada || meta0.tecnico || meta0.display || id;
 
       const coords = arr.map(p => `${p.lng},${p.lat},0`).join(" ");
 

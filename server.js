@@ -165,7 +165,8 @@ app.get("/api/recorridos", async (req, res) => {
           display: r.tecnico || r.brigada || `ID ${r.usuario_id}`,
           brigada: r.brigada,
           zona: r.zona,
-          contrata: r.contrata
+          contrata: r.contrata,
+          tecnico: r.tecnico // ← NUEVO: para que el front pueda usar técnico como fallback de nombre
         }
       });
     }
@@ -220,3 +221,4 @@ server.listen(PORT, () => {
   console.log(`🚀 HTTP en http://localhost:${PORT}`);
   console.log(`🔌 WS   en ws://localhost:${PORT}/ws`);
 });
+

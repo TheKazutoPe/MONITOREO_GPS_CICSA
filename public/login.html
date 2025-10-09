@@ -93,11 +93,19 @@ function iniciarGPS(usr){
     return;
   }
 
-  const opts = { enableHighAccuracy:true, maximumAge:0, timeout:10000 };
+  const opts = { enableHighAccuracy:true, maximumAge:0, timeout:15000 };
   watchId = navigator.geolocation.watchPosition(async (pos)=>{
     const crd = pos.coords;
     const now = Date.now();
     if (now - lastSend < 4500) return; // throttling
+
+    // === MEJORA DE PRECISIÓN: descartar lecturas con accuracy > 50m ===
+    const acc = Number(crd.accuracy);
+    if (isFinite(acc) && acc > 50) {
+      // no enviamos posiciones de baja calidad
+      return;
+    }
+
     lastSend = now;
 
     const payload = {
@@ -112,7 +120,7 @@ function iniciarGPS(usr){
     };
     infoEl.innerHTML = `
       <b>Coordenadas:</b> ${crd.latitude.toFixed(5)}, ${crd.longitude.toFixed(5)}<br>
-      <b>Precisión:</b> ${crd.accuracy?.toFixed ? crd.accuracy.toFixed(1) : crd.accuracy} m<br>
+      <b>Precisión:</b> ${isFinite(acc) ? acc.toFixed(1) : '—'} m (≤ 50 m)<br>
       <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}
     `;
     try{
