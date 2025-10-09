@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>CICSA · Monitoreo GPS</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     html, body {
@@ -14,44 +14,30 @@
       overflow: hidden;
     }
 
-    #map {
-      height: 100%;
-      width: 100%;
-      position: absolute;
-      top: 0;
-      left: 0;
-      z-index: 1;
-    }
+    #map { height: 100%; width: 100%; }
 
     /* LOGO */
     #logo-container {
       position: absolute;
       top: 10px;
-      left: 15px;
+      left: 10px;
       z-index: 3000;
       display: flex;
       align-items: center;
       gap: 8px;
       background: rgba(255,255,255,0.97);
-      padding: 8px 15px;
+      padding: 6px 14px;
       border-radius: 10px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
 
-    #logo-container img {
-      height: 35px;
-    }
-
-    #logo-container span {
-      font-weight: bold;
-      color: #002050;
-      font-size: 15px;
-    }
+    #logo-container img { height: 35px; }
+    #logo-container span { font-weight: bold; color: #002050; font-size: 15px; }
 
     /* FILTROS */
     .topbar {
       position: absolute;
-      left: 230px;
+      left: 250px;
       top: 10px;
       z-index: 3500;
       background: rgba(255,255,255,0.98);
@@ -75,12 +61,11 @@
       color: #fff;
       border: none;
       cursor: pointer;
-      transition: background .2s;
     }
 
     button:hover { background: #009944; }
 
-    /* PANEL LATERAL */
+    /* PANEL */
     #sidebar {
       position: absolute;
       right: 10px;
@@ -100,7 +85,6 @@
       text-align: center;
       color: #00e676;
       margin: 0 0 10px;
-      font-size: 17px;
     }
 
     .item {
@@ -112,32 +96,26 @@
       transition: background .2s, transform .2s;
     }
 
-    .item:hover {
-      background: #143a61;
-      transform: scale(1.02);
-    }
-
+    .item:hover { background: #143a61; transform: scale(1.02); }
     .online { color: #00e676; font-size: 12px; }
     .time { color: #ccc; font-size: 12px; }
   </style>
 </head>
+
 <body>
   <div id="map"></div>
 
-  <!-- LOGO -->
   <div id="logo-container">
-    <img src="/static/logo_cicsa.png" alt="CICSA" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3790/3790033.png'">
+    <img src="/static/logo_cicsa.png" alt="CICSA" />
     <span>CICSA Monitoreo GPS</span>
   </div>
 
-  <!-- FILTROS -->
   <div class="topbar">
     <select id="contrata"><option value="">Contrata</option></select>
     <select id="brigada"><option value="">Brigada</option></select>
     <button id="refresh">Actualizar</button>
   </div>
 
-  <!-- PANEL -->
   <div id="sidebar">
     <h4>🛰 Brigadas Conectadas</h4>
     <div id="list"></div>
@@ -146,7 +124,6 @@
     </div>
   </div>
 
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const map = L.map("map").setView([-12.06, -77.04], 12);
@@ -156,91 +133,93 @@
 
     const carIcon = L.icon({
       iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png',
-      iconSize: [38,38],
-      iconAnchor: [19,19]
+      iconSize: [34,34],
+      iconAnchor: [17,17]
     });
 
-    const markers = {}, trails = {}, coords = {}, lastUpdate = {};
-    const listDiv = document.getElementById("list");
+    const markers = new Map();
+    const trails = new Map();
+    const colors = ["#007bff","#28a745","#ff5722","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
+    const colorMap = new Map();
 
-    // Renderiza la lista lateral
-    function renderList() {
-      listDiv.innerHTML = '';
-      for (const id in markers) {
-        const meta = markers[id].meta;
-        const time = lastUpdate[id]
-          ? new Date(lastUpdate[id]).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-          : '—';
-        const el = document.createElement('div');
-        el.className = 'item';
-        el.innerHTML = `
-          <b>${meta.display || id}</b><br>
-          ${meta.contrata || '—'} / ${meta.zona || '—'} / ${meta.brigada || '—'}<br>
-          <span class="online">🟢 En línea</span> · <span class="time">${time}</span>
-        `;
-        el.onclick = () => {
-          const marker = markers[id].marker;
-          map.setView(marker.getLatLng(), 16, { animate: true });
-          marker.openPopup();
-        };
-        listDiv.appendChild(el);
+    const colorFor = id => {
+      if (!colorMap.has(id)) colorMap.set(id, colors[colorMap.size % colors.length]);
+      return colorMap.get(id);
+    };
+
+    function addOrUpdateBrigada(id, lat, lng, meta, ts) {
+      const popup = `<b>${meta?.display || id}</b><br>${meta?.brigada || ''} / ${meta?.zona || ''} / ${meta?.contrata || ''}<br>${new Date(ts).toLocaleString()}`;
+
+      let m = markers.get(id);
+      if (!m) {
+        m = L.marker([lat, lng], { icon: carIcon }).addTo(map).bindPopup(popup);
+        markers.set(id, m);
+      } else {
+        m.setLatLng([lat, lng]).setPopupContent(popup);
       }
-    }
 
-    // Dibuja cada punto y recorrido
-    function drawLive(id, lat, lng, meta) {
-      lastUpdate[id] = new Date();
-      if (!markers[id]) {
-        const m = L.marker([lat, lng], { icon: carIcon }).addTo(map);
-        m.bindPopup(`<b>${meta.display}</b><br>${meta.contrata || ''} / ${meta.zona || ''}`);
-        markers[id] = { marker: m, meta };
-      } else markers[id].marker.setLatLng([lat, lng]);
-
-      if (!coords[id]) coords[id] = [];
-      coords[id].push([lat, lng]);
-      if (coords[id].length > 2000) coords[id].shift();
-
-      if (trails[id]) trails[id].setLatLngs(coords[id]);
-      else trails[id] = L.polyline(coords[id], { color: '#003366', weight: 3, opacity: 0.8 }).addTo(map);
+      let pl = trails.get(id);
+      if (!pl) {
+        const color = colorFor(id);
+        pl = L.polyline([[lat, lng]], { color, weight: 4, opacity: 0.8 }).addTo(map);
+        trails.set(id, pl);
+      } else {
+        const arr = pl.getLatLngs();
+        arr.push([lat, lng]);
+        if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+        pl.setLatLngs(arr);
+      }
 
       renderList();
     }
 
-    // -------------------------------
-    // WEBSOCKET
-    // -------------------------------
-    const socket = io({ transports: ['websocket'] });
+    function renderList() {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      markers.forEach((obj, id) => {
+        const color = colorFor(id);
+        const el = document.createElement('div');
+        el.className = 'item';
+        el.style.borderLeft = `4px solid ${color}`;
+        el.innerHTML = `<b style="color:${color}">${id}</b><br><span class="online">🟢 En línea</span>`;
+        el.onclick = () => { map.setView(obj.getLatLng(), 16); obj.openPopup(); };
+        list.appendChild(el);
+      });
+    }
 
-    socket.on("connect", () => console.log("🟢 WS conectado"));
-    socket.on("disconnect", () => console.warn("🔴 WS desconectado"));
-    socket.on("snapshot", msg => {
-      for (const [id, v] of Object.entries(msg.data))
-        drawLive(id, v.lat, v.lng, v.meta);
-    });
-    socket.on("point", msg => {
-      const v = msg.data;
-      drawLive(v.id, v.lat, v.lng, v.meta);
-    });
+    // ---------------------------
+    // CONEXIÓN WEBSOCKET /ws
+    // ---------------------------
+    const ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws');
 
-    // -------------------------------
-    // BOTÓN ACTUALIZAR
-    // -------------------------------
-    document.getElementById('refresh').onclick = async () => {
-      const btn = document.getElementById('refresh');
-      btn.style.background = '#004c2c';
-      setTimeout(() => btn.style.background = '#00b050', 500);
+    ws.onopen = () => console.log("✅ WS conectado");
+    ws.onclose = () => console.warn("❌ WS desconectado");
+    ws.onerror = e => console.error("⚠️ Error WS:", e);
+    ws.onmessage = ev => {
       try {
-        const res = await fetch('/api/recorridos');
-        const j = await res.json();
-        if (!j.ok) return alert("Error al cargar recorridos");
-        for (const [id, arr] of Object.entries(j.data)) {
-          for (const p of arr) drawLive(id, p.lat, p.lng, p.meta);
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'point') {
+          const d = msg.data;
+          addOrUpdateBrigada(d.id, d.lat, d.lng, d.meta, d.ts || Date.now());
+        } else if (msg.type === 'snapshot') {
+          for (const [id, v] of Object.entries(msg.data))
+            addOrUpdateBrigada(id, v.lat, v.lng, v.meta, Date.now());
         }
-      } catch (err) {
-        alert("Error al conectar con el servidor.");
+      } catch(e) {
+        console.error("Mensaje WS inválido:", e);
       }
+    };
+
+    // ---------------------------
+    // BOTÓN ACTUALIZAR
+    // ---------------------------
+    document.getElementById('refresh').onclick = async () => {
+      const res = await fetch('/api/recorridos');
+      const j = await res.json();
+      if (!j.ok) return alert('Error cargando recorridos');
+      for (const [id, arr] of Object.entries(j.data))
+        for (const p of arr) addOrUpdateBrigada(id, p.lat, p.lng, p.meta, Date.now());
     };
   </script>
 </body>
 </html>
-
