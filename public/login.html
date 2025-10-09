@@ -65,7 +65,9 @@ let lastWeakSend = 0;
 // UMBRALES internos
 const ACC_TARGET = 80;     // antes 50
 const ACC_MAX    = 300;    // antes 150
+const MIN_INTERVAL_MS       = 4500;   // intervalo con buena señal
 const MIN_INTERVAL_WEAK_MS = 12000; // antes 20000 (envía un poco más seguido cuando es intermedia)
+
 
 async function login(usuario, clave){
   const res = await fetch(`${API}/api/login`,{
