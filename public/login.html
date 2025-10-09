@@ -1,87 +1,50 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<title>Monitoreo de Brigadas - Login</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body{font-family:system-ui,Arial,sans-serif;padding:18px;max-width:520px;margin:auto}
-  .card{border:1px solid #e9ecef;border-radius:14px;padding:16px;box-shadow:0 8px 20px rgba(0,0,0,.05)}
-  label{display:block;margin:.5rem 0 .2rem}
-  input,button{width:100%;padding:.75rem;border:1px solid #ced4da;border-radius:10px}
-  button{cursor:pointer;margin-top:.75rem;background:#198754;color:#fff;border-color:#198754}
-  .muted{color:#6c757d;font-size:.9rem}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
-</style>
+  <meta charset="UTF-8">
+  <title>Monitoreo de Brigadas</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body { background: #f6f7fb; }
+    .box { max-width: 400px; margin: 100px auto; padding: 25px; background: white; border-radius: 10px; box-shadow: 0 0 8px rgba(0,0,0,.1); }
+  </style>
 </head>
 <body>
-  <h2>Monitoreo de Brigadas</h2>
-  <p class="muted">Inicia sesión con tu usuario y clave registrados.</p>
-
-  <div id="login" class="card">
-    <label>Usuario</label>
-    <input id="usuario" placeholder="usuario" />
-    <label>Clave</label>
-    <input id="clave" type="password" placeholder="•••••••" />
-    <button id="btnLogin">Ingresar</button>
+  <div class="box">
+    <h4 class="text-center fw-bold">Monitoreo de Brigadas</h4>
+    <p class="text-center text-muted">Inicia sesión con tu usuario y clave registrados.</p>
+    <input id="usuario" class="form-control mb-3" placeholder="Usuario">
+    <input id="clave" type="password" class="form-control mb-3" placeholder="Clave">
+    <button id="loginBtn" class="btn btn-success w-100">Ingresar</button>
+    <div id="msg" class="text-center text-danger mt-3"></div>
   </div>
 
-  <div id="panel" class="card" style="display:none;">
-    <div id="bienvenida" class="muted"></div>
-    <div class="row">
-      <button id="btnIniciar">Iniciar recorrido</button>
-      <button id="btnDetener" disabled>Detener</button>
-    </div>
-    <p class="muted" id="estado">GPS: inactivo</p>
-  </div>
+  <script>
+  document.getElementById("loginBtn").addEventListener("click", async () => {
+    const usuario = document.getElementById("usuario").value.trim();
+    const clave = document.getElementById("clave").value.trim();
+    const msg = document.getElementById("msg");
 
-<script>
-let user=null, timer=null;
+    if (!usuario || !clave) return msg.textContent = "Completa los campos.";
 
-document.getElementById('btnLogin').onclick = async ()=>{
-  const res = await fetch('/api/login',{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ usuario: usuario.value.trim(), clave: clave.value.trim() })
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usuario, clave })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        localStorage.setItem("usuario", JSON.stringify(data.usuario));
+        msg.textContent = "✅ Conectado. Enviando posición...";
+        // Aquí el técnico debería tener su app móvil enviando /api/posicion
+      } else {
+        msg.textContent = "❌ Usuario o clave incorrectos.";
+      }
+    } catch (e) {
+      msg.textContent = "Error de conexión.";
+    }
   });
-  const r = await res.json();
-  if(!r.ok){ alert('Usuario o clave inválidos'); return; }
-  user = r.usuario;
-  login.style.display='none'; panel.style.display='block';
-  bienvenida.textContent = `Bienvenido ${user.nombre} (${user.cargo}) — ${user.brigada||''} ${user.zona||''} ${user.contrata||''}`;
-};
-
-document.getElementById('btnIniciar').onclick = ()=>{
-  if (!navigator.geolocation) { alert('Tu dispositivo no soporta GPS'); return; }
-  btnIniciar.disabled=true; btnDetener.disabled=false;
-  estado.textContent = 'GPS: transmitiendo cada 15s…';
-
-  const send = (pos)=>{
-    fetch('/api/posicion',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        usuario_id: user.id,
-        tecnico: user.nombre,
-        brigada: user.brigada,
-        contrata: user.contrata,
-        zona: user.zona,
-        cargo: user.cargo,
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        acc: pos.coords.accuracy,
-        spd: pos.coords.speed
-      })
-    });
-  };
-
-  navigator.geolocation.getCurrentPosition(send, ()=>{}, { enableHighAccuracy:true, timeout:8000, maximumAge:0 });
-  timer = setInterval(()=> navigator.geolocation.getCurrentPosition(send), 15000);
-};
-
-document.getElementById('btnDetener').onclick = ()=>{
-  clearInterval(timer);
-  btnIniciar.disabled=false; btnDetener.disabled=true;
-  estado.textContent = 'GPS: detenido';
-};
-</script>
+  </script>
 </body>
 </html>

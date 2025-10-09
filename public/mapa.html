@@ -1,79 +1,68 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo de Brigadas</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <meta charset="UTF-8">
+  <title>Mapa de Brigadas</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
-    body {
-      background: #f5f6f8;
-      font-family: "Segoe UI", sans-serif;
+    html, body { margin:0; height:100%; }
+    #map { height:100%; }
+    #sidebar {
+      position:absolute; top:0; right:0; width:260px; height:100%;
+      background:#0b1b2a; color:white; padding:10px; overflow-y:auto;
     }
-    .login-box {
-      max-width: 400px;
-      margin: 80px auto;
-      background: #fff;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-      padding: 25px;
-    }
-    .btn-success {
-      background: #2e7d32;
-      border: none;
-    }
+    .item { background:#102840; margin:6px 0; padding:8px; border-radius:6px; }
+    .online { color:lime; font-size:10px; }
   </style>
 </head>
 <body>
-  <div class="login-box">
-    <h4 class="text-center mb-3 fw-bold">Monitoreo de Brigadas</h4>
-    <p class="text-center text-muted">Inicia sesión con tu usuario y clave registrados.</p>
-    <div class="mb-3">
-      <label class="form-label">Usuario</label>
-      <input type="text" id="usuario" class="form-control" placeholder="Ej: jlopez">
-    </div>
-    <div class="mb-3">
-      <label class="form-label">Clave</label>
-      <input type="password" id="clave" class="form-control" placeholder="********">
-    </div>
-    <button id="loginBtn" class="btn btn-success w-100">Ingresar</button>
-    <div id="msg" class="text-center mt-3 text-danger"></div>
-  </div>
+  <div id="map"></div>
+  <div id="sidebar"><h5>🛰 Brigadas conectadas</h5><div id="list"></div></div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-  document.getElementById("loginBtn").addEventListener("click", async () => {
-    const usuario = document.getElementById("usuario").value.trim();
-    const clave = document.getElementById("clave").value.trim();
-    const msg = document.getElementById("msg");
-    msg.textContent = "";
+  const map = L.map('map').setView([-12.06, -77.04], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  }).addTo(map);
 
-    if (!usuario || !clave) return msg.textContent = "Completa usuario y clave.";
+  const markers = {};
+  const listDiv = document.getElementById('list');
 
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usuario, clave })
-      });
+  function updateList() {
+    listDiv.innerHTML = '';
+    Object.values(markers).forEach(m => {
+      const d = m.meta;
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.innerHTML = `<b>${d.display}</b><br>${d.contrata || ''} / ${d.zona || ''}<br><span class="online">En línea</span>`;
+      listDiv.appendChild(div);
+    });
+  }
 
-      if (!res.ok) {
-        msg.textContent = "Error de conexión con el servidor.";
-        return;
-      }
-
-      const data = await res.json();
-      if (data.ok) {
-        localStorage.setItem("usuario", JSON.stringify(data.usuario));
-        window.location.href = "mapa.html";
-      } else {
-        msg.textContent = "Usuario o clave incorrectos.";
-      }
-    } catch (e) {
-      msg.textContent = "Error interno. Intenta de nuevo.";
-      console.error(e);
+  function drawMarker(id, lat, lng, meta) {
+    if (!markers[id]) {
+      const icon = L.icon({ iconUrl: 'img/icon-car.png', iconSize: [28,28], iconAnchor:[14,14] });
+      const marker = L.marker([lat,lng], { icon }).addTo(map);
+      marker.bindPopup(`<b>${meta.display}</b><br>${meta.contrata} / ${meta.zona}`);
+      markers[id] = { marker, meta };
+    } else {
+      markers[id].marker.setLatLng([lat,lng]);
     }
-  });
+    updateList();
+  }
+
+  // --- WebSocket realtime ---
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "snapshot") {
+      for (const [id, v] of Object.entries(msg.data)) drawMarker(id, v.lat, v.lng, v.meta);
+    }
+    if (msg.type === "point") {
+      const v = msg.data; drawMarker(v.id, v.lat, v.lng, v.meta);
+    }
+  };
   </script>
 </body>
 </html>
-
