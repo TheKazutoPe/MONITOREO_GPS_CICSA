@@ -1,225 +1,212 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <title>CICSA · Monitoreo GPS</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      font-family: "Segoe UI", sans-serif;
-      background: #001a2b;
-      overflow: hidden;
-    }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Monitoreo Brigadas | CICSA</title>
 
-    #map { height: 100%; width: 100%; }
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    /* LOGO */
-    #logo-container {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      z-index: 3000;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: rgba(255,255,255,0.97);
-      padding: 6px 14px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    }
+<style>
+  html, body { height: 100%; margin: 0; }
+  #map { height: 100%; width: 100%; }
 
-    #logo-container img { height: 35px; }
-    #logo-container span { font-weight: bold; color: #002050; font-size: 15px; }
+  /* Barra superior */
+  .topbar {
+    position: absolute;
+    top: 10px;
+    left: 200px;
+    right: 10px;
+    background: rgba(255,255,255,0.97);
+    border-radius: 10px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 4500;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
 
-    /* FILTROS */
-    .topbar {
-      position: absolute;
-      left: 250px;
-      top: 10px;
-      z-index: 3500;
-      background: rgba(255,255,255,0.98);
-      border-radius: 10px;
-      padding: 6px 10px;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      box-shadow: 0 2px 10px rgba(0,0,0,.3);
-    }
+  select {
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 14px;
+  }
 
-    select, button {
-      padding: 6px 8px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      font-size: 14px;
-    }
+  #logo {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 4000;
+    background: rgba(255,255,255,0.9);
+    padding: 6px 10px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
 
-    button {
-      background: #00b050;
-      color: #fff;
-      border: none;
-      cursor: pointer;
-    }
+  #logo img { height: 50px; }
 
-    button:hover { background: #009944; }
+  /* Panel lateral de conectados */
+  #sidebar {
+    position: absolute;
+    right: 10px;
+    top: 80px;
+    width: 240px;
+    background: rgba(255,255,255,0.95);
+    border-radius: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    padding: 10px;
+    font-size: 13px;
+    overflow-y: auto;
+    max-height: calc(100% - 100px);
+    z-index: 4000;
+  }
 
-    /* PANEL */
-    #sidebar {
-      position: absolute;
-      right: 10px;
-      top: 10px;
-      width: 340px;
-      max-height: 95%;
-      background: rgba(10, 30, 50, 0.97);
-      color: #fff;
-      border-radius: 10px;
-      padding: 12px;
-      overflow-y: auto;
-      z-index: 4000;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
-    }
+  .user {
+    padding: 6px 8px;
+    margin-bottom: 5px;
+    background: rgba(0,0,0,0.05);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
 
-    h4 {
-      text-align: center;
-      color: #00e676;
-      margin: 0 0 10px;
-    }
+  .user:hover { background: rgba(0,150,255,0.1); }
 
-    .item {
-      background: #0d2948;
-      padding: 10px;
-      border-radius: 8px;
-      margin: 6px 0;
-      cursor: pointer;
-      transition: background .2s, transform .2s;
-    }
+  .user b { color: #004b6b; }
 
-    .item:hover { background: #143a61; transform: scale(1.02); }
-    .online { color: #00e676; font-size: 12px; }
-    .time { color: #ccc; font-size: 12px; }
-  </style>
+</style>
 </head>
 
 <body>
   <div id="map"></div>
 
-  <div id="logo-container">
-    <img src="/static/logo_cicsa.png" alt="CICSA" />
-    <span>CICSA Monitoreo GPS</span>
+  <div id="logo">
+    <img src="/static/logo_cicsa.png" alt="CICSA Logo" />
   </div>
 
   <div class="topbar">
-    <select id="contrata"><option value="">Contrata</option></select>
-    <select id="brigada"><option value="">Brigada</option></select>
-    <button id="refresh">Actualizar</button>
+    <label>Zona:</label>
+    <select id="zona">
+      <option value="">Todas</option>
+      <option>NORTE</option>
+      <option>SUR</option>
+      <option>CENTRO</option>
+      <option>LIMA</option>
+    </select>
+    <label>Contrata:</label>
+    <select id="contrata">
+      <option value="">Todas</option>
+      <option>CICSA</option>
+      <option>SAFESA</option>
+      <option>COMATEL</option>
+      <option>DOLAN</option>
+      <option>ECYTEL</option>
+    </select>
   </div>
 
   <div id="sidebar">
-    <h4>🛰 Brigadas Conectadas</h4>
-    <div id="list"></div>
-    <div style="margin-top:10px;font-size:13px;color:#ccc;">
-      Consejo: usa <b>"Actualizar"</b> para cargar recorrido histórico (últimas 3h).
-    </div>
+    <b>🟢 Brigadas conectadas</b>
+    <div id="users"></div>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    const map = L.map("map").setView([-12.06, -77.04], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+<script>
+const API = "https://monitoreo-gps-cicsa.onrender.com";
+let map, markers = {}, polylines = {};
 
-    const carIcon = L.icon({
-      iconUrl: 'https://cdn-icons-png.flaticon.com/512/3097/3097144.png',
-      iconSize: [34,34],
-      iconAnchor: [17,17]
+function initMap() {
+  map = L.map('map').setView([-9.2, -75.0], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+}
+
+function iconoBrigada() {
+  return L.icon({
+    iconUrl: '/static/vehiculo.png', // usa tu ícono PNG aquí
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+}
+
+function actualizarConectados() {
+  fetch(`${API}/api/conectados`)
+    .then(r => r.json())
+    .then(({data}) => {
+      const zonaSel = document.getElementById("zona").value;
+      const contrataSel = document.getElementById("contrata").value;
+      const usersDiv = document.getElementById("users");
+      usersDiv.innerHTML = "";
+      data
+        .filter(u => (!zonaSel || u.meta.zona === zonaSel) && (!contrataSel || u.meta.contrata === contrataSel))
+        .forEach(u => {
+          const div = document.createElement("div");
+          div.className = "user";
+          div.innerHTML = `
+            <b>${u.meta.display}</b><br>
+            <small>${u.meta.brigada || ""} | ${u.meta.zona} | ${u.meta.contrata}</small><br>
+            <small>Último: ${new Date(u.ts).toLocaleTimeString()}</small>
+          `;
+          div.onclick = () => {
+            if (markers[u.id]) {
+              map.setView(markers[u.id].getLatLng(), 15);
+              markers[u.id].openPopup();
+            }
+          };
+          usersDiv.appendChild(div);
+        });
     });
+}
 
-    const markers = new Map();
-    const trails = new Map();
-    const colors = ["#007bff","#28a745","#ff5722","#ffb700","#8a2be2","#00bcd4","#ff1493","#795548"];
-    const colorMap = new Map();
-
-    const colorFor = id => {
-      if (!colorMap.has(id)) colorMap.set(id, colors[colorMap.size % colors.length]);
-      return colorMap.get(id);
-    };
-
-    function addOrUpdateBrigada(id, lat, lng, meta, ts) {
-      const popup = `<b>${meta?.display || id}</b><br>${meta?.brigada || ''} / ${meta?.zona || ''} / ${meta?.contrata || ''}<br>${new Date(ts).toLocaleString()}`;
-
-      let m = markers.get(id);
-      if (!m) {
-        m = L.marker([lat, lng], { icon: carIcon }).addTo(map).bindPopup(popup);
-        markers.set(id, m);
-      } else {
-        m.setLatLng([lat, lng]).setPopupContent(popup);
-      }
-
-      let pl = trails.get(id);
-      if (!pl) {
-        const color = colorFor(id);
-        pl = L.polyline([[lat, lng]], { color, weight: 4, opacity: 0.8 }).addTo(map);
-        trails.set(id, pl);
-      } else {
-        const arr = pl.getLatLngs();
-        arr.push([lat, lng]);
-        if (arr.length > 2000) arr.splice(0, arr.length - 2000);
-        pl.setLatLngs(arr);
-      }
-
-      renderList();
-    }
-
-    function renderList() {
-      const list = document.getElementById('list');
-      list.innerHTML = '';
-      markers.forEach((obj, id) => {
-        const color = colorFor(id);
-        const el = document.createElement('div');
-        el.className = 'item';
-        el.style.borderLeft = `4px solid ${color}`;
-        el.innerHTML = `<b style="color:${color}">${id}</b><br><span class="online">🟢 En línea</span>`;
-        el.onclick = () => { map.setView(obj.getLatLng(), 16); obj.openPopup(); };
-        list.appendChild(el);
-      });
-    }
-
-    // ---------------------------
-    // CONEXIÓN WEBSOCKET /ws
-    // ---------------------------
-    const ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws');
-
-    ws.onopen = () => console.log("✅ WS conectado");
-    ws.onclose = () => console.warn("❌ WS desconectado");
-    ws.onerror = e => console.error("⚠️ Error WS:", e);
-    ws.onmessage = ev => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'point') {
-          const d = msg.data;
-          addOrUpdateBrigada(d.id, d.lat, d.lng, d.meta, d.ts || Date.now());
-        } else if (msg.type === 'snapshot') {
-          for (const [id, v] of Object.entries(msg.data))
-            addOrUpdateBrigada(id, v.lat, v.lng, v.meta, Date.now());
+function cargarRecorridos() {
+  fetch(`${API}/api/recorridos?minutes=180`)
+    .then(r => r.json())
+    .then(({data}) => {
+      Object.values(polylines).forEach(p => map.removeLayer(p));
+      polylines = {};
+      Object.entries(data).forEach(([uid, points]) => {
+        const latlngs = points.map(p => [p.lat, p.lng]);
+        if (latlngs.length > 1) {
+          const line = L.polyline(latlngs, { color: "#003366", weight: 3 }).addTo(map);
+          polylines[uid] = line;
         }
-      } catch(e) {
-        console.error("Mensaje WS inválido:", e);
-      }
-    };
+      });
+    });
+}
 
-    // ---------------------------
-    // BOTÓN ACTUALIZAR
-    // ---------------------------
-    document.getElementById('refresh').onclick = async () => {
-      const res = await fetch('/api/recorridos');
-      const j = await res.json();
-      if (!j.ok) return alert('Error cargando recorridos');
-      for (const [id, arr] of Object.entries(j.data))
-        for (const p of arr) addOrUpdateBrigada(id, p.lat, p.lng, p.meta, Date.now());
-    };
-  </script>
+function conectarWS() {
+  const ws = new WebSocket("wss://monitoreo-gps-cicsa.onrender.com/ws");
+  ws.onopen = () => console.log("🟢 WS conectado");
+  ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+    if (data.type === "point") {
+      const u = data.data;
+      const latlng = [u.lat, u.lng];
+      if (!markers[u.id]) {
+        const marker = L.marker(latlng, { icon: iconoBrigada() })
+          .addTo(map)
+          .bindPopup(`<b>${u.meta.display}</b><br>${u.meta.zona} - ${u.meta.contrata}`);
+        markers[u.id] = marker;
+        polylines[u.id] = L.polyline([latlng], { color: "#003366", weight: 3 }).addTo(map);
+      } else {
+        markers[u.id].setLatLng(latlng);
+        polylines[u.id].addLatLng(latlng);
+      }
+    }
+  };
+}
+
+initMap();
+conectarWS();
+cargarRecorridos();
+actualizarConectados();
+
+setInterval(actualizarConectados, 10000);
+setInterval(cargarRecorridos, 60000);
+</script>
 </body>
 </html>
+

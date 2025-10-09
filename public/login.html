@@ -1,211 +1,148 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CICSA Monitoreo GPS</title>
-  <style>
-    body {
-      font-family: "Segoe UI", sans-serif;
-      background: radial-gradient(circle at center, #001a2b, #000c14);
-      color: #fff;
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      margin: 0;
-    }
-
-    .card {
-      background: rgba(10, 30, 50, 0.92);
-      border-radius: 14px;
-      padding: 25px;
-      width: 350px;
-      text-align: center;
-      box-shadow: 0 0 20px rgba(0, 255, 200, 0.4);
-      transition: all 0.3s;
-    }
-
-    .card.glow {
-      box-shadow: 0 0 25px rgba(0, 255, 200, 0.8);
-    }
-
-    .logo {
-      display: block;
-      margin: 0 auto 15px;
-      height: 60px;
-    }
-
-    h2 {
-      margin: 8px 0;
-      color: #fff;
-    }
-
-    input {
-      width: 90%;
-      padding: 8px;
-      margin: 6px 0;
-      border: none;
-      border-radius: 6px;
-      text-align: center;
-    }
-
-    button {
-      background: #00b050;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 10px 15px;
-      cursor: pointer;
-      margin-top: 8px;
-      width: 95%;
-      font-weight: 600;
-    }
-
-    button:hover { background: #009944; }
-
-    #status {
-      margin-top: 12px;
-      font-size: 14px;
-      color: #00e676;
-    }
-
-    #info {
-      background: rgba(0, 0, 0, 0.25);
-      border-radius: 8px;
-      margin-top: 10px;
-      text-align: left;
-      padding: 8px 12px;
-      font-size: 13px;
-      display: none;
-    }
-
-    .error {
-      color: #ff6666;
-      font-size: 14px;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Monitoreo GPS CICSA</title>
+<style>
+  body {
+    background: radial-gradient(circle at center, #001a2b, #000c14);
+    color: #fff;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: "Segoe UI", sans-serif;
+  }
+  .card {
+    background: rgba(10, 30, 50, 0.92);
+    border-radius: 14px;
+    padding: 25px;
+    width: 350px;
+    text-align: center;
+    box-shadow: 0 0 20px rgba(0, 255, 200, 0.4);
+    transition: all 0.3s;
+  }
+  .card.glow { box-shadow: 0 0 25px rgba(0, 255, 200, 0.8); }
+  .logo { height: 60px; margin-bottom: 10px; }
+  input {
+    width: 90%; padding: 8px; margin: 6px 0; border: none;
+    border-radius: 6px; text-align: center;
+  }
+  button {
+    background: #00b050; color: #fff; border: none;
+    border-radius: 6px; padding: 10px 15px;
+    cursor: pointer; margin-top: 8px; width: 95%; font-weight: 600;
+  }
+  button:hover { background: #009944; }
+  #status { margin-top: 12px; font-size: 14px; color: #00e676; }
+  #info {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    margin-top: 10px;
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 13px;
+    display: none;
+  }
+  .error { color: #ff6666; font-size: 14px; }
+</style>
 </head>
 <body>
   <div class="card" id="panel">
     <img src="/static/logo_cicsa.png" alt="CICSA" class="logo" />
     <h2>Monitoreo GPS</h2>
     <p>Ingreso para técnicos / brigadas</p>
-
     <input id="usuario" placeholder="Usuario" />
     <input id="clave" type="password" placeholder="Clave" />
     <button id="btnStart">Iniciar transmisión GPS</button>
-
     <div id="status"></div>
     <div id="info"></div>
     <div id="error" class="error"></div>
   </div>
 
   <script>
-    const btn = document.getElementById("btnStart");
-    const statusEl = document.getElementById("status");
-    const infoEl = document.getElementById("info");
-    const errorEl = document.getElementById("error");
-    const panel = document.getElementById("panel");
+  const API = "https://monitoreo-gps-cicsa.onrender.com"; // Render domain
+  const btn = document.getElementById("btnStart");
+  const statusEl = document.getElementById("status");
+  const infoEl = document.getElementById("info");
+  const errorEl = document.getElementById("error");
+  const panel = document.getElementById("panel");
+  let lastSend = 0, user = null;
 
-    let lastSend = 0;
-    let usuarioData = null;
+  async function login(usuario, clave) {
+    const res = await fetch(`${API}/api/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario, clave })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Login inválido");
+    return data.usuario;
+  }
 
-    async function login(usuario, clave) {
-      try {
-        const res = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ usuario, clave })
-        });
-        const data = await res.json();
-        if (data.ok) return data.data;
-        else throw new Error("Credenciales incorrectas");
-      } catch (e) {
-        console.error(e);
-        throw new Error("Error al conectar con el servidor");
-      }
+  async function enviarPosicion(data) {
+    await fetch(`${API}/api/posicion`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+  }
+
+  function iniciarGPS(usuario) {
+    user = usuario;
+    panel.classList.add("glow");
+    btn.disabled = true;
+    btn.textContent = "Transmitiendo...";
+    statusEl.textContent = "🟢 Transmitiendo posición en tiempo real...";
+    infoEl.style.display = "block";
+
+    if (!navigator.geolocation) {
+      statusEl.textContent = "⚠️ Geolocalización no soportada.";
+      return;
     }
 
-    async function enviarPosicion(data) {
-      try {
-        const res = await fetch("/api/posicion", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data)
-        });
-        const out = await res.json();
-        if (!out.ok) console.warn("⚠️ Error servidor:", out.error);
-      } catch (err) {
-        console.error("❌ Error al enviar posición:", err);
-      }
+    navigator.geolocation.watchPosition(async pos => {
+      const { latitude, longitude, accuracy, speed } = pos.coords;
+      const ahora = Date.now();
+      if (ahora - lastSend < 5000) return;
+      lastSend = ahora;
+
+      const payload = {
+        usuario_id: usuario.id,
+        tecnico: usuario.nombre,
+        brigada: usuario.brigada,
+        contrata: usuario.contrata,
+        zona: usuario.zona,
+        cargo: usuario.cargo,
+        lat: latitude,
+        lng: longitude
+      };
+      infoEl.innerHTML = `
+        <b>Coordenadas:</b> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br>
+        <b>Precisión:</b> ${accuracy.toFixed(1)} m<br>
+        <b>Velocidad:</b> ${(speed || 0).toFixed(1)} km/h<br>
+        <b>Hora local:</b> ${new Date().toLocaleTimeString()}
+      `;
+      await enviarPosicion(payload);
+    }, err => {
+      statusEl.textContent = "⚠️ Error obteniendo posición.";
+      console.error(err);
+    }, { enableHighAccuracy: true });
+  }
+
+  btn.onclick = async () => {
+    const u = document.getElementById("usuario").value.trim();
+    const p = document.getElementById("clave").value.trim();
+    if (!u || !p) return errorEl.textContent = "Ingrese usuario y clave";
+    errorEl.textContent = "";
+    try {
+      const usr = await login(u, p);
+      iniciarGPS(usr);
+    } catch (e) {
+      errorEl.textContent = e.message;
     }
-
-    function iniciarTransmision(usuarioObj) {
-      usuarioData = usuarioObj;
-      panel.classList.add("glow");
-      btn.disabled = true;
-      btn.textContent = "Transmitiendo...";
-      statusEl.textContent = "🟢 Transmitiendo posición en tiempo real...";
-      infoEl.style.display = "block";
-
-      if (!navigator.geolocation) {
-        statusEl.textContent = "⚠️ Geolocalización no soportada.";
-        return;
-      }
-
-      navigator.geolocation.watchPosition(
-        async (pos) => {
-          const { latitude, longitude, accuracy, speed } = pos.coords;
-          const ahora = Date.now();
-          if (ahora - lastSend < 5000) return; // cada 5s
-          lastSend = ahora;
-
-          const payload = {
-            usuario_id: usuarioObj.id,
-            tecnico: usuarioObj.nombre,
-            brigada: usuarioObj.brigada,
-            contrata: usuarioObj.contrata || "CICSA",
-            zona: usuarioObj.zona,
-            cargo: usuarioObj.cargo,
-            lat: latitude,
-            lng: longitude
-          };
-
-          infoEl.innerHTML = `
-            <b>Coordenadas:</b> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br>
-            <b>Precisión:</b> ${accuracy.toFixed(1)} m<br>
-            <b>Velocidad:</b> ${(speed || 0).toFixed(1)} km/h<br>
-            <b>Hora local:</b> ${new Date().toLocaleTimeString()}
-          `;
-
-          await enviarPosicion(payload);
-        },
-        (err) => {
-          console.error("Error GPS:", err);
-          statusEl.textContent = "⚠️ Error obteniendo posición.";
-        },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-      );
-    }
-
-    btn.onclick = async () => {
-      const usuario = document.getElementById("usuario").value.trim();
-      const clave = document.getElementById("clave").value.trim();
-
-      errorEl.textContent = "";
-      if (!usuario || !clave) {
-        errorEl.textContent = "Ingrese usuario y clave.";
-        return;
-      }
-
-      try {
-        const user = await login(usuario, clave);
-        if (user) iniciarTransmision(user);
-      } catch (e) {
-        errorEl.textContent = e.message;
-      }
-    };
+  };
   </script>
 </body>
 </html>
