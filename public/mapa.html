@@ -1,251 +1,379 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CICSA Monitoreo GPS</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CICSA Monitoreo GPS</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
 
-<style>
-  html, body { height: 100%; margin: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial; background:#0e1b26; }
-  #map { height: 100%; width: 100%; }
+  <style>
+    :root{
+      --panel-bg:#0b1b26;
+      --panel-fg:#d7f3ff;
+      --chip-bg:#132a37;
+      --ok:#1bd46a;
+      --soft:#0aa2ff;
+      --trail:#0b5fff;
+    }
 
-  /* Barra superior */
-  .topbar{
-    position: absolute; inset:10px 10px auto 10px; z-index: 1000;
-    display:flex; align-items:center; gap:12px; padding:10px 12px;
-    background: rgba(13, 30, 44, .92); color:#eaf6ff; border:1px solid #1d3a4f;
-    border-radius:12px; backdrop-filter: blur(6px); box-shadow: 0 6px 14px rgba(0,0,0,.25);
-  }
-  .brand{
-    display:flex; align-items:center; gap:10px; padding-right:8px; border-right:1px solid #254a63;
-  }
-  .brand img{ height:26px; }
-  .brand .fallback{ font-weight:700; letter-spacing:.2px; }
-  .bar-group{ display:flex; align-items:center; gap:8px; }
-  .bar-group label{ font-size:13px; opacity:.8; }
-  .bar-group select{
-    background:#0b1f2e; color:#d8f0ff; border:1px solid #24465d;
-    border-radius:8px; padding:6px 8px; outline:none;
-  }
-  .btn{
-    background:#1db57a; color:#072018; border:none; padding:7px 12px;
-    border-radius:10px; font-weight:700; cursor:pointer; box-shadow: 0 2px 0 #118a59 inset;
-  }
-  .btn:active{ transform: translateY(1px); }
+    html,body,#map { height:100%; margin:0; }
 
-  /* Panel lateral */
-  .panel{
-    position:absolute; right:12px; top:64px; z-index:1000; width:300px;
-    background:rgba(13,30,44,.92); color:#eaf6ff; border:1px solid #1d3a4f;
-    border-radius:12px; padding:12px; box-shadow:0 6px 14px rgba(0,0,0,.25);
-    max-height:78%; overflow:auto;
-  }
-  .panel h3{ margin:0 0 10px; font-size:16px; display:flex; align-items:center; gap:8px; }
-  .dot{ width:9px; height:9px; border-radius:50%; background:#25d366; display:inline-block; }
-  .user{
-    display:flex; align-items: flex-start; gap:10px; padding:8px; border-radius:10px;
-    border:1px solid #21465f; margin:8px 0; cursor:pointer; background:#0b1f2e;
-  }
-  .user:hover{ background:#0d2536; }
-  .user b{ display:block; margin-bottom:2px; }
-  .user small{ opacity:.8; }
+    /* Barra superior */
+    .topbar{
+      position:fixed; inset:8px 8px auto 8px; z-index:1000;
+      background:rgba(8,23,33,.9); backdrop-filter: blur(6px);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:12px; padding:8px 10px; display:flex; gap:8px; align-items:center;
+      color:#e7f8ff; box-shadow:0 6px 22px rgba(0,0,0,.25);
+    }
+    .brand{
+      display:flex; align-items:center; gap:10px; font-weight:700;
+      background:#0f2836; border-radius:10px; padding:6px 10px;
+    }
+    .brand img{ height:28px; width:auto; display:block }
+    .select{
+      background:#0f2836; color:#d7f3ff; border:none; border-radius:10px;
+      padding:8px 10px; outline:none;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    }
+    .btn{
+      background:#2bd96e; color:#07301f; border:none; border-radius:12px;
+      font-weight:700; padding:8px 14px; cursor:pointer;
+      box-shadow:0 6px 20px rgba(43,217,110,.25);
+    }
 
-  /* Popups */
-  .leaflet-popup-content b{ font-weight:700; }
-</style>
+    /* Panel derecho de conectados */
+    .sidebar{
+      position:fixed; inset:8px 8px auto auto; z-index:1000;
+      width:360px; max-width:42vw;
+      background:rgba(9,23,33,.92); color:var(--panel-fg);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px; box-shadow:0 6px 22px rgba(0,0,0,.25);
+      overflow:hidden;
+    }
+    .sb-title{
+      padding:12px 14px; font-weight:800; display:flex; align-items:center; gap:8px;
+      background:linear-gradient(180deg, rgba(14,37,51,.9), rgba(14,37,51,.6));
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .dot{ width:9px; height:9px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px rgba(27,212,106,.15)}
+    .sb-body{ padding:10px; max-height:38vh; overflow:auto }
+    .agent{
+      display:flex; gap:10px; padding:10px; border-radius:10px; margin-bottom:10px;
+      background:var(--chip-bg); border:1px solid rgba(255,255,255,.05); cursor:pointer;
+    }
+    .agent:hover{ outline:2px solid rgba(28,162,255,.35) }
+    .agent .name{ font-weight:900 }
+    .muted{ color:#98b8c7; font-size:.88rem }
+    .tiny{ font-size:.84rem; opacity:.85 }
+
+    /* === ROTACIÓN SUAVE DEL ICONO (car) === */
+    .car-icon{
+      transition: transform 180ms linear;
+      transform-origin: 50% 50%;
+      will-change: transform;
+    }
+
+    /* === RASTRO ANIMADO === */
+    .trail-line{
+      stroke-dasharray: 6 10;
+      animation: trailDash 6s linear infinite;
+    }
+    @keyframes trailDash{
+      to{ stroke-dashoffset:-200; }
+    }
+  </style>
 </head>
-<body>
-  <div id="map"></div>
 
+<body>
   <div class="topbar">
     <div class="brand">
-      <img src="/static/logo_cicsa.png" alt="CICSA Logo" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fallback',textContent:'CICSA Monitoreo GPS'}))">
-      <span class="fallback" style="display:none;">CICSA Monitoreo GPS</span>
+      <img src="/static/logo_cicsa.png"
+           onerror="this.src='https://i.imgur.com/2dU9uP1.png';"
+           alt="CICSA Logo" />
+      CICSA Monitoreo GPS
     </div>
 
-    <div class="bar-group">
-      <label>Zona:</label>
-      <select id="selZona">
-        <option value="">Todas</option>
-        <option value="LIMA">LIMA</option>
-        <option value="NORTE">NORTE</option>
-        <option value="SUR">SUR</option>
-        <option value="CENTRO">CENTRO</option>
-      </select>
-    </div>
-    <div class="bar-group">
-      <label>Contrata:</label>
-      <select id="selContrata">
-        <option value="">Todas</option>
-        <option value="CICSA">CICSA</option>
-        <option value="SAFESA">SAFESA</option>
-        <option value="COMATEL">COMATEL</option>
-        <option value="DOLAN">DOLAN</option>
-        <option value="ECYTEL">ECYTEL</option>
-      </select>
-    </div>
+    <label class="tiny">Zona:</label>
+    <select id="fZona" class="select">
+      <option value="">Todas</option>
+      <option>NORTE</option><option>SUR</option><option>CENTRO</option><option>LIMA</option>
+    </select>
+
+    <label class="tiny">Contrata:</label>
+    <select id="fContrata" class="select">
+      <option value="">Todas</option>
+      <option>CICSA</option><option>SAFESA</option><option>COMATEL</option><option>DOLAN</option><option>ECYTEL</option>
+    </select>
+
+    <label class="tiny">Brigada:</label>
+    <select id="fBrigada" class="select">
+      <option value="">Todas</option>
+    </select>
 
     <button id="btnCenter" class="btn">Centrar</button>
   </div>
 
-  <div class="panel">
-    <h3><span class="dot"></span> Brigadas conectadas</h3>
-    <div id="lista"></div>
+  <div class="sidebar">
+    <div class="sb-title"><span class="dot"></span> Brigadas conectadas</div>
+    <div id="listCon" class="sb-body">
+      <!-- items se agregan por JS -->
+    </div>
+    <div class="tiny" style="padding:8px 12px; color:#a9ccdc">
+      Consejo: usa los filtros para resaltar grupos. El tiempo “Último” se actualiza en vivo.
+    </div>
   </div>
 
-<script>
-const API = location.origin;
-const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
+  <div id="map"></div>
 
-const map = L.map('map').setView([-12.0464, -77.0428], 12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+  <script>
+    // =================== CONFIG ===================
+    const API_BASE = location.origin; // mantiene la misma raíz
+    const WS_URL   = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
 
-const state = new Map(); // id -> { marker, line, meta, lastLatLng, lastTs }
-const listaEl = document.getElementById('lista');
-const selZona = document.getElementById('selZona');
-const selContrata = document.getElementById('selContrata');
-
-/* ICONO: carrito en ruta */
-function iconCar() {
-  return L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png', /* coche */
-    iconSize: [40,40],
-    iconAnchor: [20,20]   /* centro del ícono */
-  });
-}
-
-function fmtHora(ts){
-  if(!ts) return '-';
-  const d = typeof ts==='number' ? new Date(ts) : new Date(ts);
-  const diff = Math.floor((Date.now()-d.getTime())/1000);
-  if (diff < 60) return `hace ${diff}s`;
-  const m = Math.floor(diff/60);
-  if (m < 60) return `hace ${m}m`;
-  const h = Math.floor(m/60);
-  return `hace ${h}h`;
-}
-
-function popupHtml(meta, ts){
-  return `
-    <b>${meta.display || '—'}</b><br>
-    ${meta.cargo || ''} | ${meta.brigada || ''}<br>
-    ${meta.zona || ''} | ${meta.contrata || ''}<br>
-    <small>Último: ${fmtHora(ts)}</small>
-  `;
-}
-
-function ensureLayer(u){
-  const id = u.id;
-  const meta = u.meta || {};
-  const lat = u.lat, lng = u.lng;
-  if (lat==null || lng==null) return;
-
-  const pos = [lat, lng];
-  if (!state.has(id)){
-    /* crear: marker con carrito + línea azul oscuro */
-    const marker = L.marker(pos,{icon:iconCar(), zIndexOffset:1000})
-      .addTo(map)
-      .bindPopup(popupHtml(meta, u.ts || Date.now()));
-
-    const line = L.polyline([pos], {color:'#0b3d91', weight:4, opacity:.9}).addTo(map);
-
-    state.set(id, { marker, line, meta, lastLatLng:pos, lastTs: u.ts || Date.now() });
-  } else {
-    /* actualizar */
-    const s = state.get(id);
-    s.marker.setLatLng(pos).setPopupContent(popupHtml(meta, u.ts || Date.now()));
-    s.line.addLatLng(pos);
-    s.meta = meta;
-    s.lastLatLng = pos;
-    s.lastTs = u.ts || Date.now();
-  }
-}
-
-function renderList(){
-  const fZona = selZona.value.trim();
-  const fCon = selContrata.value.trim();
-
-  listaEl.innerHTML = '';
-  const items = [];
-  state.forEach((s, id)=>{
-    const { meta, lastTs, lastLatLng } = s;
-    if (fZona && (meta.zona||'') !== fZona) return;
-    if (fCon && (meta.contrata||'') !== fCon) return;
-    items.push({id, meta, lastTs, lastLatLng});
-  });
-
-  items.sort((a,b)=> (b.lastTs||0)-(a.lastTs||0));
-
-  for (const it of items){
-    const div = document.createElement('div');
-    div.className = 'user';
-    div.innerHTML = `
-      <div style="flex:1">
-        <b>${it.meta.display || '—'}</b>
-        <div>${it.meta.cargo || ''} • ${it.meta.brigada || ''}</div>
-        <small>${it.meta.zona || ''} | ${it.meta.contrata || ''}</small><br>
-        <small>Último: ${fmtHora(it.lastTs)}</small>
-      </div>
-    `;
-    div.onclick = ()=>{ if(it.lastLatLng) map.setView(it.lastLatLng, 16); };
-    listaEl.appendChild(div);
-  }
-}
-
-function centerAll(){
-  const bounds = [];
-  state.forEach(s => { if(s.lastLatLng) bounds.push(s.lastLatLng); });
-  if (bounds.length){
-    map.fitBounds(L.latLngBounds(bounds).pad(0.2));
-  }
-}
-
-document.getElementById('btnCenter').onclick = centerAll;
-selZona.onchange = renderList;
-selContrata.onchange = renderList;
-
-/* Carga inicial por REST */
-async function loadInicial(){
-  try{
-    const r = await fetch(`${API}/api/conectados`);
-    const js = await r.json();
-    if (js && js.ok){
-      (js.data || []).forEach(u => {
-        ensureLayer({ id: u.id, lat: u.lat, lng: u.lng, meta: u.meta, ts: Date.now() });
+    // Car icon (carrito)
+    function iconCar(){
+      return L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/1995/1995574.png',
+        iconSize: [42,42],
+        iconAnchor: [21,21],
+        popupAnchor: [0,-20],
+        className: 'car-icon' // necesario para rotación suave
       });
-      renderList();
-      centerAll();
     }
-  }catch(e){ console.error('Error conectados:', e); }
-}
 
-/* WS tiempo real */
-const ws = new WebSocket(WS_URL);
-ws.onopen = ()=> console.log('WS conectado');
-ws.onmessage = ev => {
-  try{
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'snapshot'){
-      const snap = msg.data || {};
-      Object.entries(snap).forEach(([id, d])=>{
-        ensureLayer({ id, lat:d.lat, lng:d.lng, meta:d.meta, ts: Date.now() });
-      });
-      renderList();
-    } else if (msg.type === 'point'){
-      const d = msg.data || {};
-      ensureLayer({ id:d.id, lat:d.lat, lng:d.lng, meta:d.meta, ts: d.ts || Date.now() });
-      renderList();
+    // Mapa
+    const map = L.map('map', { zoomControl: true }).setView([-12.046, -77.042], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Estado por usuario
+    // key: usuario_id (o usuario), value: { marker, popup, lastLatLng, lastTs, trail }
+    const states = new Map();
+
+    // Rellenamos brigadas cuando llegan datos
+    function injectBrigada(b){
+      if(!b) return;
+      const sel = document.getElementById('fBrigada');
+      const exists = Array.from(sel.options).some(o => o.value === b);
+      if(!exists){
+        const opt = document.createElement('option');
+        opt.value = b; opt.textContent = b;
+        sel.appendChild(opt);
+      }
     }
-  }catch(e){ console.error('WS parse error', e); }
-};
 
-/* refresca el “Último: …” cada 10s */
-setInterval(renderList, 10_000);
+    // =================== HELPERS NUEVOS (ROTACIÓN + RASTRO) ===================
+    const TRAIL_MAX_POINTS = 60; // últimos 60 puntos
+    const TRAIL_COLOR = '#0b5fff';
+    const TRAIL_WEIGHT = 3;
 
-loadInicial();
-</script>
+    function getBearing(from, to){
+      if(!from || !to) return 0;
+      const lat1 = from[0]*Math.PI/180, lon1 = from[1]*Math.PI/180;
+      const lat2 = to[0]*Math.PI/180, lon2 = to[1]*Math.PI/180;
+      const dLon = lon2 - lon1;
+      const y = Math.sin(dLon)*Math.cos(lat2);
+      const x = Math.cos(lat1)*Math.sin(lat2) -
+                Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+      return (Math.atan2(y,x)*180/Math.PI + 360) % 360;
+    }
+    function rotateMarker(marker, deg){
+      if(marker && marker._icon){
+        marker._icon.style.transform = `rotate(${deg}deg)`;
+      }
+    }
+    function initTrailForState(state, startLatLng){
+      if(state.trail) return;
+      state.trail = L.polyline([startLatLng], {
+        color: TRAIL_COLOR,
+        weight: TRAIL_WEIGHT,
+        opacity: .8,
+        className: 'trail-line'
+      }).addTo(map);
+    }
+    function pushTrailPoint(state, latlng){
+      if(!state.trail) return;
+      const arr = state.trail.getLatLngs();
+      arr.push(L.latLng(latlng[0], latlng[1]));
+      if(arr.length > TRAIL_MAX_POINTS) arr.shift();
+      state.trail.setLatLngs(arr);
+    }
+
+    // =================== POPUP + FORMATO ===================
+    const fmt = new Intl.DateTimeFormat('es-PE', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const rtf = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+
+    function humanAgo(iso){
+      if(!iso) return '—';
+      const now = Date.now();
+      const t = (new Date(iso)).getTime();
+      const diffSec = Math.round((t - now)/1000);
+      // devolvemos en segundos (negativo = hace X s)
+      return rtf.format(diffSec, 'second');
+    }
+
+    function popupHtml(u){
+      return `
+        <div style="font-weight:800;margin-bottom:4px">${(u.tecnico||u.nombre||u.usuario||'')}</div>
+        <div class="tiny">${(u.cargo||'')} • ${(u.contrata||'')}</div>
+        <div class="tiny">${(u.zona||'')} | ${(u.brigada||'')}</div>
+        <div class="tiny" style="margin-top:4px">Último: ${humanAgo(u.timestamp)}</div>
+      `;
+    }
+
+    // =================== APLICAR FILTROS ===================
+    function passFilters(u){
+      const z = document.getElementById('fZona').value || '';
+      const c = document.getElementById('fContrata').value || '';
+      const b = document.getElementById('fBrigada').value || '';
+      if(z && (u.zona||'') !== z) return false;
+      if(c && (u.contrata||'') !== c) return false;
+      if(b && (u.brigada||'') !== b) return false;
+      return true;
+    }
+
+    // =================== LISTA DERECHA ===================
+    function renderConnected(){
+      const cont = document.getElementById('listCon');
+      cont.innerHTML = '';
+      // ordenamos por ts desc
+      const arr = Array.from(states.values())
+        .map(s => s.lastPayload)
+        .filter(Boolean)
+        .sort((a,b)=> new Date(b.timestamp)-new Date(a.timestamp));
+
+      for(const u of arr){
+        if(!passFilters(u)) continue;
+        const div = document.createElement('div');
+        div.className = 'agent';
+        div.innerHTML = `
+          <div style="flex:1">
+            <div class="name">${(u.tecnico||u.nombre||u.usuario||'')}</div>
+            <div class="muted">${(u.cargo||'')} • ${(u.contrata||'')}</div>
+            <div class="tiny">${(u.zona||'')} | ${(u.brigada||'')}</div>
+            <div class="tiny" style="margin-top:2px">Último: ${humanAgo(u.timestamp)}</div>
+          </div>`;
+        div.onclick = ()=>{
+          const st = states.get(keyOf(u));
+          if(st && st.marker){
+            map.setView(st.marker.getLatLng(), 16, { animate:true });
+            st.marker.openPopup();
+          }
+        };
+        cont.appendChild(div);
+      }
+    }
+
+    // =================== MARKERS ===================
+    function keyOf(u){
+      // usa usuario_id si existe, de lo contrario usuario o nombre
+      return u.usuario_id || u.usuario || u.nombre || ('id_'+Math.random().toString(36).slice(2));
+    }
+
+    function ensureLayer(u){
+      const key = keyOf(u);
+      let s = states.get(key);
+      const pos = [Number(u.latitud), Number(u.longitud)];
+
+      if(!s){
+        s = { lastPayload: u };
+        s.marker = L.marker(pos, { icon: iconCar(), draggable:false }).addTo(map);
+        s.marker.bindPopup(popupHtml(u));
+        // === ADICIÓN: inicializa trail y lastLatLng
+        s.lastLatLng = pos;
+        initTrailForState(s, pos);
+        states.set(key, s);
+        injectBrigada(u.brigada);
+      }else{
+        // actualiza
+        s.marker.setLatLng(pos);
+        s.marker.setPopupContent(popupHtml(u));
+        // === ADICIÓN: calcula rumbo + rota
+        const ang = getBearing(s.lastLatLng, pos);
+        rotateMarker(s.marker, ang);
+        // === ADICIÓN: rastro
+        pushTrailPoint(s, pos);
+        s.lastLatLng = pos;
+
+        s.lastPayload = u;
+      }
+    }
+
+    // =================== DATOS INICIALES ===================
+    async function loadRecientes(){
+      try{
+        // si tienes params de filtros backend, agrégales; aquí pedimos últimos 10 minutos
+        const url = `${API_BASE}/api/recientes?mins=10`;
+        const res = await fetch(url);
+        if(!res.ok){ console.warn('recientes fail', res.status); return; }
+        const data = await res.json(); // array de ubicaciones
+        for(const u of data){
+          ensureLayer(u);
+        }
+        renderConnected();
+      }catch(err){
+        console.error('recientes err', err);
+      }
+    }
+
+    // =================== WEBSOCKET ===================
+    function startWS(){
+      try{
+        const ws = new WebSocket(WS_URL);
+        ws.onopen = ()=> console.log('WS conectado');
+        ws.onmessage = (ev)=>{
+          try{
+            const msg = JSON.parse(ev.data);
+            // esperamos objetos tipo ubicación directa o envueltos (msg.type === 'gps')
+            const u = msg.type ? msg.payload || msg.data || msg.u : msg;
+            if(u && u.latitud && u.longitud){
+              ensureLayer(u);
+              renderConnected();
+            }
+          }catch(e){ console.warn('WS parse', e); }
+        };
+        ws.onclose = ()=> setTimeout(startWS, 2500);
+        ws.onerror = ()=> ws.close();
+      }catch(e){
+        console.error('WS error', e);
+      }
+    }
+
+    // =================== UI ===================
+    document.getElementById('btnCenter').onclick = ()=>{
+      // si hay al menos uno, centramos al más reciente
+      const arr = Array.from(states.values()).map(s => s.lastPayload).filter(Boolean);
+      if(arr.length){
+        const u = arr.sort((a,b)=> new Date(b.timestamp)-new Date(a.timestamp))[0];
+        const st = states.get(keyOf(u));
+        if(st && st.marker) map.setView(st.marker.getLatLng(), 15, { animate:true });
+      }
+    };
+
+    document.getElementById('fZona').onchange =
+    document.getElementById('fContrata').onchange =
+    document.getElementById('fBrigada').onchange = renderConnected;
+
+    // Refrescar “hace Xs” cada 2s
+    setInterval(renderConnected, 2000);
+
+    // =================== INIT ===================
+    loadRecientes();
+    startWS();
+  </script>
 </body>
 </html>
