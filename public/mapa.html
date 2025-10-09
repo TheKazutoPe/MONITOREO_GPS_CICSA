@@ -108,11 +108,12 @@ const listaEl = document.getElementById('lista');
 const selZona = document.getElementById('selZona');
 const selContrata = document.getElementById('selContrata');
 
+/* ICONO: carrito en ruta */
 function iconCar() {
   return L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png', /* coche */
     iconSize: [40,40],
-    iconAnchor: [20,20]
+    iconAnchor: [20,20]   /* centro del ícono */
   });
 }
 
@@ -144,12 +145,16 @@ function ensureLayer(u){
 
   const pos = [lat, lng];
   if (!state.has(id)){
-    // crear
-    const marker = L.marker(pos,{icon:iconCar()}).addTo(map).bindPopup(popupHtml(meta, u.ts || Date.now()));
-    const line = L.polyline([pos], {color:'#0b3d91', weight:4, opacity:.85}).addTo(map);
+    /* crear: marker con carrito + línea azul oscuro */
+    const marker = L.marker(pos,{icon:iconCar(), zIndexOffset:1000})
+      .addTo(map)
+      .bindPopup(popupHtml(meta, u.ts || Date.now()));
+
+    const line = L.polyline([pos], {color:'#0b3d91', weight:4, opacity:.9}).addTo(map);
+
     state.set(id, { marker, line, meta, lastLatLng:pos, lastTs: u.ts || Date.now() });
   } else {
-    // actualizar
+    /* actualizar */
     const s = state.get(id);
     s.marker.setLatLng(pos).setPopupContent(popupHtml(meta, u.ts || Date.now()));
     s.line.addLatLng(pos);
@@ -160,7 +165,6 @@ function ensureLayer(u){
 }
 
 function renderList(){
-  // filtros (visuales por ahora)
   const fZona = selZona.value.trim();
   const fCon = selContrata.value.trim();
 
@@ -170,11 +174,9 @@ function renderList(){
     const { meta, lastTs, lastLatLng } = s;
     if (fZona && (meta.zona||'') !== fZona) return;
     if (fCon && (meta.contrata||'') !== fCon) return;
-
     items.push({id, meta, lastTs, lastLatLng});
   });
 
-  // ordena por más reciente
   items.sort((a,b)=> (b.lastTs||0)-(a.lastTs||0));
 
   for (const it of items){
@@ -205,7 +207,7 @@ document.getElementById('btnCenter').onclick = centerAll;
 selZona.onchange = renderList;
 selContrata.onchange = renderList;
 
-// Carga inicial por REST
+/* Carga inicial por REST */
 async function loadInicial(){
   try{
     const r = await fetch(`${API}/api/conectados`);
@@ -220,14 +222,13 @@ async function loadInicial(){
   }catch(e){ console.error('Error conectados:', e); }
 }
 
-// WS tiempo real
+/* WS tiempo real */
 const ws = new WebSocket(WS_URL);
 ws.onopen = ()=> console.log('WS conectado');
 ws.onmessage = ev => {
   try{
     const msg = JSON.parse(ev.data);
     if (msg.type === 'snapshot'){
-      // msg.data es { id: {lat,lng,meta} }
       const snap = msg.data || {};
       Object.entries(snap).forEach(([id, d])=>{
         ensureLayer({ id, lat:d.lat, lng:d.lng, meta:d.meta, ts: Date.now() });
@@ -241,7 +242,7 @@ ws.onmessage = ev => {
   }catch(e){ console.error('WS parse error', e); }
 };
 
-// refresca el "Último: hace Xs" cada 10s
+/* refresca el “Último: …” cada 10s */
 setInterval(renderList, 10_000);
 
 loadInicial();
