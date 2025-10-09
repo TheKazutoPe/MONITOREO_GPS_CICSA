@@ -1,303 +1,226 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CICSA Monitoreo GPS</title>
+// server.js - Monitoreo GPS CICSA (versión estable)
+const express = require("express");
+const path = require("path");
+const http = require("http");
+const { WebSocketServer } = require("ws");
+require("dotenv").config();
+const { createClient } = require("@supabase/supabase-js");
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+const app = express();
+const PORT = process.env.PORT || 10000;
 
-<style>
-  html, body { height: 100%; margin: 0; font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial; background:#0e1b26; }
-  #map { height: 100%; width: 100%; }
+// === SUPABASE ===
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-  /* Barra superior */
-  .topbar{
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background: rgba(10,24,38,.92); color: #cde8ff;
-    padding: 10px 14px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.45);
-    display:flex; gap:10px; align-items:center; z-index:1000; backdrop-filter: blur(6px);
+// === MIDDLEWARE ===
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public"), { maxAge: "1h" }));
+
+// === SERVIDOR HTTP + WS ===
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: "/ws" });
+
+// === MEMORIA EN VIVO ===
+const lastPos = new Map();
+
+function heartbeat() { this.isAlive = true; }
+
+// === NUEVO: helper hora Perú en ISO ===
+function nowLimaISO() {
+  return new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/Lima" })
+  ).toISOString();
+}
+
+wss.on("connection", (ws, req) => {
+  ws.isAlive = true;
+  ws.on("pong", heartbeat);
+  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  console.log(`✅ WS conectado: ${ip}`);
+
+  // Snapshot inicial
+  if (lastPos.size) {
+    const snap = {};
+    for (const [id, p] of lastPos.entries()) {
+      snap[id] = {
+        lat: p.lat,
+        lng: p.lng,
+        ts: p.ts,
+        meta: {
+          display: p.display,
+          brigada: p.brigada,
+          zona: p.zona,
+          contrata: p.contrata,
+          cargo: p.cargo
+        }
+      };
+    }
+    try { ws.send(JSON.stringify({ type: "snapshot", data: snap })); } catch {}
   }
-  .topbar label{ font-size: 13px; color: #92b8d9; margin-right:6px; }
-  .topbar select{ background:#06121c; color:#e8f6ff; border:1px solid #1d3a53; border-radius:10px; padding:6px 8px; }
-  .btn { background:#033b5a; color:#cfeaff; border:none; border-radius:10px; padding:8px 12px; cursor:pointer; }
-  .btn:hover { background:#07547d; }
 
-  /* Panel lateral */
-  .panel{
-    position: absolute; right: 10px; top: 70px;
-    width: 300px; height: calc(100% - 80px);
-    background: rgba(8,20,32,.92); color: #dcefff;
-    border-radius: 12px; padding: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.45);
-    overflow-y: auto; z-index:1000; backdrop-filter: blur(6px);
+  ws.on("close", () => console.log("❌ WS desconectado"));
+});
+
+// Limpieza de WS inactivos
+setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+// ======================================================
+// LOGIN Y POSICIONES
+// ======================================================
+
+// /api/login
+app.post("/api/login", async (req, res) => {
+  try {
+    const { usuario, clave } = req.body;
+    const { data, error } = await supabase
+      .from("usuarios_brigadas")
+      .select("*")
+      .eq("usuario", usuario)
+      .eq("clave", clave)
+      .eq("activo", true)
+      .single();
+
+    if (error || !data)
+      return res.status(401).json({ ok: false, error: "Credenciales inválidas" });
+
+    const { clave: _, ...safe } = data;
+    res.json({ ok: true, usuario: safe });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
-  .panel h3{ margin: 8px 0 10px; font-weight:600; font-size:16px; color:#e9f5ff; }
-  .user{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:10px; background:#0c2033; margin-bottom:6px; }
-  .user:hover{ background:#10314e; }
-  .dot{ display:inline-block; width:10px; height:10px; background:#06d6a0; border-radius:50%; margin-right:6px; }
+});
 
-  .legend{ position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.35); color:#e9f5ff; padding:6px 8px; border-radius:8px; font-size:12px; }
-</style>
-</head>
-<body>
-  <div id="map"></div>
+// /api/posicion
+app.post("/api/posicion", async (req, res) => {
+  try {
+    const { usuario_id, tecnico, brigada, contrata, zona, cargo, lat, lng } = req.body;
 
-  <div class="topbar">
-    <div>
-      <label>Zona</label>
-      <select id="selZona">
-        <option value="">Todas</option>
-        <option value="NORTE">NORTE</option>
-        <option value="CENTRO">CENTRO</option>
-        <option value="SUR">SUR</option>
-      </select>
-    </div>
+    // Guardar en Supabase (hora Perú)
+    const row = {
+      usuario_id, tecnico, brigada, contrata, zona, cargo,
+      latitud: lat, longitud: lng, timestamp: nowLimaISO() // <=== CAMBIO
+    };
+    const { error } = await supabase.from("ubicaciones_brigadas").insert(row);
+    if (error) console.warn("Supabase insert error:", error.message);
 
-    <div>
-      <label>Contrata</label>
-      <select id="selContrata">
-        <option value="">Todas</option>
-        <option value="CICSA">CICSA</option>
-        <option value="DOLAN">DOLAN</option>
-        <option value="ECYTEL">ECYTEL</option>
-      </select>
-    </div>
+    // Guardar en memoria
+    const id = `u${usuario_id}`;
+    const display = tecnico || brigada || `ID ${usuario_id}`;
+    const ts = Date.now();
 
-    <button id="btnCenter" class="btn">Centrar</button>
-  </div>
+    lastPos.set(id, { lat, lng, ts, display, brigada, zona, contrata, cargo });
 
-  <div class="panel">
-    <h3><span class="dot"></span> Brigadas conectadas</h3>
-    <div id="lista"></div>
-  </div>
-
-<script>
-/* ======= CONFIG ======= */
-const API = location.origin;
-const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
-
-/* Carro (vista superior) – URL pública */
-const CAR_ICON_URL = 'https://cdn-icons-png.flaticon.com/512/3202/3202926.png';
-
-/* ======= MAPA ======= */
-const map = L.map('map').setView([-12.0464, -77.0428], 12);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
-
-const state = new Map(); // id -> { marker, line, meta, lastLatLng, lastTs }
-const listaEl = document.getElementById('lista');
-const selZona = document.getElementById('selZona');
-const selContrata = document.getElementById('selContrata');
-
-/* ======= UTILS ======= */
-function carDivIcon(){
-  return L.icon({ iconUrl: CAR_ICON_URL, iconSize:[36,36], iconAnchor:[18,18] });
-}
-function kmh(prev, next, dtMs){
-  if (!prev || !next || dtMs<=0) return 0;
-  const R=6371e3;
-  const toRad = d=>d*Math.PI/180;
-  const [lat1,lon1]=prev, [lat2,lon2]=next;
-  const dphi=toRad(lat2-lat1), dl=toRad(lon2-lon1);
-  const a=Math.sin(dphi/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dl/2)**2;
-  const d=2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return (d/dtMs)*3.6e3;
-}
-function bearing(a,b){
-  const toRad=d=>d*Math.PI/180,toDeg=r=>r*180/Math.PI;
-  const [lat1,lon1]=a.map(toRad), [lat2,lon2]=b.map(toRad);
-  const y=Math.sin(lon2-lon1)*Math.cos(lat2);
-  const x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(lon2-lon1);
-  return (toDeg(Math.atan2(y,x))+360)%360;
-}
-function rotateMarker(marker, deg){ marker._icon && (marker._icon.style.transform = `rotate(${deg}deg)`) }
-function animateMarker(marker, from, to, dur=700, done){
-  const t0=performance.now();
-  function step(t){
-    const k=Math.min(1,(t-t0)/dur);
-    const lat=from[0]+(to[0]-from[0])*k;
-    const lng=from[1]+(to[1]-from[1])*k;
-    marker.setLatLng([lat,lng]);
-    if (k<1) requestAnimationFrame(step);
-    else done && done();
-  }
-  requestAnimationFrame(step);
-}
-function fmtHora(ts){
-  const d=new Date(ts);
-  return d.toLocaleString("es-PE",{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-}
-function popupHtml(meta, ts){
-  return `
-    <div style="min-width:180px">
-      <b>${meta.display || '—'}</b><br>
-      ${meta.cargo || ''} • ${meta.brigada || ''}<br>
-      <small>${meta.zona || ''} | ${meta.contrata || ''}</small><br>
-      <small>Último: ${fmtHora(ts)}</small>
-    </div>`;
-}
-
-/* ======= CAPAS ======= */
-function ensureLayer(u){
-  const id = u.id;
-  const meta = u.meta || {};
-  const lat = u.lat, lng = u.lng;
-  if (lat==null || lng==null) return;
-
-  const pos = [lat, lng];
-  if (!state.has(id)){
-    const marker = L.marker(pos,{icon:carDivIcon(), zIndexOffset:1000})
-      .addTo(map)
-      .bindPopup(popupHtml(meta, u.ts || Date.now()));
-    const line = L.polyline([pos], {color:'#0b3d91', weight:4, opacity:.9}).addTo(map);
-
-    rotateMarker(marker, 0); // inicial
-
-    state.set(id, { marker, line, meta, lastLatLng:pos, lastTs: u.ts || Date.now(), visible:true });
-    setVisible(state.get(id), matchesFilters(meta));
-  } else {
-    const s = state.get(id);
-    const prev = s.lastLatLng || pos;
-
-    const ang = bearing(prev, pos);
-    rotateMarker(s.marker, ang);
-
-    animateMarker(s.marker, prev, pos, 700, () => {
-      s.marker.setPopupContent(popupHtml(meta, u.ts || Date.now()));
-      s.line.addLatLng(pos);
+    // Broadcast WS
+    const payload = JSON.stringify({
+      type: "point",
+      data: { id, lat, lng, ts, meta: { display, brigada, zona, contrata, cargo } }
     });
+    wss.clients.forEach(c => c.readyState === 1 && c.send(payload));
 
-    s.meta = meta;
-    s.lastLatLng = pos;
-    s.lastTs = u.ts || Date.now();
-    setVisible(s, matchesFilters(s.meta));
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Error en /api/posicion:", e.message);
+    res.status(500).json({ ok: false, error: e.message });
   }
-}
+});
 
-// === NUEVO: filtros que también ocultan/mostrar capas ===
-function matchesFilters(meta){
-  const fZona = selZona.value.trim();
-  const fCon  = selContrata.value.trim();
-  if (fZona && (meta.zona || '') !== fZona) return false;
-  if (fCon  && (meta.contrata || '') !== fCon) return false;
-  return true;
-}
+// ======================================================
+// ENDPOINTS PARA MAPA Y FILTROS
+// ======================================================
 
-function setVisible(entry, visible){
-  const { marker, line } = entry;
-  if (visible){
-    if (!map.hasLayer(marker)) marker.addTo(map);
-    if (!map.hasLayer(line))   line.addTo(map);
-  } else {
-    if (map.hasLayer(marker)) marker.remove();
-    if (map.hasLayer(line))   line.remove();
-  }
-  entry.visible = visible;
-}
+// /api/recorridos
+app.get("/api/recorridos", async (req, res) => {
+  try {
+    const minutes = Math.max(5, Math.min(24 * 60, parseInt(req.query.minutes || "180", 10)));
+    const since = new Date(Date.now() - minutes * 60 * 1000).toISOString();
 
-function applyFilters(){
-  state.forEach((entry)=>{
-    setVisible(entry, matchesFilters(entry.meta || {}));
-  });
-  renderList();
-}
+    let q = supabase
+      .from("ubicaciones_brigadas")
+      .select("usuario_id,tecnico,brigada,latitud,longitud,timestamp,contrata,zona")
+      .gte("timestamp", since)
+      .order("timestamp", { ascending: true });
 
-// Aplica filtros al cambiar selectores
-selZona.onchange = applyFilters;
-selContrata.onchange = applyFilters;
+    if (req.query.zona) q = q.eq("zona", req.query.zona);
+    if (req.query.contrata) q = q.eq("contrata", req.query.contrata);
+    if (req.query.brigada) q = q.eq("brigada", req.query.brigada);
 
-function renderList(){
-  const fZona = selZona.value.trim();
-  const fCon = selContrata.value.trim();
+    const { data, error } = await q;
+    if (error) throw error;
 
-  listaEl.innerHTML = '';
-  const items = [];
-  state.forEach((s, id)=>{
-    const { meta, lastTs, lastLatLng } = s;
-    if (fZona && (meta.zona||'') !== fZona) return;
-    if (fCon && (meta.contrata||'') !== fCon) return;
-    items.push({id, meta, lastTs, lastLatLng});
-  });
-
-  items.sort((a,b)=> (b.lastTs||0)-(a.lastTs||0));
-
-  for (const it of items){
-    const div = document.createElement('div');
-    div.className = 'user';
-    div.innerHTML = `
-      <div style="flex:1">
-        <b>${it.meta.display || '—'}</b>
-        <div>${it.meta.cargo || ''} • ${it.meta.brigada || ''}</div>
-        <small>${it.meta.zona || ''} | ${it.meta.contrata || ''}</small><br>
-        <small>Último: ${fmtHora(it.lastTs)}</small>
-      </div>
-    `;
-    listaEl.appendChild(div);
-  }
-}
-
-/* ======= CONTROLES ======= */
-document.getElementById('btnCenter').onclick = centerAll;
-function centerAll(){
-  const pts = [];
-  state.forEach(s=>{
-    if (s.lastLatLng) pts.push(s.lastLatLng);
-  });
-  if (!pts.length) return;
-  const b = L.latLngBounds(pts);
-  map.fitBounds(b.pad(0.2));
-}
-
-/* ======= CARGA INICIAL ======= */
-async function loadInicial(){
-  try{
-    const res = await fetch(`${API}/api/conectados`);
-    const j = await res.json();
-    if (j.ok){
-      for (const u of j.data){
-        ensureLayer({ id: u.id, lat:u.lat, lng:u.lng, meta:{
-          display:u.display, brigada:u.meta?.brigada, zona:u.meta?.zona, contrata:u.meta?.contrata, cargo:u.meta?.cargo
-        }, ts: u.ts || Date.now() });
-      }
-      applyFilters();
-      centerAll();
-    }
-  }catch(e){ console.error('Error conectados:', e); }
-}
-
-/* WS tiempo real – mantiene /ws */
-const ws = new WebSocket(WS_URL);
-ws.onopen = ()=> console.log('WS conectado');
-ws.onmessage = ev => {
-  try{
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'snapshot'){
-      const snap = msg.data || {};
-      Object.entries(snap).forEach(([id, d])=>{
-        ensureLayer({ id, lat:d.lat, lng:d.lng, meta:d.meta, ts: Date.now() });
+    const grouped = {};
+    for (const r of data) {
+      if (!r.latitud || !r.longitud) continue;
+      const id = `u${r.usuario_id}`;
+      (grouped[id] ||= []).push({
+        lat: r.latitud,
+        lng: r.longitud,
+        ts: new Date(r.timestamp || Date.now()).getTime(),
+        meta: {
+          display: r.tecnico || r.brigada || `ID ${r.usuario_id}`,
+          brigada: r.brigada,
+          zona: r.zona,
+          contrata: r.contrata
+        }
       });
-      applyFilters();
-    } else if (msg.type === 'remove'){
-      const { id } = msg.data || {};
-      const s = state.get(id);
-      if (s){
-        if (s.marker) s.marker.remove();
-        if (s.line)   s.line.remove();
-        state.delete(id);
-        renderList();
-      }
-    } else if (msg.type === 'point'){
-      const d = msg.data || {};
-      ensureLayer({ id:d.id, lat:d.lat, lng:d.lng, meta:d.meta, ts: d.ts || Date.now() });
-      applyFilters();
     }
-  }catch(e){ console.error('WS parse error', e); }
-};
+    res.json({ ok: true, data: grouped });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
-/* refresca el “Último: …” cada 10s */
-setInterval(renderList, 10_000);
+// /api/conectados
+app.get("/api/conectados", (req, res) => {
+  const now = Date.now();
+  const activos = [];
+  for (const [id, p] of lastPos.entries()) {
+    if (now - (p.ts || 0) < 60000)
+      activos.push({
+        id,
+        lat: p.lat,
+        lng: p.lng,
+        meta: {
+          display: p.display,
+          brigada: p.brigada,
+          zona: p.zona,
+          contrata: p.contrata,
+          cargo: p.cargo
+        }
+      });
+  }
+  res.json({ ok: true, data: activos });
+});
 
-loadInicial();
-</script>
-</body>
-</html>
+// === NUEVO: detener transmisión de un usuario ===
+app.post("/api/stop", async (req, res) => {
+  try {
+    const { usuario_id } = req.body || {};
+    if (!usuario_id) return res.status(400).json({ ok: false, error: "usuario_id requerido" });
+
+    const id = `u${usuario_id}`;
+    const existed = lastPos.delete(id);
+
+    const payload = JSON.stringify({ type: "remove", data: { id } });
+    wss.clients.forEach(c => c.readyState === 1 && c.send(payload));
+
+    return res.json({ ok: true, removed: !!existed });
+  } catch (e) {
+    console.error("Error en /api/stop:", e);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Arranque
+server.listen(PORT, () => {
+  console.log(`🚀 HTTP en http://localhost:${PORT}`);
+  console.log(`🔌 WS   en ws://localhost:${PORT}/ws`);
+});

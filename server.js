@@ -26,14 +26,14 @@ const wss = new WebSocketServer({ server, path: "/ws" });
 // === MEMORIA EN VIVO ===
 const lastPos = new Map();
 
-// === Helper: fecha/hora de Lima (UTC-5) en ISO ===
+function heartbeat() { this.isAlive = true; }
+
+// === NUEVO: helper hora Perú en ISO ===
 function nowLimaISO() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "America/Lima" })
   ).toISOString();
 }
-
-function heartbeat() { this.isAlive = true; }
 
 wss.on("connection", (ws, req) => {
   ws.isAlive = true;
@@ -58,9 +58,7 @@ wss.on("connection", (ws, req) => {
         }
       };
     }
-    try {
-      ws.send(JSON.stringify({ type: "snapshot", data: snap }));
-    } catch (e) {}
+    try { ws.send(JSON.stringify({ type: "snapshot", data: snap })); } catch {}
   }
 
   ws.on("close", () => console.log("❌ WS desconectado"));
@@ -94,20 +92,9 @@ app.post("/api/login", async (req, res) => {
     if (error || !data)
       return res.status(401).json({ ok: false, error: "Credenciales inválidas" });
 
-    res.json({
-      ok: true,
-      usuario: {
-        id: data.id,
-        tecnico: data.tecnico,
-        brigada: data.brigada,
-        contrata: data.contrata,
-        zona: data.zona,
-        cargo: data.cargo,
-        display: data.tecnico || data.usuario || `ID ${data.id}`
-      }
-    });
+    const { clave: _, ...safe } = data;
+    res.json({ ok: true, usuario: safe });
   } catch (e) {
-    console.error("Error en /api/login:", e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -115,22 +102,19 @@ app.post("/api/login", async (req, res) => {
 // /api/posicion
 app.post("/api/posicion", async (req, res) => {
   try {
-    const { usuario_id, tecnico, brigada, contrata, zona, cargo, lat, lng } = req.body || {};
+    const { usuario_id, tecnico, brigada, contrata, zona, cargo, lat, lng } = req.body;
 
-    if (typeof usuario_id !== "number" || typeof lat !== "number" || typeof lng !== "number")
-      return res.status(400).json({ ok: false, error: "Parámetros inválidos" });
-
-    // Guardar en Supabase
+    // Guardar en Supabase (hora Perú)
     const row = {
       usuario_id, tecnico, brigada, contrata, zona, cargo,
-      latitud: lat, longitud: lng, timestamp: nowLimaISO()
+      latitud: lat, longitud: lng, timestamp: nowLimaISO() // <=== CAMBIO
     };
     const { error } = await supabase.from("ubicaciones_brigadas").insert(row);
     if (error) console.warn("Supabase insert error:", error.message);
 
-    // Memoria y broadcast
+    // Guardar en memoria
     const id = `u${usuario_id}`;
-    const display = tecnico || `ID ${usuario_id}`;
+    const display = tecnico || brigada || `ID ${usuario_id}`;
     const ts = Date.now();
 
     lastPos.set(id, { lat, lng, ts, display, brigada, zona, contrata, cargo });
@@ -149,9 +133,9 @@ app.post("/api/posicion", async (req, res) => {
   }
 });
 
-// ======================================
+// ======================================================
 // ENDPOINTS PARA MAPA Y FILTROS
-// ======================================
+// ======================================================
 
 // /api/recorridos
 app.get("/api/recorridos", async (req, res) => {
@@ -165,38 +149,37 @@ app.get("/api/recorridos", async (req, res) => {
       .gte("timestamp", since)
       .order("timestamp", { ascending: true });
 
-    const { contrata, zona } = req.query;
-    if (contrata) q = q.eq("contrata", contrata);
-    if (zona) q = q.eq("zona", zona);
+    if (req.query.zona) q = q.eq("zona", req.query.zona);
+    if (req.query.contrata) q = q.eq("contrata", req.query.contrata);
+    if (req.query.brigada) q = q.eq("brigada", req.query.brigada);
 
     const { data, error } = await q;
-    if (error) return res.status(500).json({ ok: false, error: error.message });
+    if (error) throw error;
 
-    const tracks = {};
-    for (const r of data || []) {
+    const grouped = {};
+    for (const r of data) {
+      if (!r.latitud || !r.longitud) continue;
       const id = `u${r.usuario_id}`;
-      if (!tracks[id]) tracks[id] = [];
-      tracks[id].push({
+      (grouped[id] ||= []).push({
         lat: r.latitud,
         lng: r.longitud,
-        ts: new Date(r.timestamp).getTime(),
+        ts: new Date(r.timestamp || Date.now()).getTime(),
         meta: {
-          display: r.tecnico || `ID ${r.usuario_id}`,
+          display: r.tecnico || r.brigada || `ID ${r.usuario_id}`,
           brigada: r.brigada,
           zona: r.zona,
           contrata: r.contrata
         }
       });
     }
-    res.json({ ok: true, data: tracks });
+    res.json({ ok: true, data: grouped });
   } catch (e) {
-    console.error("Error en /api/recorridos:", e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// /api/conectados – activos (último minuto)
-app.get("/api/conectados", async (_req, res) => {
+// /api/conectados
+app.get("/api/conectados", (req, res) => {
   const now = Date.now();
   const activos = [];
   for (const [id, p] of lastPos.entries()) {
@@ -205,9 +188,8 @@ app.get("/api/conectados", async (_req, res) => {
         id,
         lat: p.lat,
         lng: p.lng,
-        ts: p.ts,
-        display: p.display,
         meta: {
+          display: p.display,
           brigada: p.brigada,
           zona: p.zona,
           contrata: p.contrata,
@@ -225,7 +207,6 @@ app.post("/api/stop", async (req, res) => {
     if (!usuario_id) return res.status(400).json({ ok: false, error: "usuario_id requerido" });
 
     const id = `u${usuario_id}`;
-
     const existed = lastPos.delete(id);
 
     const payload = JSON.stringify({ type: "remove", data: { id } });
@@ -243,4 +224,3 @@ server.listen(PORT, () => {
   console.log(`🚀 HTTP en http://localhost:${PORT}`);
   console.log(`🔌 WS   en ws://localhost:${PORT}/ws`);
 });
-
