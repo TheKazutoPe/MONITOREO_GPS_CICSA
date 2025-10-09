@@ -1,352 +1,155 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CICSA Monitoreo GPS</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Monitoreo GPS CICSA</title>
 
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <style>
-    :root {
-      --bg: #0f1b24;
-      --card: #102331;
-      --text: #eaf4ff;
-      --muted: #a7c0d7;
-      --accent: #17d4a7;
-      --chip: #183345;
-      --chipText: #bfe9ff;
-      --panel: rgba(16,35,49,.92);
-      --line: #0c2e7c; /* azul oscuro del recorrido */
-    }
-    html, body { height: 100%; margin: 0; font-family: system-ui, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
-    #map { position: fixed; inset: 0; z-index: 1; }
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    /* Barra superior */
-    .topbar {
-      position: fixed;
-      left: 12px; right: 12px; top: 12px;
-      display: flex; align-items: center; gap: 12px;
-      z-index: 1000; pointer-events: none;
-    }
-    .logo {
-      pointer-events: auto;
-      background: rgba(16,35,49,.95);
-      border-radius: 12px; padding: 4px 10px; box-shadow: 0 6px 18px rgba(0,0,0,.25);
-      display: flex; align-items: center; gap: 10px;
-    }
-    .logo img { height: 26px; display: block; }
-    .logo span { font-weight: 700; letter-spacing: .2px; color: var(--text); white-space: nowrap; }
-    .filters {
-      pointer-events: auto;
-      background: rgba(16,35,49,.95);
-      border-radius: 12px; padding: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.25);
-      display: flex; align-items: center; gap: 8px;
-    }
-    .filters label { color: var(--muted); font-size: 13px; margin-right: 6px; }
-    .filters select, .filters button {
-      height: 36px; border-radius: 10px; border: 1px solid #28455a;
-      background: #0c1c28; color: var(--text); padding: 0 10px;
-      outline: none;
-    }
-    .filters button {
-      background: #1ca86a; border: none; font-weight: 600; cursor: pointer;
-    }
+<style>
+  html, body { height: 100%; margin: 0; font-family: 'Segoe UI', sans-serif; }
+  #map { height: 100%; width: 100%; }
 
-    /* Panel de conectados */
-    .rightpanel {
-      position: fixed; right: 16px; top: 72px; z-index: 1000;
-      width: 360px; max-width: calc(100vw - 32px);
-      background: var(--panel); border-radius: 14px; box-shadow: 0 12px 28px rgba(0,0,0,.35);
-      backdrop-filter: blur(6px);
-      overflow: hidden; pointer-events: auto;
-    }
-    .rp-header { padding: 12px 14px; border-bottom: 1px solid #23465e; display: flex; align-items: center; gap: 10px; }
-    .dot { width: 9px; height: 9px; border-radius: 999px; background: #4ee071; box-shadow: 0 0 0 3px rgba(36,198,115,.15); }
-    .rp-title { font-weight: 800; letter-spacing: .3px; }
-    .rp-body { max-height: 52vh; overflow: auto; }
-    .rp-item { padding: 10px 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; border-bottom: 1px dashed #23465e; cursor: pointer; }
-    .rp-item:hover { background: rgba(27,61,84,.35); }
-    .rp-name { font-weight: 700; color: var(--text); }
-    .rp-small { color: var(--muted); font-size: 12.5px; }
-    .rp-badge { background: var(--chip); color: var(--chipText); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+  .topbar {
+    position: absolute; top: 10px; left: 10px; right: 10px;
+    background: rgba(16,35,49,0.9);
+    border-radius: 10px; padding: 8px 12px;
+    display: flex; align-items: center; gap: 12px;
+    z-index: 1000;
+    color: white;
+  }
 
-    /* Popup Leaflet */
-    .leaflet-popup-content-wrapper { background: #0f2331; color: var(--text); border-radius: 12px; box-shadow: 0 10px 24px rgba(0,0,0,.35); }
-    .leaflet-popup-tip { background: #0f2331; }
-  </style>
+  .topbar img { height: 28px; }
+  .topbar select, .topbar button {
+    background: #0c1c28; color: white;
+    border: 1px solid #28455a; border-radius: 8px;
+    padding: 4px 8px;
+  }
+  .topbar button {
+    background: #1ca86a; border: none; cursor: pointer; font-weight: bold;
+  }
+
+  .panel {
+    position: absolute; right: 15px; top: 65px; z-index: 1000;
+    width: 280px; background: rgba(16,35,49,0.9);
+    color: white; padding: 10px; border-radius: 10px;
+    font-size: 13px; overflow-y: auto; max-height: 80%;
+  }
+
+  .user { padding: 6px; border-bottom: 1px solid #224; cursor: pointer; }
+  .user:hover { background: rgba(255,255,255,0.1); }
+</style>
 </head>
 <body>
-  <div id="map"></div>
+<div id="map"></div>
 
-  <!-- Topbar con logo + filtros -->
-  <div class="topbar">
-    <div class="logo">
-      <!-- usa tu archivo local; si no existe, se mostrará el texto -->
-      <img src="/static/logo_cicsa.png" alt="CICSA Logo" onerror="this.style.display='none'; this.nextElementSibling.textContent='CICSA Monitoreo GPS'">
-      <span style="color:#bfe9ff">CICSA Monitoreo GPS</span>
-    </div>
-    <div class="filters">
-      <div><label>Zona:</label><select id="f-zona"><option value="">Todas</option><option>NORTE</option><option>SUR</option><option>CENTRO</option><option>LIMA</option></select></div>
-      <div><label>Contrata:</label><select id="f-contrata"><option value="">Todas</option><option>CICSA</option><option>SAFESA</option><option>COMATEL</option><option>DOLAN</option><option>ECYTEL</option></select></div>
-      <div><label>Brigada:</label><select id="f-brigada"><option value="">Todas</option></select></div>
-      <button id="btn-fit">Centrar</button>
-    </div>
-  </div>
+<div class="topbar">
+  <img src="https://upload.wikimedia.org/wikipedia/commons/2/20/Car_icon.png" alt="logo">
+  <b>CICSA Monitoreo GPS</b>
+  <label>Zona:</label>
+  <select id="zona"><option value="">Todas</option></select>
+  <label>Contrata:</label>
+  <select id="contrata"><option value="">Todas</option></select>
+  <button id="centrar">Centrar</button>
+</div>
 
-  <!-- Panel lateral de conectados -->
-  <div class="rightpanel">
-    <div class="rp-header">
-      <div class="dot"></div>
-      <div class="rp-title">Brigadas conectadas</div>
-    </div>
-    <div class="rp-body" id="panel-conectados">
-      <!-- items dinámicos -->
-    </div>
-  </div>
+<div class="panel" id="panel">
+  <b>🟢 Brigadas conectadas</b>
+  <div id="usuarios"></div>
+</div>
 
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
-  <script>
-    // =================== CONFIG ===================
-    const HOST = location.host;
-    const API = `${location.protocol}//${HOST}`;
-    const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + HOST + '/ws';
+<script>
+const API = location.origin;
+const WS_URL = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
+const map = L.map('map').setView([-12.0464, -77.0428], 12);
 
-    // icono de carrito (URL externa)
-    const CAR_ICON_URL = 'https://raw.githubusercontent.com/Concept211/Google-Maps-Markers/master/images/marker_car.png';
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap'
+}).addTo(map);
 
-    // =================== MAPA =====================
-    const map = L.map('map', {
-      zoomControl: true,
-      minZoom: 3,
-      maxZoom: 19
-    }).setView([-12.0464, -77.0428], 12); // Lima
+const markers = {};
+const rutas = {};
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
+function iconoCarro() {
+  return L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+  });
+}
 
-    // =================== ESTADO ===================
-    const markers = {};    // usuario_id -> { marker, polyline, lastLatLng, meta }
-    let conectados = [];   // array de usuarios conectados (para panel y filtros)
+function agregarOModificar(id, lat, lng, meta) {
+  if (!lat || !lng) return;
+  const pos = [lat, lng];
+  const texto = `
+    <b>${meta.display || 'Sin nombre'}</b><br>
+    ${meta.cargo || ''}<br>
+    ${meta.brigada || ''} | ${meta.zona || ''}<br>
+    ${meta.contrata || ''}<br>
+    <small>${new Date(meta.ts || Date.now()).toLocaleTimeString()}</small>
+  `;
 
-    // =================== ICONO ====================
-    function iconoCar() {
-      return L.icon({
-        iconUrl: CAR_ICON_URL,
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
-        popupAnchor: [0, -18],
-        className: 'car-icon'
-      });
-    }
+  if (!markers[id]) {
+    const mk = L.marker(pos, { icon: iconoCarro() }).addTo(map).bindPopup(texto);
+    const pl = L.polyline([pos], { color: '#007bff', weight: 3 }).addTo(map);
+    markers[id] = mk;
+    rutas[id] = pl;
+  } else {
+    markers[id].setLatLng(pos).bindPopup(texto);
+    rutas[id].addLatLng(pos);
+  }
+}
 
-    // =================== DIBUJADO =================
-    function upsertMarker(u) {
-      // u: {usuario_id, latitud, longitud, tecnico, cargo, brigada, zona, contrata, timestamp}
-      if(!u || u.latitud == null || u.longitud == null) return;
+async function cargarInicial() {
+  try {
+    const res = await fetch(`${API}/api/conectados`);
+    const json = await res.json();
+    if (!json.ok) return;
+    document.getElementById('usuarios').innerHTML = '';
+    json.data.forEach(u => {
+      const li = document.createElement('div');
+      li.className = 'user';
+      li.innerHTML = `<b>${u.meta.display}</b><br>${u.meta.brigada || ''} - ${u.meta.contrata || ''}`;
+      li.onclick = () => { map.setView([u.lat, u.lng], 15); };
+      document.getElementById('usuarios').appendChild(li);
+      agregarOModificar(u.id, u.lat, u.lng, { ...u.meta, ts: Date.now() });
+    });
+  } catch (e) {
+    console.error('Error al cargar conectados:', e);
+  }
+}
 
-      const id = String(u.usuario_id ?? u.id ?? u.usuario ?? u.tecnico);
-      const latlng = [Number(u.latitud), Number(u.longitud)];
-
-      if (!markers[id]) {
-        // crear
-        const m = L.marker(latlng, {icon: iconoCar()}).addTo(map);
-        const p = L.polyline([latlng], {color: '#0c2e7c', weight: 4, opacity: .9}).addTo(map);
-
-        m.bindPopup(() => {
-          return `
-            <div style="min-width:220px">
-              <div style="font-weight:800;letter-spacing:.2px">${esc(u.tecnico || '—')}</div>
-              <div style="color:#bfe9ff;font-size:12px">${esc(u.cargo || '')}</div>
-              <div style="margin-top:6px;font-size:12.5px;color:#a7c0d7">
-                ${esc(u.zona || '')} | ${esc(u.brigada || '')} | ${esc(u.contrata || '')}
-              </div>
-              <div style="margin-top:6px;font-size:12px;color:#86a2b8">Último: ${fmtHora(u.timestamp)}</div>
-            </div>
-          `;
-        });
-
-        markers[id] = { marker: m, polyline: p, lastLatLng: latlng, meta: {...u} };
-      } else {
-        // actualizar
-        const obj = markers[id];
-        obj.marker.setLatLng(latlng);
-        const ll = obj.polyline.getLatLngs();
-        ll.push(L.latLng(latlng[0], latlng[1]));
-        obj.polyline.setLatLngs(ll);
-        obj.lastLatLng = latlng;
-        obj.meta = {...obj.meta, ...u};
-        if (obj.marker.isPopupOpen()) obj.marker.setPopupContent(obj.marker.getPopup().getContent()); // refrescar con datos nuevos
+// WebSocket
+const ws = new WebSocket(WS_URL);
+ws.onopen = () => console.log('WS conectado');
+ws.onmessage = e => {
+  try {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'snapshot') {
+      const snap = msg.data;
+      for (const id in snap) {
+        const d = snap[id];
+        agregarOModificar(id, d.lat, d.lng, d.meta);
       }
+    } else if (msg.type === 'point') {
+      const d = msg.data;
+      agregarOModificar(d.id, d.lat, d.lng, d.meta);
     }
+  } catch (err) {
+    console.error('Error WS:', err);
+  }
+};
 
-    function esc(s){ return (s ?? '').toString().replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-    function fmtHora(ts){
-      try {
-        if(!ts) return '—';
-        const d = new Date(ts);
-        if (isNaN(d.getTime())) return '—';
-        return d.toLocaleString();
-      } catch { return '—'; }
-    }
+document.getElementById('centrar').onclick = () => {
+  const ids = Object.keys(markers);
+  if (!ids.length) return;
+  const bounds = L.latLngBounds(ids.map(i => markers[i].getLatLng()));
+  map.fitBounds(bounds.pad(0.2));
+};
 
-    function fitToAll(){
-      const ids = Object.keys(markers);
-      if(!ids.length) return;
-      const bounds = L.latLngBounds( ids.map(k => markers[k].lastLatLng) );
-      map.fitBounds(bounds.pad(0.2));
-    }
-
-    // =================== PANEL ====================
-    const panel = document.getElementById('panel-conectados');
-    function renderPanel(list){
-      panel.innerHTML = '';
-      const frag = document.createDocumentFragment();
-      list.forEach(u => {
-        const div = document.createElement('div');
-        div.className = 'rp-item';
-        div.dataset.uid = u.usuario_id ?? u.id ?? '';
-        div.innerHTML = `
-          <div style="align-self:center"><div class="dot"></div></div>
-          <div>
-            <div class="rp-name">${esc(u.tecnico || u.nombre || u.usuario || '—')}</div>
-            <div class="rp-small">${esc(u.cargo || '')} — ${esc(u.zona || '')}</div>
-            <div class="rp-small">${esc(u.brigada || '')} • ${esc(u.contrata || '')}</div>
-            <div class="rp-small">Último: ${fmtHora(u.timestamp)}</div>
-          </div>
-          <div class="rp-badge">${esc(u.usuario || '')}</div>
-        `;
-        div.onclick = () => {
-          const id = String(u.usuario_id ?? u.id ?? '');
-          const mk = markers[id];
-          if (mk) {
-            map.setView(mk.lastLatLng, Math.max(map.getZoom(), 16), {animate:true});
-            mk.marker.openPopup();
-          }
-        };
-        frag.appendChild(div);
-      });
-      panel.appendChild(frag);
-    }
-
-    // =================== FILTROS ==================
-    const selZona = document.getElementById('f-zona');
-    const selContrata = document.getElementById('f-contrata');
-    const selBrigada = document.getElementById('f-brigada');
-    document.getElementById('btn-fit').onclick = fitToAll;
-
-    function applyFilters(){
-      const z = selZona.value || '';
-      const c = selContrata.value || '';
-      const b = selBrigada.value || '';
-      const filtered = conectados.filter(u =>
-        (!z || (u.zona||'') === z) &&
-        (!c || (u.contrata||'') === c) &&
-        (!b || (u.brigada||'') === b)
-      );
-      renderPanel(filtered);
-      // ocultar/mostrar marcadores por filtro
-      Object.keys(markers).forEach(id => {
-        const u = markers[id].meta || {};
-        const ok =
-          (!z || (u.zona||'') === z) &&
-          (!c || (u.contrata||'') === c) &&
-          (!b || (u.brigada||'') === b);
-        if (ok) {
-          if (!map.hasLayer(markers[id].marker)) {
-            markers[id].marker.addTo(map);
-            markers[id].polyline.addTo(map);
-          }
-        } else {
-          map.removeLayer(markers[id].marker);
-          map.removeLayer(markers[id].polyline);
-        }
-      });
-    }
-    selZona.onchange = applyFilters;
-    selContrata.onchange = applyFilters;
-    selBrigada.onchange = applyFilters;
-
-    function refreshBrigadaOptions(){
-      const set = new Set(conectados.map(u => (u.brigada||'').trim()).filter(Boolean));
-      const cur = selBrigada.value;
-      selBrigada.innerHTML = `<option value="">Todas</option>` + [...set].sort().map(x => `<option>${esc(x)}</option>`).join('');
-      // restaurar selección si existía
-      const h = [...selBrigada.options].find(o => o.value === cur);
-      if (h) selBrigada.value = cur;
-    }
-
-    // ============== CARGA INICIAL (REST) ==========
-    // Si tu server tiene /api/conectados devolviendo {data:[...]}
-    fetch(`${API}/api/conectados`).then(r => r.ok ? r.json() : {data:[]}).then(json => {
-      const arr = Array.isArray(json) ? json : (json.data || []);
-      conectados = arr;
-      arr.forEach(upsertMarker);
-      refreshBrigadaOptions();
-      applyFilters();
-      if (arr.length) fitToAll();
-    }).catch(()=>{ /* ignoramos si no existe */ });
-
-    // =================== WEBSOCKET =================
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => console.log('WS conectado');
-    ws.onclose = () => console.log('WS cerrado');
-
-    ws.onmessage = ev => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
-
-      // esperamos tipos comunes del server: 'conectados', 'posicion', 'init'
-      if (msg.type === 'conectados') {
-        const arr = Array.isArray(msg.data) ? msg.data : [];
-        conectados = arr;
-        arr.forEach(upsertMarker);
-        refreshBrigadaOptions();
-        applyFilters();
-        return;
-      }
-
-      if (msg.type === 'init' && Array.isArray(msg.data)) {
-        conectados = msg.data;
-        msg.data.forEach(upsertMarker);
-        refreshBrigadaOptions();
-        applyFilters();
-        return;
-      }
-
-      if (msg.type === 'posicion' && msg.data) {
-        // data de un único usuario
-        upsertMarker(msg.data);
-        // actualizar/insertar en conectados para el panel
-        const id = msg.data.usuario_id ?? msg.data.id;
-        if (id != null) {
-          const i = conectados.findIndex(x => (x.usuario_id ?? x.id) == id);
-          if (i >= 0) conectados[i] = {...conectados[i], ...msg.data};
-          else conectados.push(msg.data);
-          refreshBrigadaOptions();
-          applyFilters();
-        }
-        return;
-      }
-
-      // fallback: si llega un array "data" sin type
-      if (Array.isArray(msg.data)) {
-        conectados = msg.data;
-        msg.data.forEach(upsertMarker);
-        refreshBrigadaOptions();
-        applyFilters();
-      }
-    };
-  </script>
+cargarInicial();
+</script>
 </body>
 </html>
