@@ -79,36 +79,53 @@
       font-size: 13px;
       display: none;
     }
+
+    .error {
+      color: #ff6666;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
   <div class="card" id="panel">
     <img src="/static/logo_cicsa.png" alt="CICSA" class="logo" />
-    <h2>Monitoreo GPS - Técnico</h2>
-    <p>Inicio de sesión</p>
+    <h2>Monitoreo GPS</h2>
+    <p>Ingreso para técnicos / brigadas</p>
 
-    <input id="usuario" placeholder="Nombre del técnico" />
-    <input id="brigada" placeholder="Brigada" />
-    <input id="contrata" placeholder="Contrata" />
-    <input id="zona" placeholder="Zona (NORTE, SUR...)" />
-    <select id="cargo">
-      <option value="Técnico">Técnico</option>
-      <option value="Supervisor">Supervisor</option>
-      <option value="Monitoreo">Monitoreo</option>
-    </select>
+    <input id="usuario" placeholder="Usuario" />
+    <input id="clave" type="password" placeholder="Clave" />
+    <button id="btnStart">Iniciar transmisión GPS</button>
 
-    <button id="btnStart">Iniciar transmisión</button>
     <div id="status"></div>
     <div id="info"></div>
+    <div id="error" class="error"></div>
   </div>
 
   <script>
     const btn = document.getElementById("btnStart");
     const statusEl = document.getElementById("status");
     const infoEl = document.getElementById("info");
+    const errorEl = document.getElementById("error");
     const panel = document.getElementById("panel");
 
     let lastSend = 0;
+    let usuarioData = null;
+
+    async function login(usuario, clave) {
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usuario, clave })
+        });
+        const data = await res.json();
+        if (data.ok) return data.data;
+        else throw new Error("Credenciales incorrectas");
+      } catch (e) {
+        console.error(e);
+        throw new Error("Error al conectar con el servidor");
+      }
+    }
 
     async function enviarPosicion(data) {
       try {
@@ -118,30 +135,19 @@
           body: JSON.stringify(data)
         });
         const out = await res.json();
-        if (!out.ok) console.error("⚠️ Error del servidor:", out.error);
+        if (!out.ok) console.warn("⚠️ Error servidor:", out.error);
       } catch (err) {
         console.error("❌ Error al enviar posición:", err);
       }
     }
 
-    function iniciar() {
-      const tecnico = document.getElementById("usuario").value.trim();
-      const brigada = document.getElementById("brigada").value.trim() || "N/A";
-      const contrata = document.getElementById("contrata").value.trim() || "N/A";
-      const zona = document.getElementById("zona").value.trim() || "N/A";
-      const cargo = document.getElementById("cargo").value;
-      const usuario_id = Math.floor(Math.random() * 1000000); // ID temporal
-
-      if (!tecnico) {
-        alert("Ingrese su nombre o usuario.");
-        return;
-      }
-
+    function iniciarTransmision(usuarioObj) {
+      usuarioData = usuarioObj;
+      panel.classList.add("glow");
       btn.disabled = true;
       btn.textContent = "Transmitiendo...";
-      panel.classList.add("glow");
+      statusEl.textContent = "🟢 Transmitiendo posición en tiempo real...";
       infoEl.style.display = "block";
-      statusEl.textContent = "🟢 Transmitiendo posición GPS...";
 
       if (!navigator.geolocation) {
         statusEl.textContent = "⚠️ Geolocalización no soportada.";
@@ -152,26 +158,26 @@
         async (pos) => {
           const { latitude, longitude, accuracy, speed } = pos.coords;
           const ahora = Date.now();
-          if (ahora - lastSend < 5000) return; // cada 5 s
+          if (ahora - lastSend < 5000) return; // cada 5s
           lastSend = ahora;
+
+          const payload = {
+            usuario_id: usuarioObj.id,
+            tecnico: usuarioObj.nombre,
+            brigada: usuarioObj.brigada,
+            contrata: usuarioObj.contrata || "CICSA",
+            zona: usuarioObj.zona,
+            cargo: usuarioObj.cargo,
+            lat: latitude,
+            lng: longitude
+          };
 
           infoEl.innerHTML = `
             <b>Coordenadas:</b> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br>
             <b>Precisión:</b> ${accuracy.toFixed(1)} m<br>
             <b>Velocidad:</b> ${(speed || 0).toFixed(1)} km/h<br>
-            <b>Hora:</b> ${new Date().toLocaleTimeString()}
+            <b>Hora local:</b> ${new Date().toLocaleTimeString()}
           `;
-
-          const payload = {
-            usuario_id,
-            tecnico,
-            brigada,
-            contrata,
-            zona,
-            cargo,
-            lat: latitude,
-            lng: longitude
-          };
 
           await enviarPosicion(payload);
         },
@@ -183,7 +189,23 @@
       );
     }
 
-    btn.onclick = iniciar;
+    btn.onclick = async () => {
+      const usuario = document.getElementById("usuario").value.trim();
+      const clave = document.getElementById("clave").value.trim();
+
+      errorEl.textContent = "";
+      if (!usuario || !clave) {
+        errorEl.textContent = "Ingrese usuario y clave.";
+        return;
+      }
+
+      try {
+        const user = await login(usuario, clave);
+        if (user) iniciarTransmision(user);
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    };
   </script>
 </body>
 </html>
