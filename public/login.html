@@ -60,13 +60,13 @@ const statusEl= document.getElementById('status');
 let user = null;
 let watchId = null;
 let lastSend = 0;
-let lastWeakSend = 0; // envíos con precisión intermedia
+let lastWeakSend = 0;
 
-// UMBRALES internos (no se muestran)
-const ACC_TARGET = 50;   // ideal
-const ACC_MAX    = 150;  // por encima de esto NO se envía
-const MIN_INTERVAL_MS       = 4500;  // intervalo normal (precisión buena)
-const MIN_INTERVAL_WEAK_MS  = 20000; // intervalo cuando precisión 50..150
+// UMBRALES internos
+const ACC_TARGET = 50;
+const ACC_MAX    = 150;
+const MIN_INTERVAL_MS       = 4500;
+const MIN_INTERVAL_WEAK_MS  = 20000;
 
 async function login(usuario, clave){
   const res = await fetch(`${API}/api/login`,{
@@ -75,7 +75,7 @@ async function login(usuario, clave){
   });
   const data = await res.json();
   if(!data.ok) throw new Error(data.error || "Login inválido");
-  return data.usuario;
+  return data.usuario; // incluye nombre y telefono
 }
 
 async function enviarPosicion(data){
@@ -85,7 +85,6 @@ async function enviarPosicion(data){
   });
 }
 
-// Dispara un getCurrentPosition para intentar un fix más preciso (no bloquea)
 function warmupGPS(){
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
@@ -109,7 +108,6 @@ function iniciarGPS(usr){
     return;
   }
 
-  // Warm-up: intenta fijar GPS antes del watch
   warmupGPS();
 
   const opts = { enableHighAccuracy:true, maximumAge:0, timeout:30000 };
@@ -118,39 +116,38 @@ function iniciarGPS(usr){
     const now = Date.now();
     const acc = Number(crd.accuracy);
 
-    // UI: mostrar datos del usuario + coordenadas y hora (SIN precisión)
+    // PANEL: datos del usuario + coords/hora (sin precisión)
     infoEl.innerHTML = `
       <b>Coordenadas:</b> ${crd.latitude.toFixed(5)}, ${crd.longitude.toFixed(5)}<br>
       <b>Hora (Lima):</b> ${new Date().toLocaleTimeString("es-PE",{timeZone:"America/Lima"})}<br>
       <hr style="border:0;border-top:1px solid rgba(255,255,255,.1);margin:6px 0;">
-      <b>Técnico:</b> ${user.tecnico || '—'}<br>
+      <b>Nombre:</b> ${user.nombre || '—'}<br>
       <b>Brigada:</b> ${user.brigada || '—'}<br>
       <b>Contrata:</b> ${user.contrata || '—'}<br>
       <b>Zona:</b> ${user.zona || '—'}<br>
-      <b>Cargo:</b> ${user.cargo || '—'}
+      <b>Cargo:</b> ${user.cargo || '—'}<br>
+      <b>Teléfono:</b> ${user.telefono || '—'}
     `;
 
-    // 1) Si la precisión es muy mala, NO enviar y pedir un fix mejor en paralelo.
     if (isFinite(acc) && acc > ACC_MAX) {
       statusEl.textContent = "📡 Optimizando señal…";
       warmupGPS();
       return;
     }
 
-    // 2) Señal intermedia: enviar solo cada 20s
     if (isFinite(acc) && acc > ACC_TARGET && acc <= ACC_MAX) {
       statusEl.textContent = "📡 Señal inestable, enviando menos frecuente…";
       if (now - lastWeakSend < MIN_INTERVAL_WEAK_MS) return;
       lastWeakSend = now;
     } else {
-      // Señal buena: respeta intervalo normal
       if (now - lastSend < MIN_INTERVAL_MS) return;
       lastSend = now;
     }
 
+    // IMPORTANTE: enviamos el NOMBRE en el campo "tecnico" para mantener compatibilidad backend
     const payload = {
       usuario_id: user.id,
-      tecnico: user.tecnico,
+      tecnico: user.nombre,     // ← nombre en vez de "tecnico"
       brigada: user.brigada,
       contrata: user.contrata,
       zona: user.zona,
