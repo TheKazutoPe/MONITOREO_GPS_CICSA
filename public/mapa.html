@@ -9,7 +9,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-  html, body { height: 100%; margin: 0; }
+  html, body { height: 100%; margin: 0; font-family: "Segoe UI", sans-serif; }
   #map { height: 100%; width: 100%; }
 
   .topbar {
@@ -35,7 +35,7 @@
   #logo img { height: 50px; }
 
   #sidebar {
-    position: absolute; right: 10px; top: 80px; width: 240px;
+    position: absolute; right: 10px; top: 80px; width: 260px;
     background: rgba(255,255,255,0.95);
     border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.25);
     padding: 10px; font-size: 13px;
@@ -59,7 +59,7 @@
   <div id="map"></div>
 
   <div id="logo">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/e/e0/Car_icon_1.svg" alt="CICSA Logo" />
+    <img src="https://upload.wikimedia.org/wikipedia/commons/2/20/Car_icon.png" alt="CICSA Logo" />
   </div>
 
   <div class="topbar">
@@ -100,9 +100,9 @@ function initMap() {
 
 function iconoBrigada() {
   return L.icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
-    iconSize: [38, 38],
-    iconAnchor: [19, 19],
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png', // 🚗 carro
+    iconSize: [40, 40],
+    iconAnchor: [20, 20]
   });
 }
 
@@ -114,6 +114,7 @@ function actualizarConectados() {
       const contrataSel = document.getElementById("contrata").value;
       const usersDiv = document.getElementById("users");
       usersDiv.innerHTML = "";
+
       data
         .filter(u => (!zonaSel || u.meta.zona === zonaSel) && (!contrataSel || u.meta.contrata === contrataSel))
         .forEach(u => {
@@ -122,7 +123,9 @@ function actualizarConectados() {
           const fecha = new Date(u.timestamp || u.ts);
           div.innerHTML = `
             <b>${u.meta.display}</b><br>
-            <small>${u.meta.brigada || ""} | ${u.meta.zona} | ${u.meta.contrata}</small><br>
+            <small>${u.meta.cargo || ""} | ${u.meta.brigada || ""}</small><br>
+            <small>${u.meta.zona} | ${u.meta.contrata}</small><br>
+            <small>Tel: ${u.meta.telefono || "-"}</small><br>
             <small>Último: ${isNaN(fecha) ? '-' : fecha.toLocaleTimeString()}</small>
           `;
           div.onclick = () => {
@@ -148,31 +151,72 @@ function conectarWS() {
 
       if (!lat || !lng) return;
 
-      const latlng = [lat, lng];
       const nombre = u.tecnico || u.meta?.display || "Sin nombre";
+      const cargo = u.cargo || u.meta?.cargo || "";
       const brigada = u.brigada || u.meta?.brigada || "";
+      const zona = u.zona || u.meta?.zona || "";
       const contrata = u.contrata || u.meta?.contrata || "";
+      const telefono = u.telefono || u.meta?.telefono || "";
+
+      const latlng = [lat, lng];
+      const popup = `
+        <b>${nombre}</b><br>
+        ${cargo}<br>
+        ${brigada}<br>
+        ${zona} | ${contrata}<br>
+        Tel: ${telefono}
+      `;
 
       if (!markers[u.id]) {
         const marker = L.marker(latlng, { icon: iconoBrigada() })
           .addTo(map)
-          .bindPopup(`<b>${nombre}</b><br>${brigada}<br>${contrata}`);
+          .bindPopup(popup);
         markers[u.id] = marker;
-        polylines[u.id] = L.polyline([latlng], { color: "#003366", weight: 3 }).addTo(map);
+        polylines[u.id] = L.polyline([latlng], { color: "#007bff", weight: 3 }).addTo(map);
       } else {
-        markers[u.id].setLatLng(latlng);
+        markers[u.id].setLatLng(latlng).bindPopup(popup);
         polylines[u.id].addLatLng(latlng);
       }
     } catch (err) {
       console.error("Error WS:", err);
     }
   };
+
+  ws.onclose = () => {
+    console.warn("🔴 WS cerrado, reconectando...");
+    setTimeout(conectarWS, 5000);
+  };
+}
+
+// Actualización por fallback cada 5 s en caso de WS dormido
+function actualizarPeriodico() {
+  fetch(`${API}/api/recientes`)
+    .then(r => r.json())
+    .then(({data}) => {
+      data.forEach(u => {
+        const latlng = [u.latitud, u.longitud];
+        if (!latlng[0] || !latlng[1]) return;
+
+        if (!markers[u.usuario_id]) {
+          const marker = L.marker(latlng, { icon: iconoBrigada() })
+            .addTo(map)
+            .bindPopup(`<b>${u.tecnico}</b><br>${u.brigada} | ${u.zona}<br>${u.contrata}`);
+          markers[u.usuario_id] = marker;
+          polylines[u.usuario_id] = L.polyline([latlng], { color: "#007bff", weight: 3 }).addTo(map);
+        } else {
+          markers[u.usuario_id].setLatLng(latlng);
+          polylines[u.usuario_id].addLatLng(latlng);
+        }
+      });
+    });
 }
 
 initMap();
 conectarWS();
 actualizarConectados();
-setInterval(actualizarConectados, 10000);
+
+setInterval(actualizarConectados, 8000);
+setInterval(actualizarPeriodico, 5000);
 </script>
 </body>
 </html>
