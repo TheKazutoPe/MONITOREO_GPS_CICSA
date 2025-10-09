@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CICSA Monitoreo GPS</title>
   <style>
     body {
@@ -13,37 +13,38 @@
       display: flex;
       justify-content: center;
       align-items: center;
+      margin: 0;
     }
 
     .card {
-      background: rgba(10, 30, 50, 0.9);
-      border-radius: 15px;
-      padding: 30px;
-      width: 340px;
+      background: rgba(10, 30, 50, 0.92);
+      border-radius: 14px;
+      padding: 25px;
+      width: 350px;
       text-align: center;
-      box-shadow: 0 0 20px rgba(0,255,200,0.4);
-      transition: all .3s;
+      box-shadow: 0 0 20px rgba(0, 255, 200, 0.4);
+      transition: all 0.3s;
     }
 
     .card.glow {
-      box-shadow: 0 0 25px rgba(0,255,200,0.8);
+      box-shadow: 0 0 25px rgba(0, 255, 200, 0.8);
     }
 
     .logo {
       display: block;
-      margin: 0 auto 10px;
-      height: 40px;
+      margin: 0 auto 15px;
+      height: 60px;
     }
 
     h2 {
-      margin: 10px 0 4px;
+      margin: 8px 0;
       color: #fff;
     }
 
     input {
       width: 90%;
       padding: 8px;
-      margin: 8px 0;
+      margin: 6px 0;
       border: none;
       border-radius: 6px;
       text-align: center;
@@ -56,37 +57,47 @@
       border-radius: 6px;
       padding: 10px 15px;
       cursor: pointer;
-      margin-top: 10px;
+      margin-top: 8px;
+      width: 95%;
+      font-weight: 600;
     }
 
     button:hover { background: #009944; }
 
     #status {
-      margin-top: 15px;
+      margin-top: 12px;
       font-size: 14px;
       color: #00e676;
     }
 
     #info {
-      background: rgba(0,0,0,0.25);
+      background: rgba(0, 0, 0, 0.25);
       border-radius: 8px;
       margin-top: 10px;
       text-align: left;
       padding: 8px 12px;
       font-size: 13px;
+      display: none;
     }
   </style>
 </head>
 <body>
   <div class="card" id="panel">
-    <img src="/static/logo_cicsa.png" alt="CICSA" class="logo">
-    <h2>Monitoreo GPS</h2>
-    <p>Ingreso para técnicos / brigadas</p>
+    <img src="/static/logo_cicsa.png" alt="CICSA" class="logo" />
+    <h2>Monitoreo GPS - Técnico</h2>
+    <p>Inicio de sesión</p>
 
-    <input id="usuario" placeholder="Usuario" />
-    <input id="clave" type="password" placeholder="Clave" />
-    <button id="btnStart">Iniciar transmisión GPS</button>
+    <input id="usuario" placeholder="Nombre del técnico" />
+    <input id="brigada" placeholder="Brigada" />
+    <input id="contrata" placeholder="Contrata" />
+    <input id="zona" placeholder="Zona (NORTE, SUR...)" />
+    <select id="cargo">
+      <option value="Técnico">Técnico</option>
+      <option value="Supervisor">Supervisor</option>
+      <option value="Monitoreo">Monitoreo</option>
+    </select>
 
+    <button id="btnStart">Iniciar transmisión</button>
     <div id="status"></div>
     <div id="info"></div>
   </div>
@@ -97,73 +108,82 @@
     const infoEl = document.getElementById("info");
     const panel = document.getElementById("panel");
 
-    let watchID = null;
-    let sending = false;
+    let lastSend = 0;
 
-    async function enviarPosicion(usuario, lat, lon, precision, velocidad) {
+    async function enviarPosicion(data) {
       try {
-        const body = {
-          usuario,
-          latitud: lat,
-          longitud: lon,
-          precision,
-          velocidad,
-          timestamp: new Date().toISOString()
-        };
-
-        await fetch("/api/ubicaciones", {
+        const res = await fetch("/api/posicion", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
+          body: JSON.stringify(data)
         });
+        const out = await res.json();
+        if (!out.ok) console.error("⚠️ Error del servidor:", out.error);
       } catch (err) {
         console.error("❌ Error al enviar posición:", err);
       }
     }
 
-    function iniciarTransmision() {
-      const usuario = document.getElementById("usuario").value.trim();
-      if (!usuario) {
-        alert("Ingrese su usuario para iniciar.");
+    function iniciar() {
+      const tecnico = document.getElementById("usuario").value.trim();
+      const brigada = document.getElementById("brigada").value.trim() || "N/A";
+      const contrata = document.getElementById("contrata").value.trim() || "N/A";
+      const zona = document.getElementById("zona").value.trim() || "N/A";
+      const cargo = document.getElementById("cargo").value;
+      const usuario_id = Math.floor(Math.random() * 1000000); // ID temporal
+
+      if (!tecnico) {
+        alert("Ingrese su nombre o usuario.");
         return;
       }
 
       btn.disabled = true;
       btn.textContent = "Transmitiendo...";
-      statusEl.innerHTML = "🟢 Transmitiendo posición en tiempo real...";
       panel.classList.add("glow");
+      infoEl.style.display = "block";
+      statusEl.textContent = "🟢 Transmitiendo posición GPS...";
 
       if (!navigator.geolocation) {
-        statusEl.innerHTML = "⚠️ Geolocalización no soportada";
+        statusEl.textContent = "⚠️ Geolocalización no soportada.";
         return;
       }
 
-      let ultima = 0;
-      watchID = navigator.geolocation.watchPosition(
+      navigator.geolocation.watchPosition(
         async (pos) => {
           const { latitude, longitude, accuracy, speed } = pos.coords;
           const ahora = Date.now();
-          if (ahora - ultima < 5000) return; // enviar cada 5s
-          ultima = ahora;
+          if (ahora - lastSend < 5000) return; // cada 5 s
+          lastSend = ahora;
 
           infoEl.innerHTML = `
             <b>Coordenadas:</b> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br>
             <b>Precisión:</b> ${accuracy.toFixed(1)} m<br>
             <b>Velocidad:</b> ${(speed || 0).toFixed(1)} km/h<br>
-            <b>Hora local:</b> ${new Date().toLocaleTimeString()}
+            <b>Hora:</b> ${new Date().toLocaleTimeString()}
           `;
 
-          await enviarPosicion(usuario, latitude, longitude, accuracy, (speed || 0) * 3.6);
+          const payload = {
+            usuario_id,
+            tecnico,
+            brigada,
+            contrata,
+            zona,
+            cargo,
+            lat: latitude,
+            lng: longitude
+          };
+
+          await enviarPosicion(payload);
         },
         (err) => {
-          statusEl.innerHTML = "⚠️ Error al obtener ubicación";
-          console.error(err);
+          console.error("Error GPS:", err);
+          statusEl.textContent = "⚠️ Error obteniendo posición.";
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
     }
 
-    btn.onclick = iniciarTransmision;
+    btn.onclick = iniciar;
   </script>
 </body>
 </html>
