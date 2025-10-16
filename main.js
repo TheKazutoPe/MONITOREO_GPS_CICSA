@@ -1,282 +1,451 @@
-// === Config ===
-const { DateTime } = luxon;
-const SUPABASE_URL = (window.__ENV__ && window.__ENV__.SUPABASE_URL) || "";
-const SUPABASE_ANON_KEY = (window.__ENV__ && window.__ENV__.SUPABASE_ANON_KEY) || "";
-const TABLE = "ubicaciones_brigadas";
-const RECENT_SECONDS = 60;     // offline si no llega nada en 60s
-const STILL_METERS = 5;        // si movimiento <5m lo consideramos 'sin moverse'
-let TAIL_POINTS = 100;         // puntos por usuario en polyline
+/* main.js — versión sin Luxon + animación de movimiento y rotación */
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  alert("Faltan SUPABASE_URL o SUPABASE_ANON_KEY en config.js");
+/* ==============================
+   1) Supabase & Config
+================================ */
+const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+
+/* ==============================
+   2) Estado global
+================================ */
+const state = {
+  map: null,
+  baseLayers: {},
+  cluster: null,
+  users: new Map(), // uid -> { marker, lastRow, history: [LatLng], lastSeenMs }
+  ui: {},
+  maxPointsPerUser: 100,
+  minAcc: 0,
+  followSelected: false,
+  selectedUid: null,
+  hideInactiveAfterMs: 5 * 60 * 1000, // 5 minutos
+};
+
+/* ==============================
+   3) Utilidades de tiempo y animación
+================================ */
+function parseTsToMs(ts) {
+  // Acepta timestamptz ISO (UTC) de Postgres
+  const d = new Date(ts);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : Date.now();
 }
-
-// === Supabase client ===
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// === Mapa ===
-const map = L.map('map').setView([-12.0464, -77.0428], 12); // Lima centro
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap'
-}).addTo(map);
-
-// Iconos (ajusta tamaños si quieres el carro más grande)
-const carOnline = L.icon({ iconUrl: './assets/carro-green.png', iconSize:[36,36], iconAnchor:[18,18] });
-const carIdle   = L.icon({ iconUrl: './assets/carro-orange.png', iconSize:[36,36], iconAnchor:[18,18] });
-const carOff    = L.icon({ iconUrl: './assets/carro-gray.png',  iconSize:[36,36], iconAnchor:[18,18] });
-
-// Estado por usuario
-const users = new Map(); // usuario_id -> { marker, poly, last, lastCoords, lastMovedAt, timer, animToken }
-const userList = document.getElementById('userList');
-const realtimeStatus = document.getElementById('realtimeStatus');
-const lastRefresh = document.getElementById('lastRefresh');
-
-function fmtPeru(ts) {
-  // ts puede venir como ISO UTC; lo mostramos en America/Lima
-  return DateTime.fromISO(ts, { zone: 'utc' }).setZone('America/Lima').toFormat('yyyy-LL-dd HH:mm:ss');
+function timeAgoText(ms) {
+  const diff = (Date.now() - ms) / 60000;
+  if (diff < 1) return 'hace segundos';
+  if (diff < 60) return `hace ${Math.round(diff)} min`;
+  const h = Math.floor(diff / 60);
+  return `hace ${h} h`;
 }
-
-function distanceMeters(a, b) {
-  // Haversine simple
-  const R = 6371000;
-  const dLat = (b.lat - a.lat) * Math.PI/180;
-  const dLon = (b.lon - a.lon) * Math.PI/180;
-  const la1 = a.lat * Math.PI/180;
-  const la2 = b.lat * Math.PI/180;
-  const sinDLat = Math.sin(dLat/2), sinDLon = Math.sin(dLon/2);
-  const h = sinDLat*sinDLat + Math.cos(la1)*Math.cos(la2)*sinDLon*sinDLon;
-  return 2*R*Math.asin(Math.sqrt(h));
+function bearingDeg(a, b) {
+  const toRad = Math.PI / 180;
+  const toDeg = 180 / Math.PI;
+  const φ1 = a.lat * toRad;
+  const φ2 = b.lat * toRad;
+  const Δλ = (b.lng - a.lng) * toRad;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const brng = Math.atan2(y, x) * toDeg;
+  return (brng + 360) % 360;
 }
+const Easing = {
+  // easeInOutCubic
+  ioCubic: t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+};
+function lerp(a, b, t) { return a + (b - a) * t; }
 
-function statusPill(u) {
-  const now = DateTime.now().toUTC();
-  const last = DateTime.fromISO(u.last.timestamp).toUTC();
-  const seconds = now.diff(last, 'seconds').seconds;
-  const online = seconds <= RECENT_SECONDS;
-  const movedRecently = u.lastMovedAt && now.diff(u.lastMovedAt, 'seconds').seconds <= RECENT_SECONDS;
-  let cls = 'offline', txt = 'Offline';
-  if (online && movedRecently) { cls = 'online'; txt = 'Online'; }
-  else if (online) { cls = ''; txt = 'Inactivo'; }
-
-  return `<span class="badge ${cls || ''}">${txt}</span>`;
-}
-
-function renderUserList() {
-  const arr = [...users.entries()].map(([id, u]) => ({ id, ...u }));
-  arr.sort((a,b)=> (a.last?.tecnico||'').localeCompare(b.last?.tecnico||''));
-  userList.innerHTML = arr.map(u => {
-    const name = [u.last?.tecnico, u.last?.brigada].filter(Boolean).join(' · ');
-    const ts = u.last ? fmtPeru(u.last.timestamp) : '—';
-    return `<li>
-      <div>
-        <div><strong>${name || 'Usuario ' + u.id}</strong></div>
-        <div style="font-size:12px;color:#666">Lat: ${u.last?.latitud?.toFixed(6) ?? '—'} · Lon: ${u.last?.longitud?.toFixed(6) ?? '—'} · ${ts}</div>
-      </div>
-      ${statusPill(u)}
-    </li>`;
-  }).join('');
-}
-
-// ===== Animación suave del marcador =====
-function easeInOutCubic(t) {
-  return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
-}
-
-function animateMarker(marker, fromLatLng, toLatLng, duration = 800, tokenObj) {
-  // tokenObj: referencia para cancelar si llega un nuevo punto
+/**
+ * Anima un marker desde su posición actual hasta `to`, en `duration` ms,
+ * con easing. También rota el ícono hacia el rumbo del movimiento.
+ */
+function animateMarkerTo(marker, to, { duration = 1100 } = {}) {
+  const from = marker.getLatLng();
   const start = performance.now();
-  const startLat = fromLatLng[0], startLng = fromLatLng[1];
-  const dLat = toLatLng[0] - startLat, dLng = toLatLng[1] - startLng;
-  const myToken = Symbol('anim');
-  tokenObj.current = myToken;
+  const end = start + duration;
+  const rot = bearingDeg(from, to);
 
-  function step(now) {
-    // Si se emitió un nuevo token, cancelar esta animación
-    if (tokenObj.current !== myToken) return;
-
-    const t = Math.min(1, (now - start) / duration);
-    const k = easeInOutCubic(t);
-    marker.setLatLng([startLat + dLat * k, startLng + dLng * k]);
-
-    if (t < 1) {
-      requestAnimationFrame(step);
-    } else {
-      // Mini efecto "pop" al terminar (si existe el ícono)
-      if (marker._icon) {
-        marker._icon.style.transition = 'transform 220ms';
-        marker._icon.style.transform = 'scale(1.08)';
-        setTimeout(() => {
-          if (marker._icon) marker._icon.style.transform = 'scale(1)';
-        }, 220);
-      }
-    }
+  // aplica rotación al <img> del icono (si existe)
+  if (marker._icon) {
+    marker._icon.style.transition = 'transform 180ms linear';
+    marker._icon.style.transform = `rotate(${rot}deg)`;
+    marker._icon.style.transformOrigin = '50% 50%';
+    marker._icon.style.willChange = 'transform';
   }
 
-  requestAnimationFrame(step);
+  function frame(now) {
+    const t = Math.min(1, (now - start) / (end - start));
+    const e = Easing.ioCubic(t);
+    const lat = lerp(from.lat, to.lat, e);
+    const lng = lerp(from.lng, to.lng, e);
+    marker.setLatLng([lat, lng]);
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 }
 
-// ========================================
-
-function ensureUser(u) {
-  let entry = users.get(u.usuario_id);
-  if (!entry) {
-    entry = {
-      marker: L.marker([u.latitud, u.longitud], { icon: carOff }).addTo(map),
-      poly: L.polyline([], { weight: 3, opacity: 0.8 }).addTo(map),
-      last: null,
-      lastCoords: null,
-      lastMovedAt: null,
-      timer: null,
-      id: u.usuario_id,
-      animToken: { current: null } // token para cancelar/encadenar animaciones
-    };
-    users.set(u.usuario_id, entry);
-  }
-  return entry;
-}
-
-function updateUser(u) {
-  const e = ensureUser(u);
-  const latlng = [u.latitud, u.longitud];
-
-  // trayectoria (solo guardamos puntos, no animamos el trazo)
-  const pts = e.poly.getLatLngs();
-  pts.push(latlng);
-  if (pts.length > TAIL_POINTS) pts.splice(0, pts.length - TAIL_POINTS);
-  e.poly.setLatLngs(pts);
-
-  // movimiento / actividad reciente
-  const now = DateTime.now().toUTC();
-  if (e.lastCoords) {
-    const dist = distanceMeters({lat:e.lastCoords[0], lon:e.lastCoords[1]}, {lat:latlng[0], lon:latlng[1]});
-    if (dist >= STILL_METERS) e.lastMovedAt = now;
-  } else {
-    e.lastMovedAt = now;
-  }
-
-  // ANIMACIÓN DEL MARCADOR
-  if (e.lastCoords) {
-    // si había una pos previa: animar desde lastCoords a latlng
-    animateMarker(e.marker, e.lastCoords, latlng, 800, e.animToken);
-  } else {
-    // primera vez sin animación
-    e.marker.setLatLng(latlng);
-  }
-  e.lastCoords = latlng;
-
-  // icono y popup
-  const movedRecently = e.lastMovedAt && now.diff(e.lastMovedAt, 'seconds').seconds <= RECENT_SECONDS;
-  e.marker.setIcon(movedRecently ? carOnline : carIdle);
-  const peruTs = fmtPeru(u.timestamp);
-  const html = `<div>
-    <strong>${u.tecnico || '—'}</strong><br/>
-    Brigada: ${u.brigada || '—'}<br/>
-    Zona: ${u.zona || '—'}<br/>
-    ${peruTs}<br/>
-    ${u.latitud.toFixed(6)}, ${u.longitud.toFixed(6)} · acc ${u.acc?.toFixed?.(1) ?? '—'} m · spd ${u.spd?.toFixed?.(1) ?? '—'} m/s
-  </div>`;
-  e.marker.bindPopup(html);
-
-  e.last = u;
-
-  // offline timer (si no llega nada en RECENT_SECONDS => icono gris)
-  if (e.timer) clearTimeout(e.timer);
-  e.timer = setTimeout(() => {
-    e.marker.setIcon(carOff);
-    renderUserList();
-  }, RECENT_SECONDS * 1000);
-
-  renderUserList();
-}
-
-// Filtros
-const brigadaFilter = document.getElementById('brigadaFilter');
-const minAcc = document.getElementById('minAcc');
-const tailPoints = document.getElementById('tailPoints');
-document.getElementById('applyFilters').addEventListener('click', () => {
-  TAIL_POINTS = Math.max(10, Math.min(5000, parseInt(tailPoints.value || '100', 10)));
-  loadInitial();
+/* ==============================
+   4) Iconos y helpers de Marker
+================================ */
+const CarIcon = L.icon({
+  iconUrl: 'assets/carro.png',
+  iconSize: [38, 20],      // más ancho pero no estirado
+  iconAnchor: [19, 10],    // centro del “carro”
+  popupAnchor: [0, -10]
 });
+const CarIconGray = L.icon({
+  iconUrl: 'assets/carro.png',
+  iconSize: [32, 17],
+  iconAnchor: [16, 9],
+  className: 'icon-gray'
+});
+const AccCircleStyle = {
+  color: '#4cc9f0',
+  fillColor: '#4cc9f0',
+  fillOpacity: 0.12,
+  weight: 1
+};
 
-function setRealtimeStatus(ok) {
-  if (ok) {
-    realtimeStatus.textContent = 'Conectado';
-    realtimeStatus.className = 'dot green';
-  } else {
-    realtimeStatus.textContent = 'Desconectado';
-    realtimeStatus.className = 'dot red';
-  }
+function userKey(row) {
+  // usa usuario_id si existe; si no, cae a "tecnico"
+  return (row.usuario_id && String(row.usuario_id)) || (row.tecnico ?? 'desconocido');
+}
+function statusKind(lastSeenMs) {
+  const diff = Date.now() - lastSeenMs;
+  if (diff <= 60 * 1000) return 'online';
+  if (diff <= 5 * 60 * 1000) return 'idle';
+  return 'offline';
+}
+function iconFor(kind) {
+  return kind === 'online' ? CarIcon : (kind === 'idle' ? CarIcon : CarIconGray);
 }
 
-// Carga inicial: último punto por usuario (y opcionalmente últimos N para polilínea)
-async function loadInitial() {
-  try {
-    const filters = [];
-    if (brigadaFilter.value) filters.push(`brigada=eq.${brigadaFilter.value}`);
-    if (minAcc.value) filters.push(`acc=gte.${Number(minAcc.value)}`);
-    // Traemos últimas 1000 filas recientes para reconstruir recorridos por usuario
-    const url = new URL(`${SUPABASE_URL}/rest/v1/${TABLE}`);
-    url.searchParams.set('select', 'usuario_id,tecnico,brigada,contrata,zona,cargo,latitud,longitud,timestamp,acc,spd');
-    url.searchParams.set('order', 'timestamp.desc');
-    url.searchParams.set('limit', '1000');
-    if (filters.length) url.searchParams.set('and', `(${filters.join(',')})`);
-    const resp = await fetch(url.toString(), {
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Accept: 'application/json'
-      }
+/* ==============================
+   5) UI y Mapa
+================================ */
+function initUIRefs() {
+  state.ui.brigada = document.getElementById('brigadaFilter');
+  state.ui.minAcc = document.getElementById('minAcc');
+  state.ui.tail = document.getElementById('tailPoints');
+  state.ui.apply = document.getElementById('applyFilters');
+  state.ui.userList = document.getElementById('userList');
+  state.ui.status = document.getElementById('status');
+  state.ui.baseSelect = document.getElementById('baseMap');
+  state.ui.exportKmz = document.getElementById('exportKmz');
+  state.ui.follow = document.getElementById('chkFollow');
+}
+
+function setStatus(text, kind = 'gray') {
+  state.ui.status.textContent = text;
+  state.ui.status.className = `dot ${kind}`;
+}
+
+function initMap() {
+  state.map = L.map('map', { zoomControl: false, minZoom: 3 });
+  L.control.zoom({ position: 'topleft' }).addTo(state.map);
+
+  // Capas base
+  state.baseLayers = {
+    'Callejero': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 20, attribution: '&copy; OpenStreetMap'
+    }),
+    'Humanitario': L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      maxZoom: 20, attribution: '&copy; OSM Humanitarian'
+    }),
+    'Satélite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 20, attribution: 'Esri'
+    }),
+  };
+  state.baseLayers['Callejero'].addTo(state.map);
+  L.control.layers(state.baseLayers, null, { position: 'topleft' }).addTo(state.map);
+
+  // capa simple para markers
+  state.cluster = L.layerGroup().addTo(state.map);
+
+  // Centro por defecto (Lima)
+  state.map.setView([-12.046, -77.042], 12);
+}
+
+function readFilters() {
+  state.maxPointsPerUser = parseInt(state.ui.tail.value || '100', 10);
+  state.minAcc = parseFloat(state.ui.minAcc.value || '0');
+  state.followSelected = state.ui.follow.checked;
+}
+
+/* ==============================
+   6) Pintado / mantenimiento de usuarios
+================================ */
+function buildPopup(row, lastSeenMs, kind) {
+  const t = timeAgoText(lastSeenMs);
+  const brig = row.brigada || '-';
+  const vel = (row.spd || 0).toFixed(1);
+  const acc = Math.round(row.acc || 0);
+  return `
+    <div style="min-width:220px">
+      <strong>${row.tecnico || '—'}</strong><br>
+      Brigada: <b>${brig}</b><br>
+      Lat: <b>${row.latitud.toFixed(5)}</b> · Lon: <b>${row.longitud.toFixed(5)}</b><br>
+      Acc: <b>${acc} m</b> · Vel: <b>${vel} m/s</b><br>
+      <span class="badge ${kind}">${kind === 'online' ? 'Online' : (kind === 'idle' ? 'Inactivo' : 'Offline')}</span>
+      <div style="opacity:.7;margin-top:4px">${t}</div>
+    </div>`;
+}
+
+/**
+ * Crea o actualiza el marker de un usuario.
+ * - Aplica animación si ya existe y cambió de posición.
+ * - Rota el icono hacia el rumbo del movimiento.
+ * - Oculta si lleva > 5 min inactivo.
+ */
+function upsertUser(row) {
+  if (row.acc != null && row.acc < state.minAcc) return; // filtra por precisión
+
+  const uid = userKey(row);
+  const seenMs = parseTsToMs(row.timestamp);
+  const kind = statusKind(seenMs);
+
+  // si pasó el umbral de inactividad, borra del mapa si existe
+  if (Date.now() - seenMs > state.hideInactiveAfterMs) {
+    const ex = state.users.get(uid);
+    if (ex?.marker) {
+      state.cluster.removeLayer(ex.marker);
+      if (ex.marker._accCircle) state.cluster.removeLayer(ex.marker._accCircle);
+    }
+    state.users.delete(uid);
+    renderUserList();
+    return;
+  }
+
+  const latLng = L.latLng(row.latitud, row.longitud);
+  let u = state.users.get(uid);
+
+  if (!u) {
+    // Crear nuevo marker
+    const marker = L.marker(latLng, { icon: iconFor(kind), title: row.tecnico || uid });
+    marker.addTo(state.cluster);
+    marker.bindPopup(buildPopup(row, seenMs, kind));
+    marker.on('click', () => {
+      state.selectedUid = uid;
+      if (state.followSelected) state.map.setView(marker.getLatLng(), Math.max(state.map.getZoom(), 15));
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const rows = await resp.json();
 
-    // Limpiar estado actual
-    users.forEach(u => {
-      map.removeLayer(u.marker);
-      map.removeLayer(u.poly);
-    });
-    users.clear();
+    // círculo de precisión (opcional, a demanda con checkbox "Mostrar precisión")
+    marker._accCircle = null;
 
-    // Insertar del más antiguo al más nuevo para armar trazo y que la animación quede coherente
-    rows.reverse().forEach(r => updateUser(r));
+    u = { marker, lastRow: row, history: [], lastSeenMs: seenMs };
+    state.users.set(uid, u);
+  } else {
+    // animar de posición anterior a la nueva
+    const prev = L.latLng(u.lastRow.latitud, u.lastRow.longitud);
+    const changed = prev.distanceTo(latLng) > 0.5; // más de ~0.5m
+    // icono por estado
+    u.marker.setIcon(iconFor(kind));
 
-    // Ajustar vista al conjunto si hay puntos
-    const all = [];
-    users.forEach(u => { if (u.lastCoords) all.push(u.lastCoords); });
-    if (all.length) {
-      const bounds = L.latLngBounds(all);
-      map.fitBounds(bounds.pad(0.2));
+    if (changed) {
+      animateMarkerTo(u.marker, latLng, { duration: 1100 });
+    } else {
+      u.marker.setLatLng(latLng);
     }
 
-    lastRefresh.textContent = 'Actualizado: ' + DateTime.now().setZone('America/Lima').toFormat('HH:mm:ss');
-  } catch (e) {
-    console.error('loadInitial error', e);
-    lastRefresh.textContent = 'Error al cargar';
+    // actualizar popup
+    u.marker.setPopupContent(buildPopup(row, seenMs, kind));
+  }
+
+  // guarda histórico en memoria para KMZ (no se dibuja)
+  u.history.push([row.longitud, row.latitud]); // [lng,lat] para KML
+  if (u.history.length > state.maxPointsPerUser) u.history.shift();
+
+  u.lastRow = row;
+  u.lastSeenMs = seenMs;
+
+  // seguir seleccionado
+  if (state.followSelected && state.selectedUid === uid) {
+    state.map.setView(u.marker.getLatLng(), Math.max(state.map.getZoom(), 15));
   }
 }
 
-// Realtime
-let subscription;
-async function startRealtime() {
-  if (subscription) {
-    sb.removeChannel(subscription);
-    subscription = null;
+/* ==============================
+   7) Listado de usuarios
+================================ */
+function renderUserList() {
+  const el = state.ui.userList;
+  el.innerHTML = '';
+  const rows = [];
+  state.users.forEach((u, uid) => rows.push({ uid, last: u.lastRow, lastSeenMs: u.lastSeenMs }));
+  rows.sort((a, b) => b.lastSeenMs - a.lastSeenMs);
+  for (const { uid, last, lastSeenMs } of rows) {
+    const kind = statusKind(lastSeenMs);
+    const li = document.createElement('li');
+    li.className = 'user-item';
+    li.innerHTML = `
+      <div class="name">${last.tecnico || uid}</div>
+      <div class="sub">Brig: ${last.brigada || '-'} · ${timeAgoText(lastSeenMs)}</div>
+      <span class="chip ${kind}">${kind === 'online' ? 'Online' : (kind === 'idle' ? 'Inactivo' : 'Offline')}</span>
+    `;
+    li.onclick = () => {
+      state.selectedUid = uid;
+      const u = state.users.get(uid);
+      if (u?.marker) {
+        u.marker.openPopup();
+        state.map.setView(u.marker.getLatLng(), Math.max(state.map.getZoom(), 16));
+      }
+    };
+    el.appendChild(li);
   }
-  subscription = sb
-    .channel('realtime:ubicaciones_brigadas')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: TABLE }, (payload) => {
+}
+
+/* ==============================
+   8) Carga inicial y Realtime
+================================ */
+async function initialLoad() {
+  setStatus('Conectando...', 'gray');
+  readFilters();
+
+  // Trae lo más reciente (ej: 1000 últimos) y arma “último por usuario”
+  // Filtra por brigada si se pide
+  const col = [];
+  const sel = supa.from('ubicaciones_brigadas')
+    .select('usuario_id,tecnico,brigada,contrata,zona,cargo,latitud,longitud,acc,spd,timestamp')
+    .order('timestamp', { ascending: false })
+    .limit(1200);
+
+  const brig = state.ui.brigada.value.trim();
+  const { data, error } = brig
+    ? await sel.eq('brigada', brig)
+    : await sel;
+
+  if (error) {
+    setStatus('Error al cargar', 'red');
+    console.error(error);
+    return;
+  }
+  const seenByUid = new Map();
+  for (const r of data) {
+    const uid = userKey(r);
+    if (!seenByUid.has(uid)) {
+      seenByUid.set(uid, true);
+      col.push(r);
+    }
+  }
+
+  // limpiar capa y estado
+  state.cluster.clearLayers();
+  state.users.clear();
+
+  // pintar
+  for (const r of col.reverse()) upsertUser(r);
+  renderUserList();
+  setStatus('Conectado', 'green');
+
+  // suscripción realtime
+  subscribeRealtime();
+}
+
+function subscribeRealtime() {
+  const chan = supa.channel('realtime:ubicaciones')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, payload => {
       const r = payload.new;
-      // filtros en cliente
-      if (brigadaFilter.value && String(r.brigada || '') !== brigadaFilter.value) return;
-      if (minAcc.value && Number(r.acc || 0) < Number(minAcc.value)) return;
-      updateUser(r);
+      // filtro de brigada
+      const brig = state.ui.brigada.value.trim();
+      if (brig && String(r.brigada || '').trim() !== brig) return;
+
+      upsertUser(r);
+      renderUserList();
     })
-    .subscribe((status) => {
-      setRealtimeStatus(status === 'SUBSCRIBED');
-    });
+    .subscribe();
+
+  // guardar por si luego quieres cerrar canal
+  state._chan = chan;
 }
 
-// Init
-loadInitial();
-startRealtime();
+/* ==============================
+   9) Exportar KMZ (recorrido actual)
+================================ */
+function buildKmlForUser(uid, displayName) {
+  const u = state.users.get(uid);
+  if (!u || u.history.length < 2) return null;
+
+  const when = new Date().toISOString();
+  const coords = u.history.map(([lng, lat]) => `${lng},${lat},0`).join(' ');
+  const name = (displayName || uid).replace(/[<>]/g, '');
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+  <kml xmlns="http://www.opengis.net/kml/2.2">
+    <Document>
+      <name>${name} – recorrido</name>
+      <Placemark>
+        <name>${name}</name>
+        <description>Exportado ${when}</description>
+        <Style>
+          <LineStyle><color>ff00aaff</color><width>4</width></LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>${coords}</coordinates>
+        </LineString>
+      </Placemark>
+    </Document>
+  </kml>`;
+  return kml;
+}
+
+function downloadKmzFor(uid) {
+  const u = state.users.get(uid);
+  if (!u) return;
+  const kml = buildKmlForUser(uid, u.lastRow?.tecnico || uid);
+  if (!kml) {
+    alert('No hay suficientes puntos para exportar.');
+    return;
+  }
+  // KMZ = zip con KML; para simplificar entregamos .kml (Google Earth lo abre igual)
+  const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `recorrido_${(u.lastRow?.tecnico || uid).replace(/\s+/g, '_')}.kml`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+
+/* ==============================
+   10) Eventos UI
+================================ */
+function wireUI() {
+  state.ui.apply.onclick = () => initialLoad();
+
+  state.ui.baseSelect.onchange = () => {
+    const name = state.ui.baseSelect.value;
+    Object.values(state.baseLayers).forEach(l => state.map.removeLayer(l));
+    state.baseLayers[name].addTo(state.map);
+  };
+
+  state.ui.exportKmz.onclick = () => {
+    if (!state.selectedUid) {
+      alert('Selecciona un usuario de la lista para exportar su recorrido.');
+      return;
+    }
+    downloadKmzFor(state.selectedUid);
+  };
+
+  // “Mostrar precisión” (círculo)
+  const chkAcc = document.getElementById('chkAcc');
+  chkAcc.addEventListener('change', () => {
+    state.users.forEach(u => {
+      const has = !!u.marker._accCircle;
+      if (chkAcc.checked && !has && u.lastRow?.acc) {
+        const latlng = u.marker.getLatLng();
+        u.marker._accCircle = L.circle(latlng, { radius: u.lastRow.acc, ...AccCircleStyle }).addTo(state.cluster);
+      } else if (!chkAcc.checked && has) {
+        state.cluster.removeLayer(u.marker._accCircle);
+        u.marker._accCircle = null;
+      }
+    });
+  });
+}
+
+/* ==============================
+   11) Bootstrap
+================================ */
+window.addEventListener('DOMContentLoaded', () => {
+  initUIRefs();
+  initMap();
+  wireUI();
+  initialLoad().catch(console.error);
+});
