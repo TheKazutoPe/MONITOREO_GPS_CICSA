@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitoreo GPS Brigadas – Realtime</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <!-- Supabase JS v2 -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+  <!-- Luxon (fechas) -->
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <img src="./assets/logo_cicsa.png" alt="CICSA" class="logo" />
+    <h1>Monitoreo GPS Brigadas – Realtime</h1>
+    <div class="status-bar">
+      <span id="realtimeStatus" class="dot gray">Desconectado</span>
+      <span id="lastRefresh"></span>
+    </div>
+  </header>
+
+  <section class="controls">
+    <div>
+      <label>Filtrar por brigada:</label>
+      <input type="text" id="brigadaFilter" placeholder="Ej: B-12" />
+    </div>
+    <div>
+      <label>Min exactitud (m):</label>
+      <input type="number" id="minAcc" value="0" step="1" />
+    </div>
+    <div>
+      <label>Últimos N puntos por usuario:</label>
+      <input type="number" id="tailPoints" value="100" min="10" max="5000" step="10" />
+    </div>
+    <button id="applyFilters">Aplicar</button>
+  </section>
+
+  <main>
+    <div id="map"></div>
+    <aside>
+      <h3>Usuarios</h3>
+      <ul id="userList"></ul>
+    </aside>
+  </main>
+
+  <footer>
+    <img src="./assets/carro-green.png" class="legend-icon" /> Online
+    <img src="./assets/carro-orange.png" class="legend-icon" /> Inactivo (sin moverse)
+    <img src="./assets/carro-gray.png" class="legend-icon" /> Offline (&gt; 60 s)
+  </footer>
+
+  <script src="./config.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>
