@@ -3,16 +3,16 @@ const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY
 
 // ====== UI refs ======
 const ui = {
-  status: document.getElementById('status'),
-  brigada: document.getElementById('brigadaFilter'),
-  minAcc: document.getElementById('minAcc'),
-  lastN: document.getElementById('lastN'),
-  baseSel: document.getElementById('baseMapSel'),
-  showAcc: document.getElementById('showAcc'),
-  followSel: document.getElementById('followSel'),
-  apply: document.getElementById('applyFilters'),
-  exportKmz: document.getElementById('exportKmzBtn'),
-  userList: document.getElementById('userList')
+  status:      document.getElementById('status'),
+  brigada:     document.getElementById('brigadaFilter'),
+  minAcc:      document.getElementById('minAcc'),
+  lastN:       document.getElementById('lastN'),
+  baseSel:     document.getElementById('baseMapSel'),
+  showAcc:     document.getElementById('showAcc'),
+  followSel:   document.getElementById('followSel'),
+  apply:       document.getElementById('applyFilters'),
+  exportKmz:   document.getElementById('exportKmzBtn'),
+  userList:    document.getElementById('userList')
 };
 
 // ====== Estado ======
@@ -33,6 +33,78 @@ const carIcon = L.icon({
   iconAnchor: [20, 12],
   popupAnchor: [0, -12]
 });
+
+// ====== Helpers de animación ======
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function lerp(a, b, t){ return a + (b - a) * t; }
+function easeInOutCubic(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
+
+// Distancia Haversine aproximada (m)
+function distMeters(a, b){
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+  const s = Math.sin(dLat/2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng/2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+/**
+ * Anima el marker desde 'from' hacia 'to'.
+ * - Duración automática según distancia, con límites.
+ * - Si la distancia es muy grande (teleport), salta sin animar.
+ */
+function animateMarker(marker, from, to){
+  if (!marker || !marker.setLatLng) return;
+
+  // cortar animación previa (si existía)
+  if (marker.__animFrame) {
+    cancelAnimationFrame(marker.__animFrame);
+    marker.__animFrame = null;
+  }
+
+  const d = distMeters(from, to);
+  if (!isFinite(d) || d < 0.5) {
+    marker.setLatLng(to);
+    return;
+  }
+
+  // Evitar animar “saltos” muy grandes (p.ej. reconexión)
+  if (d > 1500) {
+    marker.setLatLng(to);
+    return;
+  }
+
+  // duración en ms proporcional a distancia
+  const dur = clamp(d * 8, 350, 1400); // 8 ms por metro, límites 350–1400ms
+
+  // toque visual opcional mientras se mueve
+  if (marker._icon) marker._icon.classList.add('moving');
+
+  const start = performance.now();
+  const step = (now) => {
+    const t = clamp((now - start) / dur, 0, 1);
+    const k = easeInOutCubic(t);
+    const cur = L.latLng(lerp(from.lat, to.lat, k), lerp(from.lng, to.lng, k));
+    marker.setLatLng(cur);
+    if (t < 1) {
+      marker.__animFrame = requestAnimationFrame(step);
+    } else {
+      marker.__animFrame = null;
+      if (marker._icon) marker._icon.classList.remove('moving');
+    }
+  };
+  marker.__animFrame = requestAnimationFrame(step);
+}
+
+function smoothUpdateMarker(userObj, newRow){
+  const marker = userObj.marker;
+  const from = marker.getLatLng();
+  const to = L.latLng(newRow.latitud, newRow.longitud);
+  animateMarker(marker, from, to);
+  marker.setPopupContent(buildPopup(newRow));
+}
 
 // ====== Arranque ======
 initMap();
@@ -84,9 +156,12 @@ function initMap(){
 }
 
 function switchBase(){
-  const v = ui.baseSel.value; // 'calle' | 'sat' | 'topo'
-  Object.values(state.baseLayers).forEach(l => state.map.removeLayer(l));
-  state.baseLayers[v].addTo(state.map);
+  let v = ui.baseSel.value;             // 'calle' | 'sat' | 'topo' (o alias)
+  if (v === 'callejero') v = 'calle';   // alias seguro
+  Object.values(state.baseLayers).forEach(l => {
+    if (state.map.hasLayer(l)) state.map.removeLayer(l);
+  });
+  if (state.baseLayers[v]) state.baseLayers[v].addTo(state.map);
 }
 
 // ====== Lógica de estado (online / inactivo / offline) ======
@@ -203,7 +278,7 @@ function addUserItem(uid, row){
   li.onclick = () => {
     const u = state.users.get(uid);
     if (!u) return;
-    if (ui.followSel.checked){
+    if (ui.followSel && ui.followSel.checked){
       state.map.setView(u.marker.getLatLng(), Math.max(state.map.getZoom(), 16));
     } else {
       u.marker.openPopup();
@@ -212,6 +287,15 @@ function addUserItem(uid, row){
   };
 
   ui.userList.appendChild(li);
+}
+
+function refreshUserListItem(uid, row){
+  const card = ui.userList.querySelector(`[data-uid="${uid}"]`);
+  if (!card) return;
+  card.querySelector('.meta').innerHTML =
+    `Brig: ${row.brigada || '-'} · Lat: ${row.latitud?.toFixed(6)} · Lon: ${row.longitud?.toFixed(6)}<br/>
+     Acc: ${Math.round(row.acc||0)} m · Vel: ${(row.spd||0).toFixed(1)} m/s<br/>
+     ${timeAgo(row.timestamp)}`;
 }
 
 function timeAgo(ts){
@@ -263,25 +347,15 @@ function onInsert(row){
     addUserItem(uid, row);
   } else {
     u.lastRow = row;
-    u.marker.setLatLng([row.latitud, row.longitud]);
-    u.marker.setPopupContent(buildPopup(row));
+    smoothUpdateMarker(u, row); // <<--- animación suave
     // autoseguir
-    if (ui.followSel.checked && state.selectedUid === uid){
+    if (ui.followSel && ui.followSel.checked && state.selectedUid === uid){
       state.map.setView(u.marker.getLatLng(), Math.max(state.map.getZoom(), 16));
     }
     refreshUserListItem(uid, row);
   }
 
   pruneOldMarkers(); // limpieza oportunista
-}
-
-function refreshUserListItem(uid, row){
-  const card = ui.userList.querySelector(`[data-uid="${uid}"]`);
-  if (!card) return;
-  card.querySelector('.meta').innerHTML =
-    `Brig: ${row.brigada || '-'} · Lat: ${row.latitud?.toFixed(6)} · Lon: ${row.longitud?.toFixed(6)}<br/>
-     Acc: ${Math.round(row.acc||0)} m · Vel: ${(row.spd||0).toFixed(1)} m/s<br/>
-     ${timeAgo(row.timestamp)}`;
 }
 
 // ====== Limpieza periódica: ocultar >5 min ======
@@ -299,8 +373,6 @@ function pruneOldMarkers(){
     if (diff > lim){
       state.cluster.removeLayer(u.marker);
       state.users.delete(uid);
-      // (mantenemos pointsByUser para exportar si quieres histórico corto)
-      // Opcional: quitarlo también de lista
       const card = ui.userList.querySelector(`[data-uid="${uid}"]`);
       if (card) card.remove();
     }
@@ -324,10 +396,12 @@ async function exportKMZFromState(){
     if (!rows || rows.length === 0) return;
 
     // nombre
-    const name = (rows[0].tecnico || `Usuario ${uid}`).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const name = (rows[0].tecnico || `Usuario ${uid}`)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
     // LineString (lon,lat,alt0)
-    const coords = rows.slice().reverse().map(r => `${r.longitud},${r.latitud},0`).join(' ');
+    const coords = rows.slice().reverse()
+      .map(r => `${r.longitud},${r.latitud},0`).join(' ');
 
     kmlBody += `
       <Placemark>
