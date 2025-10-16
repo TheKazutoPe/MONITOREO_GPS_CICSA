@@ -1,86 +1,68 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Monitoreo GPS Brigadas – Realtime</title>
 
   <!-- Leaflet + MarkerCluster -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-  />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
-  <!-- Estilos propios -->
+  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="app-header">
-    <img src="assets/logo_cicsa.png" alt="Carso" class="brand" />
+    <img src="assets/logo_cicsa.png" alt="carso" class="logo" />
     <h1>Monitoreo GPS Brigadas – Realtime</h1>
-    <div class="status">
-      <span id="netStatus" class="dot gray">Conectando…</span>
-    </div>
+    <span id="status" class="status-badge gray">Conectando…</span>
   </header>
 
-  <main class="app-layout">
+  <main class="layout">
     <!-- Sidebar -->
     <aside class="sidebar">
-      <section class="card">
-        <h3>Filtros</h3>
+      <h3>Filtros</h3>
 
-        <label class="lbl">Brigada</label>
-        <input id="brigadaFilter" type="text" placeholder="Ej: B-12" />
+      <label class="lbl">Brigada
+        <input id="brigadaFilter" class="inp" placeholder="Ej: B-12" />
+      </label>
 
-        <div class="grid-2">
-          <div>
-            <label class="lbl">Min exactitud (m)</label>
-            <input id="minAcc" type="number" value="0" min="0" />
-          </div>
-          <div>
-            <label class="lbl">Últimos N puntos/usuario</label>
-            <input id="tailPoints" type="number" value="100" min="1" />
-          </div>
-        </div>
+      <label class="lbl">Min exactitud (m)
+        <input id="minAcc" type="number" class="inp" value="0" min="0" />
+      </label>
 
-        <label class="lbl">Mapa base</label>
-        <select id="baseMap">
-          <option value="street" selected>Callejero</option>
-          <option value="terrain">Terreno</option>
-          <option value="sat">Humanitario</option>
+      <label class="lbl">Últimos N puntos/usuario
+        <input id="lastN" type="number" class="inp" value="100" min="1" max="1000" />
+      </label>
+
+      <label class="lbl">Mapa base
+        <select id="baseMapSel" class="inp">
+          <option value="calle">Callejero</option>
+          <option value="sat">Satélite</option>
+          <option value="topo">Topográfico</option>
         </select>
+      </label>
 
-        <div class="options">
-          <label class="chk">
-            <input id="showAcc" type="checkbox" />
-            Mostrar precisión
-          </label>
-          <label class="chk">
-            <input id="followSel" type="checkbox" />
-            Seguir seleccionado
-          </label>
-        </div>
+      <div class="opts">
+        <label class="chk">
+          <input id="showAcc" type="checkbox" />
+          <span>Mostrar precisión</span>
+        </label>
+        <label class="chk">
+          <input id="followSel" type="checkbox" />
+          <span>Seguir seleccionado</span>
+        </label>
+      </div>
 
-        <div class="actions">
-          <button id="applyFilters" class="btn primary">Aplicar</button>
-          <button id="exportKmz" class="btn">Exportar KMZ</button>
-        </div>
-      </section>
+      <div class="row">
+        <button id="applyFilters" class="btn primary">Aplicar</button>
+        <button id="exportKmzBtn" class="btn">Exportar KMZ</button>
+      </div>
 
-      <section class="card">
-        <h3>Usuarios</h3>
-        <ul id="userList" class="user-list"></ul>
-      </section>
+      <h3>Usuarios</h3>
+      <div id="userList" class="users"></div>
     </aside>
 
     <!-- Mapa -->
@@ -88,376 +70,23 @@
       <div id="map"></div>
 
       <div class="legend">
-        <div class="legend-item">
-          <img src="assets/carro.png" class="legend-ico" />
-          <span>Online</span>
-        </div>
-        <div class="legend-sep">•</div>
-        <div class="legend-dot yellow"></div><span>Inactivo</span>
-        <div class="legend-sep">•</div>
-        <div class="legend-dot gray"></div><span>Offline</span>
-      </div>
-
-      <div class="playback">
-        <select id="maxRows">
-          <option value="200">200</option>
-          <option value="500">500</option>
-          <option value="1000">1000</option>
-        </select>
-        <button id="replay" class="btn">Reproducir</button>
-        <button id="clear" class="btn">Limpiar</button>
+        <span class="dot green"></span> Online
+        <span class="dot yellow"></span> Inactivo
+        <span class="dot gray"></span> Offline
       </div>
     </section>
   </main>
 
-  <!-- Librerías -->
+  <!-- Supabase, Leaflet, Cluster, JSZip -->
   <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-          crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <!-- Config con tus claves -->
   <script src="config.js"></script>
 
-  <!-- Código de la página -->
-  <script>
-  (function () {
-    'use strict';
-
-    // ---------- Estado y refs ----------
-    let map;                       // Leaflet map
-    const state = {
-      cluster: null,
-      baseLayers: {},
-      markers: new Map(),          // usuario_id -> marker
-      pointsByUser: new Map(),     // usuario_id -> [{lat, lon, ts, acc, spd, tecnico, brigada}]
-      channel: null
-    };
-
-    const ui = {
-      net: document.getElementById('netStatus'),
-      brig: document.getElementById('brigadaFilter'),
-      minAcc: document.getElementById('minAcc'),
-      tail: document.getElementById('tailPoints'),
-      base: document.getElementById('baseMap'),
-      showAcc: document.getElementById('showAcc'),
-      follow: document.getElementById('followSel'),
-      apply: document.getElementById('applyFilters'),
-      exportKmz: document.getElementById('exportKmz'),
-      userList: document.getElementById('userList'),
-      maxRows: document.getElementById('maxRows'),
-      replay: document.getElementById('replay'),
-      clear: document.getElementById('clear'),
-    };
-
-    // ---------- Supabase ----------
-    const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
-
-    // ---------- Helpers ----------
-    function setStatus(text, kind) {
-      ui.net.textContent = text;
-      ui.net.className = 'dot ' + (kind || 'gray');
-    }
-    const timeAgo = (ts) => {
-      const m = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
-      if (m < 1) return 'hace segundos';
-      if (m === 1) return 'hace 1 min';
-      return `hace ${m} min`;
-    };
-
-    function computeStatus(row) {
-      const diffMin = (Date.now() - new Date(row.timestamp).getTime()) / 60000;
-      if (diffMin <= 10) return 'green';    // online
-      if (diffMin <= 60) return 'yellow';   // inactivo
-      return 'gray';                        // offline
-    }
-
-    function addUserListItem(uid, r) {
-      const li = document.createElement('li');
-      li.className = 'user';
-      const label = `${r.tecnico || '(# '+uid+')'}`;
-      li.innerHTML = `
-        <div class="user-title">${label}</div>
-        <div class="user-sub">
-          Brig: ${r.brigada || '-'} · Lat: ${(+r.latitud).toFixed(5)} · Lon: ${(+r.longitud).toFixed(5)}<br/>
-          Acc: ${Math.round(r.acc || 0)} m · Vel: ${((r.spd||0).toFixed(1))} m/s<br/>
-          <span class="ago">${timeAgo(r.timestamp)}</span>
-        </div>
-      `;
-      li.onclick = () => {
-        const m = state.markers.get(uid);
-        if (m) {
-          map.setView(m.getLatLng(), Math.max(map.getZoom(), 16));
-          if (ui.follow.checked) m.openPopup();
-        }
-      };
-      ui.userList.appendChild(li);
-    }
-
-    function clearUI() {
-      ui.userList.innerHTML = '';
-      if (state.cluster) state.cluster.clearLayers();
-      state.markers.clear();
-    }
-
-    // ---------- Leaflet ----------
-    function initMap() {
-      map = L.map('map', {
-        zoomControl: true,
-        minZoom: 3
-      }).setView([-12.046, -77.042], 12);
-
-      // Base layers
-      const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-      }).addTo(map);
-
-      const terrain = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenTopoMap'
-      });
-
-      const sat = L.tileLayer('https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
-        attribution: '© OSM Humanitarian'
-      });
-
-      state.baseLayers = { street, terrain, sat };
-
-      state.cluster = L.markerClusterGroup({
-        showCoverageOnHover: false,
-        disableClusteringAtZoom: 16
-      });
-      map.addLayer(state.cluster);
-
-      // Cambiar base por selector
-      ui.base.addEventListener('change', () => {
-        Object.values(state.baseLayers).forEach(l => map.removeLayer(l));
-        (state.baseLayers[ui.base.value] || street).addTo(map);
-      });
-    }
-
-    // ---------- Carga inicial ----------
-    async function fetchInitial(applyFit = true) {
-      setStatus('Cargando…', 'yellow');
-      clearUI();
-
-      const brig = (ui.brig.value || '').trim();
-      const minAcc = Math.max(0, Number(ui.minAcc.value || 0));
-      const perUser = Math.max(1, Number(ui.tail.value || 100));
-      const maxRows = Number(ui.maxRows.value || 200);
-
-      // Pido más de lo necesario y filtro/agrupo en cliente
-      const limit = Math.max(maxRows, perUser * 40);
-
-      let q = supa.from('ubicaciones_brigadas')
-        .select('id,usuario_id,tecnico,brigada,contrata,zona,cargo,latitud,longitud,acc,spd,timestamp,timestamp_pe')
-        .order('timestamp', { ascending: false })
-        .limit(limit);
-
-      if (brig) q = q.or(`brigada.ilike.%${brig}%,tecnico.ilike.%${brig}%`);
-      if (minAcc > 0) q = q.gte('acc', minAcc);
-
-      const { data, error } = await q;
-      if (error) {
-        console.error(error);
-        setStatus('Error al cargar', 'gray');
-        return;
-      }
-
-      // Agrupar por usuario y quedarme con N por usuario
-      const byUser = new Map();
-      for (const r of data) {
-        const u = r.usuario_id;
-        if (!byUser.has(u)) byUser.set(u, []);
-        if (byUser.get(u).length < perUser) byUser.get(u).push(r);
-      }
-
-      // Guardar para KMZ
-      state.pointsByUser = byUser;
-
-      // Crear markers en el mapa (sin traza)
-      const bounds = [];
-      byUser.forEach((rows, uid) => {
-        const last = rows[0];
-        const m = L.marker([last.latitud, last.longitud], {
-          title: `${last.tecnico || ('#' + uid)}`,
-          icon: L.icon({
-            iconUrl: 'assets/carro.png',
-            iconSize: [28, 18],
-            className: computeStatus(last) === 'green'
-              ? 'speed-fast' : ( (last.spd || 1) < 1 ? 'speed-slow' : '' )
-          })
-        });
-        const badge =
-          computeStatus(last) === 'green' ? 'Online' :
-          computeStatus(last) === 'yellow' ? 'Inactivo' : 'Offline';
-
-        m.bindPopup(`
-          <b>${last.tecnico || ('#' + uid)}</b><br/>
-          Brigada: ${last.brigada || '-'}<br/>
-          ${(+last.latitud).toFixed(5)}, ${(+last.longitud).toFixed(5)}<br/>
-          Acc: ${Math.round(last.acc || 0)} m · Vel: ${(last.spd||0).toFixed(1)} m/s<br/>
-          <small>${new Date(last.timestamp).toLocaleString()}</small><br/>
-          <span class="badge ${computeStatus(last)}">${badge}</span>
-        `);
-
-        state.cluster.addLayer(m);
-        state.markers.set(uid, m);
-        bounds.push([last.latitud, last.longitud]);
-
-        addUserListItem(uid, last);
-      });
-
-      if (bounds.length && applyFit) {
-        map.fitBounds(bounds, { padding: [30, 30] });
-      }
-
-      setStatus('Conectado', 'green');
-    }
-
-    // ---------- Realtime ----------
-    function subscribeRealtime() {
-      if (state.channel) {
-        try { state.channel.unsubscribe(); } catch {}
-      }
-      state.channel = supa.channel('realtime:ubicaciones')
-        .on('postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' },
-          (payload) => onInsert(payload.new)
-        )
-        .subscribe((s) => {
-          // opcional: console.log('rt status', s);
-        });
-    }
-
-    function onInsert(row) {
-      // Aplicar filtros rápidos (no perfectos, pero evita ruido)
-      const brig = (ui.brig.value || '').trim();
-      const minAcc = Math.max(0, Number(ui.minAcc.value || 0));
-      if (brig) {
-        const val = (row.brigada || '') + ' ' + (row.tecnico || '');
-        if (!val.toLowerCase().includes(brig.toLowerCase())) return;
-      }
-      if (minAcc > 0 && (row.acc || 0) < minAcc) return;
-
-      const uid = row.usuario_id;
-      // Update buffer de puntos para KMZ
-      const arr = state.pointsByUser.get(uid) || [];
-      arr.unshift(row);
-      const perUser = Math.max(1, Number(ui.tail.value || 100));
-      state.pointsByUser.set(uid, arr.slice(0, perUser));
-
-      // Actualizar marker
-      const m = state.markers.get(uid);
-      if (m) {
-        m.setLatLng([row.latitud, row.longitud]);
-        if (ui.follow.checked) {
-          map.setView(m.getLatLng(), Math.max(map.getZoom(), 16));
-        }
-      } else {
-        // usuario nuevo: recargar para incorporarlo bien
-        fetchInitial(false);
-      }
-
-      // refrescar lista (simple: recargar lista completa)
-      ui.userList.innerHTML = '';
-      state.pointsByUser.forEach((rows, u) => addUserListItem(u, rows[0]));
-    }
-
-    // ---------- Exportar KMZ (con traza) ----------
-    function exportKMZ() {
-      // Construir KML con una LineString por usuario según state.pointsByUser
-      const kmlParts = [];
-      kmlParts.push(`<?xml version="1.0" encoding="UTF-8"?>`);
-      kmlParts.push(`<kml xmlns="http://www.opengis.net/kml/2.2">`);
-      kmlParts.push(`<Document><name>Recorridos Brigadas</name>`);
-
-      // Estilos simples
-      kmlParts.push(`
-        <Style id="lineGreen">
-          <LineStyle><color>ff00aa00</color><width>3</width></LineStyle>
-        </Style>
-        <Style id="pt">
-          <IconStyle><scale>0.9</scale>
-            <Icon><href>https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>
-          </IconStyle>
-        </Style>
-      `);
-
-      state.pointsByUser.forEach((rows, uid) => {
-        if (!rows || rows.length === 0) return;
-
-        // Orden ascendente por tiempo para la ruta
-        const asc = [...rows].sort((a,b)=> new Date(a.timestamp)-new Date(b.timestamp));
-
-        const name = (asc[asc.length-1].tecnico || `Usuario ${uid}`);
-        const brig = asc[asc.length-1].brigada || '';
-
-        // Folder por usuario
-        kmlParts.push(`<Folder><name>${escapeXml(name)} (${escapeXml(brig)})</name>`);
-
-        // Línea de recorrido
-        kmlParts.push(`<Placemark><name>Recorrido</name><styleUrl>#lineGreen</styleUrl><LineString><tessellate>1</tessellate><coordinates>`);
-        asc.forEach(p => {
-          kmlParts.push(`${p.longitud},${p.latitud},0 `);
-        });
-        kmlParts.push(`</coordinates></LineString></Placemark>`);
-
-        // (Opcional) puntos como placemarks
-        asc.forEach((p,i) => {
-          kmlParts.push(`<Placemark><name>P${i+1}</name><styleUrl>#pt</styleUrl>
-            <description><![CDATA[
-              <b>${escapeXml(p.tecnico||'')}</b><br/>
-              Brigada: ${escapeXml(p.brigada||'-')}<br/>
-              ${(+p.latitud).toFixed(5)}, ${(+p.longitud).toFixed(5)}<br/>
-              Acc: ${Math.round(p.acc||0)} m · Vel: ${(p.spd||0).toFixed(1)} m/s<br/>
-              ${new Date(p.timestamp).toLocaleString()}
-            ]]></description>
-            <Point><coordinates>${p.longitud},${p.latitud},0</coordinates></Point></Placemark>`);
-        });
-
-        kmlParts.push(`</Folder>`);
-      });
-
-      kmlParts.push(`</Document></kml>`);
-      const kml = kmlParts.join('');
-
-      // Empaquetar como KMZ
-      const zip = new JSZip();
-      zip.file('doc.kml', kml);
-      zip.generateAsync({ type: 'blob' }).then((blob) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `recorridos_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.kmz`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      });
-    }
-
-    function escapeXml(s) {
-      return String(s || '')
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
-    }
-
-    // ---------- Eventos UI ----------
-    ui.apply.addEventListener('click', () => fetchInitial(true));
-    ui.clear.addEventListener('click', () => fetchInitial(false));
-    ui.exportKmz.addEventListener('click', exportKMZ);
-    ui.replay.addEventListener('click', () => {
-      // Como no dibujamos trazas en el mapa, el “replay” refresca markers con los N últimos
-      fetchInitial(false);
-    });
-
-    // ---------- Boot ----------
-    window.addEventListener('DOMContentLoaded', async () => {
-      setStatus('Conectando…', 'gray');
-      initMap();
-      await fetchInitial(true);
-      subscribeRealtime();
-    });
-  })();
-  </script>
+  <!-- Lógica -->
+  <script src="main.js"></script>
 </body>
 </html>
