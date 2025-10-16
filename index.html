@@ -1,187 +1,105 @@
-// main.js (reemplazo completo)
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitoreo GPS Brigadas – Realtime</title>
 
-const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  <!-- Leaflet + MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
-// -------- UI refs (coinciden con index.html) --------
-const ui = {
-  brigada: document.getElementById('brigadaFilter'),
-  minAcc: document.getElementById('minAcc'),
-  tail: document.getElementById('tailPoints'),
-  apply: document.getElementById('applyFilters'),
-  userList: document.getElementById('userList'),
-  status: document.getElementById('realtimeStatus'),
-  lastRefresh: document.getElementById('lastRefresh'),
-};
+  <!-- Supabase UMD (estable) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.5/dist/umd/supabase.min.js"></script>
 
-const state = {
-  cluster: null,
-  pathLayer: L.layerGroup(),
-  accuracyLayer: L.layerGroup(),
-  users: new Map(), // usuario_id -> { marker, path, last }
-  lastFetchRows: [],
-};
+  <link rel="icon" href="assets/favicon.ico" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <img src="assets/logo_cicsa.png" alt="carso" style="height:26px" />
+      Monitoreo GPS Brigadas – Realtime
+    </div>
+    <div class="header-actions">
+      <span id="badge-conn" class="badge">Conectando…</span>
+      <button id="btn-theme" class="btn ghost" title="Tema claro/oscuro">🌓</button>
+    </div>
+  </header>
 
-let map;
-
-// -------- init ----------
-initMap();
-wireEvents();
-bootstrap();
-
-async function bootstrap() {
-  setStatus('Conectando…', 'gray');
-  await initialLoad(true);
-  subscribeRealtime();
-  setStatus('Conectado', 'green');
-}
-
-// -------- map ----------
-function initMap() {
-  map = L.map('map', { zoomControl: true, minZoom: 3 }).setView([-12.046, -77.042], 12);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap'
-  }).addTo(map);
-
-  state.cluster = L.markerClusterGroup({
-    maxClusterRadius: 50,
-    showCoverageOnHover: false,
-    disableClusteringAtZoom: 17,
-  });
-  map.addLayer(state.cluster);
-  state.pathLayer.addTo(map);
-  state.accuracyLayer.addTo(map);
-}
-
-function wireEvents() {
-  ui.apply.addEventListener('click', () => initialLoad(true));
-}
-
-// -------- data load ----------
-async function initialLoad(fit = false) {
-  // limpiar capas y estado
-  state.cluster.clearLayers();
-  state.pathLayer.clearLayers();
-  state.accuracyLayer.clearLayers();
-  state.users.clear();
-  ui.userList.innerHTML = '';
-
-  const cols = 'id,usuario_id,tecnico,brigada,contrata,zona,cargo,latitud,longitud,acc,spd,timestamp,timestamp_pe';
-  let q = supa.from('ubicaciones_brigadas').select(cols);
-
-  const brig = (ui.brigada.value || '').trim();
-  const minAcc = Number(ui.minAcc.value || 0);
-  const limitPerUser = Math.max(1, Number(ui.tail.value || 100));
-
-  if (brig) q = q.ilike('brigada', `%${brig}%`);
-  if (minAcc > 0) q = q.gte('acc', minAcc);
-
-  // ordenar por id desc para traer lo más reciente sin chocar con "timestamp"
-  q = q.order('id', { ascending: false }).limit(4000);
-
-  const { data, error } = await q;
-  if (error) {
-    console.error(error);
-    setStatus('Error al cargar', 'red');
-    return;
-  }
-  state.lastFetchRows = data;
-
-  // agrupar por usuario y tomar los últimos N por usuario
-  const grouped = new Map();
-  for (const r of data) {
-    if (!grouped.has(r.usuario_id)) grouped.set(r.usuario_id, []);
-    const arr = grouped.get(r.usuario_id);
-    if (arr.length < limitPerUser) arr.push(r);
-  }
-
-  for (const [uid, rows] of grouped) {
-    rows.sort((a, b) => a.id - b.id);
-    const last = rows[rows.length - 1];
-    paintUser(uid, rows, last);
-    addUserItem(uid, last);
-  }
-
-  if (fit) {
-    try { map.fitBounds(state.cluster.getBounds(), { padding: [30, 30] }); } catch {}
-  }
-
-  ui.lastRefresh.textContent = ` · actualizó ${timeAgo(new Date())}`;
-}
-
-function paintUser(uid, rows, last) {
-  const speed = Number(last.spd || 0);
-  const icon = L.icon({
-    iconUrl: 'assets/carro.png', // asegúrate de tener este archivo en /assets
-    iconSize: [28, 18],
-    className: speed > 8 ? 'speed-fast' : (speed < 1 ? 'speed-slow' : '')
-  });
-
-  const m = L.marker([last.latitud, last.longitud], { icon, title: last.tecnico || ('#' + uid) });
-  state.cluster.addLayer(m);
-
-  const coords = rows.map(r => [r.latitud, r.longitud]);
-  const path = L.polyline(coords, { color: '#2eaadc', weight: 3, opacity: 0.7 });
-  state.pathLayer.addLayer(path);
-
-  state.users.set(uid, { marker: m, path, last });
-}
-
-function addUserItem(uid, r) {
-  const li = document.createElement('li');
-  const st = computeStatus(r);
-  const label = st === 'online' ? 'Online' : st === 'idle' ? 'Inactivo' : 'Offline';
-  li.innerHTML = `
-    <div style="display:flex;align-items:center;gap:.5rem;justify-content:space-between;">
-      <div>
-        <strong>${r.tecnico || ('#' + uid)}</strong><br/>
-        <small>Brigada: ${r.brigada || '-'} · Lat: ${r.latitud.toFixed(5)} · Lon: ${r.longitud.toFixed(5)}</small><br/>
-        <small>Acc: ${Math.round(r.acc || 0)} m · Vel: ${(r.spd || 0).toFixed(1)} m/s</small><br/>
-        <small>${timeAgo(r.timestamp)} ${r.timestamp_pe ? '· ' + r.timestamp_pe : ''}</small>
+  <!-- Main layout -->
+  <div class="app-main">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="panel-title">Filtros</div>
+        <div class="form-row">
+          <label for="f_brigada">Brigada</label>
+          <input id="f_brigada" type="text" placeholder="Ej: B-12" />
+        </div>
+        <div class="form-row">
+          <label for="f_acc">Min exactitud (m)</label>
+          <input id="f_acc" type="number" value="0" step="1" />
+        </div>
+        <div class="form-row">
+          <label for="f_limit">Últimos N puntos/usuario</label>
+          <input id="f_limit" type="number" value="100" min="10" max="5000" step="10" />
+        </div>
+        <div class="form-row">
+          <label for="base_layer">Mapa base</label>
+          <select id="base_layer">
+            <option value="osm" selected>Callejero</option>
+            <option value="esri">Satélite (Esri)</option>
+          </select>
+        </div>
+        <div class="form-row chk">
+          <input id="opt_accuracy" type="checkbox" />
+          <label for="opt_accuracy">Mostrar precisión</label>
+        </div>
+        <div class="form-row chk">
+          <input id="opt_follow" type="checkbox" />
+          <label for="opt_follow">Seguir seleccionado</label>
+        </div>
+        <div class="buttons">
+          <button id="btn-apply" class="btn primary">Aplicar</button>
+          <button id="btn-export" class="btn">Exportar</button>
+        </div>
       </div>
-      <span class="dot ${st}">${label}</span>
-    </div>`;
-  li.style.cursor = 'pointer';
-  li.onclick = () => {
-    const u = state.users.get(uid);
-    if (u) map.setView(u.marker.getLatLng(), Math.max(map.getZoom(), 16));
-  };
-  ui.userList.appendChild(li);
-}
 
-function computeStatus(row) {
-  const t = new Date(row.timestamp);
-  const diffMin = (Date.now() - t.getTime()) / 60000;
-  if (diffMin <= 1.5) return 'green';   // online
-  if (diffMin <= 10) return 'yellow';   // inactivo
-  return 'gray';                        // offline
-}
+      <div class="panel">
+        <div class="panel-title">Usuarios</div>
+        <div id="users-list" class="users"></div>
+      </div>
+    </aside>
 
-// -------- realtime ----------
-function subscribeRealtime() {
-  supa.channel('realtime:ubicaciones')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, (payload) => {
-      const r = payload.new;
-      const u = state.users.get(r.usuario_id);
-      if (u) {
-        u.last = r;
-        u.marker.setLatLng([r.latitud, r.longitud]);
-      } else {
-        initialLoad(); // nuevo usuario
-      }
-    })
-    .subscribe();
-}
+    <!-- Map -->
+    <section class="map-wrap">
+      <div id="map"></div>
 
-// -------- helpers ----------
-function timeAgo(date) {
-  const m = Math.round((Date.now() - new Date(date).getTime()) / 60000);
-  if (m < 1) return 'hace segundos';
-  if (m === 1) return 'hace 1 min';
-  return `hace ${m} min`;
-}
+      <div class="legend">
+        <img src="assets/carro-green.png" class="legend-icon" /> Online
+        <img src="assets/carro-orange.png" class="legend-icon" /> Inactivo
+        <img src="assets/carro-gray.png" class="legend-icon" /> Offline
+      </div>
 
-function setStatus(text, kind) {
-  ui.status.textContent = text;
-  ui.status.className = `dot ${kind || 'gray'}`;
-}
+      <div class="playback">
+        <div class="playback-row" style="margin-bottom:6px;font-weight:600">Reproducción</div>
+        <div class="playback-row">
+          <select id="pb-user"></select>
+          <input id="pb-count" type="number" value="200" min="10" step="10" />
+          <button id="pb-play" class="btn">Reproducir</button>
+          <button id="pb-clear" class="btn ghost">Limpiar</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Config primero, luego tu JS -->
+  <script src="config.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
