@@ -1,295 +1,255 @@
-// --- Setup ---
+// main.js (reemplazo completo)
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
+// ---------- UI refs ----------
 const ui = {
-  brigada: document.getElementById('f_brigada'),
-  acc: document.getElementById('f_acc'),
-  limit: document.getElementById('f_limit'),
-  base: document.getElementById('base_layer'),
-  accuracy: document.getElementById('opt_accuracy'),
-  follow: document.getElementById('opt_follow'),
-  apply: document.getElementById('btn-apply'),
-  export: document.getElementById('btn-export'),
-  users: document.getElementById('users-list'),
-  badge: document.getElementById('badge-conn'),
-  theme: document.getElementById('btn-theme'),
-  pbUser: document.getElementById('pb-user'),
-  pbCount: document.getElementById('pb-count'),
-  pbPlay: document.getElementById('pb-play'),
-  pbClear: document.getElementById('pb-clear'),
+  brigada: document.getElementById('brigadaFilter'),
+  minAcc: document.getElementById('minAcc'),
+  tailPoints: document.getElementById('tailPoints'),
+  apply: document.getElementById('applyFilters'),
+  userList: document.getElementById('userList'),
+  status: document.getElementById('netStatus'),
+  lastRefresh: document.getElementById('lastRefresh'),
+  baseMap: document.getElementById('baseMap'),
+  showAcc: document.getElementById('showAcc'),
+  follow: document.getElementById('followSel'),
+  playCount: document.getElementById('playCount'),
+  playBtn: document.getElementById('playBtn'),
+  clearBtn: document.getElementById('clearBtn'),
 };
 
+// ---------- Estado global ----------
+let map; // <<--- una sola vez, global
 const state = {
-  users: new Map(),    // usuario_id -> { marker, circle, path, last, status }
-  selectedUser: null,
-  follow: false,
-  accuracy: false,
-  base: 'osm',
-  lastFetchRows: [],
   cluster: null,
-  pathLayer: L.layerGroup(),
-  accuracyLayer: L.layerGroup(),
+  pathLayer: null,
+  users: new Map(), // uid -> { marker, path, last }
+  selectedUid: null
 };
 
-initTheme();
-initMap();
-wireEvents();
-bootstrap();
-
-async function bootstrap(){
-  setBadge('Conectando…');
-  await initialLoad();
-  subscribeRealtime();
-  setBadge('Conectado','success');
-}
-
-// --- Mapa ---
-let map, baseLayers;
-
-function initMap(){
-  map = L.map('map',{ zoomControl:true, minZoom:4 }).setView([-12.046, -77.042], 12);
-
-  baseLayers = {
-    osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      attribution:'© OpenStreetMap'
-    }),
-    esri: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
-      attribution:'Tiles © Esri'
-    })
-  };
-  baseLayers.osm.addTo(map);
-
-  state.cluster = L.markerClusterGroup({
-    maxClusterRadius: 50,
-    showCoverageOnHover:false,
-    disableClusteringAtZoom: 17,
+// ---------- Iconos ----------
+const carIcon = (z) =>
+  L.icon({
+    iconUrl: 'assets/carro.png',
+    iconSize: [28, 18],
+    className: 'speed' // usa clases para color por velocidad
   });
-  map.addLayer(state.cluster);
-  state.pathLayer.addTo(map);
-  state.accuracyLayer.addTo(map);
+
+// ---------- Util ----------
+function setStatus(text, kind = 'info') {
+  ui.status.textContent = text;
+  ui.status.className = `dot ${kind}`;
 }
-
-// --- UI events ---
-function wireEvents(){
-  ui.apply.onclick = () => initialLoad(true);
-  ui.base.onchange = () => switchBase(ui.base.value);
-  ui.accuracy.onchange = () => { state.accuracy = ui.accuracy.checked; refreshAccuracy(); };
-  ui.follow.onchange = () => state.follow = ui.follow.checked;
-  ui.export.onclick = () => exportView();
-  ui.theme.onclick = toggleTheme;
-
-  ui.pbPlay.onclick = () => playback();
-  ui.pbClear.onclick = () => clearPlayback();
+function timeAgo(date) {
+  const m = Math.round((Date.now() - new Date(date).getTime()) / 60000);
+  if (m < 1) return 'hace segundos';
+  if (m === 1) return 'hace 1 min';
+  return `hace ${m} min`;
 }
-
-function switchBase(key){
-  if (state.base === key) return;
-  map.removeLayer(baseLayers[state.base]);
-  state.base = key;
-  baseLayers[state.base].addTo(map);
-}
-
-// --- Data load ---
-async function initialLoad(fit=false){
-  // limpia
-  state.cluster.clearLayers();
-  state.pathLayer.clearLayers();
-  state.accuracyLayer.clearLayers();
-  state.users.clear();
-  ui.users.innerHTML = '';
-  ui.pbUser.innerHTML = '';
-
-  const cols = 'id,usuario_id,tecnico,brigada,contrata,zona,cargo,latitud,longitud,acc,spd,timestamp,timestamp_pe';
-  let q = supa.from('ubicaciones_brigadas').select(cols);
-
-  const minAcc = Number(ui.acc.value||0);
-  const limitPerUser = Math.max(1, Number(ui.limit.value||100));
-  const brig = (ui.brigada.value||'').trim();
-
-  if (brig) q = q.ilike('brigada', `%${brig}%`);
-  if (minAcc > 0) q = q.gte('acc', minAcc);
-
-  // orden seguro (evita palabra reservada timestamp)
-  q = q.order('id', { ascending:false }).limit(2000);
-
-  const { data, error } = await q;
-  if (error){ console.error(error); setBadge('Error al cargar','danger'); return; }
-  state.lastFetchRows = data;
-
-  // agrupa por usuario y toma los últimos N
-  const grouped = new Map();
-  for (const r of data){
-    if (!grouped.has(r.usuario_id)) grouped.set(r.usuario_id, []);
-    const arr = grouped.get(r.usuario_id);
-    if (arr.length < limitPerUser) arr.push(r);
-  }
-
-  // dibuja
-  for (const [uid, rows] of grouped){
-    rows.sort((a,b)=>a.id-b.id);
-    const last = rows[rows.length-1];
-    paintUser(uid, rows, last);
-    addUserItem(uid, last);
-    addPbUserOption(uid, last);
-  }
-
-  if (fit) {
-    try {
-      map.fitBounds(state.cluster.getBounds(), { padding:[30,30] });
-    } catch {}
-  }
-  refreshAccuracy();
-}
-
-function paintUser(uid, rows, last){
-  const speed = Number(last.spd||0);
-  const icon = L.icon({
-    iconUrl:'assets/carro.png',
-    iconSize: [28,18],
-    className: speed>8 ? 'speed-fast' : (speed<1? 'speed-slow':'')
-  });
-  const m = L.marker([last.latitud,last.longitud],{icon, title: last.tecnico||('#'+uid)});
-  m.on('click', ()=>selectUser(uid));
-
-  state.cluster.addLayer(m);
-
-  const coords = rows.map(r=>[r.latitud, r.longitud]);
-  const path = L.polyline(coords, { color:'#2eaadc', weight:3, opacity:0.7 });
-  state.pathLayer.addLayer(path);
-
-  const entry = { marker:m, path, last, accuracyCircle:null, status:computeStatus(last) };
-  state.users.set(uid, entry);
-}
-
-function computeStatus(row){
-  const t = new Date(row.timestamp);
-  const diffMin = (Date.now() - t.getTime())/60000;
-  if (diffMin <= 1.5) return 'online';
-  if (diffMin <= 10) return 'idle';
+function computeStatus(row) {
+  const diffMin = (Date.now() - new Date(row.timestamp_pe).getTime()) / 60000;
+  if (diffMin <= 10) return 'online';
+  if (diffMin <= 60) return 'idle';
   return 'offline';
 }
 
-function addUserItem(uid, row){
-  const li = document.createElement('div');
-  li.className = 'user-item';
-  li.onclick = ()=> selectUser(uid);
-
-  const st = computeStatus(row);
-  const badge = `<span class="badge ${st}">${st==='online'?'Online':st==='idle'?'Inactivo':'Offline'}</span>`;
-  li.innerHTML = `
-    <div class="user-head">
-      <div>${row.tecnico||('#'+uid)}</div>
-      ${badge}
-    </div>
-    <div class="user-meta">
-      Brigada: ${row.brigada||'-'} · Lat: ${row.latitud.toFixed(5)} · Lon: ${row.longitud.toFixed(5)} ·
-      Acc: ${Math.round(row.acc||0)} m · Vel: ${(row.spd||0).toFixed(1)} m/s ·
-      ${timeAgo(row.timestamp)} (${row.timestamp_pe||''})
-    </div>`;
-  ui.users.appendChild(li);
-}
-
-function addPbUserOption(uid,row){
-  const op = document.createElement('option');
-  op.value = uid;
-  op.textContent = `${row.tecnico||('#'+uid)} · ${row.brigada||''}`;
-  ui.pbUser.appendChild(op);
-}
-
-// --- Selección, follow y precisión ---
-function selectUser(uid){
-  state.selectedUser = uid;
-  const u = state.users.get(uid);
-  if (!u) return;
-  if (state.follow) map.setView(u.marker.getLatLng(), Math.max(map.getZoom(),16));
-}
-
-function refreshAccuracy(){
-  state.accuracyLayer.clearLayers();
-  if (!state.accuracy) return;
-  for (const {last} of state.users.values()){
-    if (!last || !last.acc) continue;
-    const c = L.circle([last.latitud,last.longitud],{ radius: last.acc, color:'#aaa', fillOpacity:0.05 });
-    state.accuracyLayer.addLayer(c);
+// ---------- Mapa ----------
+function buildBaseLayer(kind) {
+  switch (kind) {
+    case 'sat':
+      return L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      });
+    case 'terrain':
+      return L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenTopoMap'
+      });
+    default: // callejero
+      return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      });
   }
 }
 
-// --- Realtime ---
-function subscribeRealtime(){
-  supa.channel('realtime:ubicaciones')
-    .on('postgres_changes',{event:'INSERT', schema:'public', table:'ubicaciones_brigadas'}, payload=>{
+function initMap() {
+  // IMPORTANTE: usar la global, no redeclarar
+  map = L.map('map', {
+    zoomControl: true,
+    minZoom: 3
+  }).setView([-12.046, -77.042], 12);
+
+  // capa base + grupos
+  const base = buildBaseLayer(ui.baseMap.value || 'street');
+  base.addTo(map);
+
+  state.cluster = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    showCoverageOnHover: false,
+    disableClusteringAtZoom: 16
+  });
+  state.pathLayer = L.layerGroup();
+
+  state.cluster.addTo(map);
+  state.pathLayer.addTo(map);
+
+  // Cambiar mapa base desde el selector
+  ui.baseMap.addEventListener('change', () => {
+    map.eachLayer(l => map.removeLayer(l));
+    buildBaseLayer(ui.baseMap.value).addTo(map);
+    state.cluster.addTo(map);
+    state.pathLayer.addTo(map);
+  });
+}
+
+// ---------- Carga inicial ----------
+async function initialLoad(fit = false) {
+  // limpiar capas y UI
+  state.pathLayer.clearLayers();
+  state.cluster.clearLayers();
+  ui.userList.innerHTML = '';
+
+  const brigada = ui.brigada.value.trim();
+  const minAcc = Number(ui.minAcc.value || 0);
+  const limitPerUser = Math.max(1, Number(ui.tailPoints.value || 100));
+
+  // query: tomamos los últimos N por usuario (ventana por usuario + orden)
+  const q = supa
+    .from('ubicaciones_brigadas')
+    .select('id,usuario_id,tecnico,brigada,latitud,longitud,acc,spd,timestamp_pe,timestamp', { count: 'exact' })
+    .gte('acc', minAcc)
+    .order('usuario_id', { ascending: true })
+    .order('timestamp', { ascending: false });
+
+  if (brigada) q.ilike('brigada', `%${brigada}%`);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error(error);
+    setStatus('Error consultando datos', 'error');
+    return;
+  }
+
+  // agrupar por usuario y tomar los últimos N
+  const grouped = new Map();
+  for (const r of data) {
+    const g = grouped.get(r.usuario_id) || [];
+    if (g.length < limitPerUser) g.push(r);
+    grouped.set(r.usuario_id, g);
+  }
+
+  // pintar por usuario
+  const bounds = [];
+  grouped.forEach((rows, uid) => {
+    rows.sort((a, b) => a.id - b.id); // asc por id (antiguo -> reciente)
+    const last = rows[rows.length - 1];
+
+    // elemento en la lista
+    addUserItem(uid, last);
+
+    // marker
+    const m = L.marker([last.latitud, last.longitud], { icon: carIcon(map.getZoom()) })
+      .bindTooltip(`${last.tecnico || ('#' + uid)}`, { direction: 'top' });
+
+    // polyline
+    const coords = rows.map(r => [r.latitud, r.longitud]);
+    const p = L.polyline(coords, { color: '#2eaadc', weight: 3, opacity: 0.7 });
+
+    state.cluster.addLayer(m);
+    state.pathLayer.addLayer(p);
+
+    state.users.set(uid, { marker: m, path: p, last: last });
+    bounds.push([last.latitud, last.longitud]);
+  });
+
+  if (fit && bounds.length) {
+    map.fitBounds(L.latLngBounds(bounds), { padding: [30, 30] });
+  }
+
+  ui.lastRefresh.textContent = `${timeAgo(new Date())}`;
+  setStatus('Conectado', 'ok');
+}
+
+// ---------- Lista de usuarios ----------
+function addUserItem(uid, r) {
+  const li = document.createElement('li');
+  const kind = computeStatus(r);
+  const label =
+    kind === 'online' ? 'Online' :
+    kind === 'idle' ? 'Inactivo' : 'Offline';
+
+  li.innerHTML = `
+${r.tecnico || ('#' + uid)}
+Brigada: ${r.brigada || ''} · Lat: ${r.latitud.toFixed(5)} · Lon: ${r.longitud.toFixed(5)}
+Acc: ${Math.round(r.acc || 0)} m · Vel: ${(r.spd || 0).toFixed(1)} m/s
+${timeAgo(r.timestamp)} · ${r.timestamp_pe ? '🕒 ' + r.timestamp_pe : ''}
+${label}
+  `;
+
+  li.style.cursor = 'pointer';
+  li.onclick = () => {
+    state.selectedUid = uid;
+    const u = state.users.get(uid);
+    if (u) {
+      map.setView(u.marker.getLatLng(), Math.max(map.getZoom(), 16));
+      if (ui.follow.checked) {
+        // al seguir seleccionado, centramos cada vez que llegue punto nuevo
+      }
+    }
+  };
+
+  ui.userList.appendChild(li);
+}
+
+// ---------- Tiempo real ----------
+function subscribeRealtime() {
+  supa
+    .channel('realtime:ubicaciones')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, payload => {
       const r = payload.new;
-      const curr = state.users.get(r.usuario_id);
-      if (curr){
-        curr.last = r;
-        curr.marker.setLatLng([r.latitud,r.longitud]);
-        if (state.follow && state.selectedUser===r.usuario_id){
-          map.setView([r.latitud,r.longitud]);
-        }
-      }else{
-        // nuevo usuario, refresca lista sin perder subs
+      const u = state.users.get(r.usuario_id);
+      if (!u) {
+        // usuario nuevo -> carga inicial, pero ligera
         initialLoad();
+        return;
+      }
+      // actualizar marcador y trazo
+      u.last = r;
+      u.marker.setLatLng([r.latitud, r.longitud]);
+      const latlngs = u.path.getLatLngs();
+      latlngs.push([r.latitud, r.longitud]);
+      // limitar a N últimos por usuario
+      const maxN = Number(ui.tailPoints.value || 100);
+      if (latlngs.length > maxN) latlngs.splice(0, latlngs.length - maxN);
+      u.path.setLatLngs(latlngs);
+
+      if (ui.follow.checked && state.selectedUid === r.usuario_id) {
+        map.setView(u.marker.getLatLng());
       }
     })
-    .subscribe((status)=> {
-      // opcional: status subscription
-    });
+    .subscribe();
 }
 
-// --- Export ---
-function exportView(){
-  const rows = state.lastFetchRows;
-  if (!rows?.length) return;
-
-  const asCSV = rows.map(r => ([
-    r.id,r.usuario_id,`"${(r.tecnico||'').replace(/"/g,'""')}"`,
-    r.brigada||'', r.contrata||'', r.zona||'', r.cargo||'',
-    r.latitud, r.longitud, r.acc||0, r.spd||0, r.timestamp, r.timestamp_pe||''
-  ].join(',')));
-
-  asCSV.unshift('id,usuario_id,tecnico,brigada,contrata,zona,cargo,latitud,longitud,acc,spd,timestamp_utc,timestamp_pe');
-
-  const blob = new Blob([asCSV.join('\n')],{type:'text/csv;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement('a'),{href:url,download:'monitoreo.csv'});
-  a.click(); URL.revokeObjectURL(url);
+// ---------- Bootstrap ----------
+async function bootstrap() {
+  try {
+    setStatus('Conectando...', 'gray');
+    initMap();
+    await initialLoad(true);
+    subscribeRealtime();
+  } catch (e) {
+    console.error(e);
+    setStatus('Error al cargar', 'error');
+  }
 }
 
-// --- Playback simple ---
-async function playback(){
-  const uid = Number(ui.pbUser.value);
-  const count = Math.max(10, Number(ui.pbCount.value||200));
-  if (!uid) return;
-  const { data, error } = await supa.from('ubicaciones_brigadas')
-    .select('id,latitud,longitud,acc,spd,timestamp')
-    .eq('usuario_id', uid)
-    .order('id',{ascending:false})
-    .limit(count);
-  if (error || !data?.length) return;
+// Controles
+ui.apply.addEventListener('click', () => initialLoad());
+ui.clearBtn?.addEventListener('click', () => {
+  state.pathLayer.clearLayers();
+  state.users.forEach(u => {
+    const latlng = u.marker.getLatLng();
+    u.path.setLatLngs([latlng]);
+  });
+});
 
-  const pts = data.sort((a,b)=>a.id-b.id).map(d=>[d.latitud,d.longitud]);
-  const pl = L.polyline(pts,{color:'#ff8c00',weight:4}).addTo(state.pathLayer);
-  let i=0; const m = L.circleMarker(pts[0],{radius:6}).addTo(state.pathLayer);
-  const timer = setInterval(()=>{
-    if (i>=pts.length){ clearInterval(timer); return; }
-    m.setLatLng(pts[i]); i++;
-  }, 150);
-}
-function clearPlayback(){ state.pathLayer.clearLayers(); }
-
-// --- Helpers ---
-function timeAgo(ts){
-  const d = new Date(ts); const m = Math.round((Date.now()-d.getTime())/60000);
-  if (m<1) return 'hace segundos'; if (m===1) return 'hace 1 min'; return `hace ${m} min`;
-}
-function setBadge(text, kind){ ui.badge.textContent=text; ui.badge.className='badge'+(kind?(' '+kind):''); }
-
-// Theme
-function initTheme(){
-  const saved = localStorage.getItem('theme')||'dark';
-  if (saved==='light') document.documentElement.classList.add('light');
-}
-function toggleTheme(){
-  const isLight = document.documentElement.classList.toggle('light');
-  localStorage.setItem('theme', isLight?'light':'dark');
-}
+document.addEventListener('DOMContentLoaded', bootstrap);
