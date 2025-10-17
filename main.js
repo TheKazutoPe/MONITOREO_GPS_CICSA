@@ -10,7 +10,7 @@ const ui = {
   baseSel:     document.getElementById('baseMapSel'),
   showAcc:     document.getElementById('showAcc'),
   followSel:   document.getElementById('followSel'),
-  snapRoads:   document.getElementById('snapRoads'), // NUEVO
+  snapRoads:   document.getElementById('snapRoads'),
   apply:       document.getElementById('applyFilters'),
   exportKmz:   document.getElementById('exportKmzBtn'),
   userList:    document.getElementById('userList')
@@ -36,7 +36,7 @@ const ICONS = {
   base  : L.icon({ iconUrl: 'assets/carro.png',        iconSize:[40,24], iconAnchor:[20,12], popupAnchor:[0,-12] }),
 };
 function getIconFor(row){
-  const st = computeStatus(row); // 'green'|'yellow'|'gray'
+  const st = computeStatus(row);
   return ICONS[st] || ICONS.base;
 }
 
@@ -63,12 +63,12 @@ function distMeters(a, b){
 }
 
 // ====== Calidad / anti-ruido ======
-let JITTER_M = 8;            // ignora saltos cortos
+let JITTER_M = 10;           // ignora saltos cortos
 let MAX_SPEED_KMH = 160;     // descarta glitches
-let GAP_MINUTES = 3;         // corta segmentos por gap
+let GAP_MINUTES = 4;         // corta segmentos por gap
 
 // Estancias y picos
-let STAY_RADIUS_M = 20;      // radio para detectar “parado”
+let STAY_RADIUS_M = 25;      // radio para detectar “parado”
 let STAY_MIN_MIN  = 2;       // duración mínima estancia
 let ANGLE_SPIKE_DEG = 135;   // giro imposible (descartar punto central)
 
@@ -91,7 +91,7 @@ function angleBetween(a, b, c){
   return diff;
 }
 
-// Colapsa estancias
+// Colapsa estancias (reduce “telarañas”)
 function collapseStays(points){
   if (points.length === 0) return points;
   const out = [];
@@ -202,25 +202,100 @@ function buildSegmentsFromRows(rows){
 }
 
 // ====== Ruteo / Snap a vías ======
+
+// Fallback par-a-par con Directions (se usa si Map-matching falla)
 async function routeBetween(a, b){
-  const prov = (CONFIG.ROUTE_PROVIDER || 'none').toLowerCase();
   try{
-    if (prov === 'mapbox' && CONFIG.MAPBOX_TOKEN){
+    if (CONFIG.MAPBOX_TOKEN){
       const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${encodeURIComponent(CONFIG.MAPBOX_TOKEN)}`;
       const resp = await fetch(url);
-      if (!resp.ok) throw new Error('Mapbox error');
+      if (!resp.ok) throw new Error('Mapbox Directions error');
       const j = await resp.json();
       const coords = j.routes?.[0]?.geometry?.coordinates || [];
       return coords.map(([lng,lat]) => ({lat,lng}));
     }
   } catch(e){
-    console.warn('routing failed, fallback line', e);
+    console.warn('Directions fallback failed', e);
   }
-  return [a,b]; // fallback recta
+  return [a,b];
 }
 
-// Muestrea un segmento y lo “snapea” a vías
-async function snapSegmentToRoad(seg, maxPairs=60, delayMs=120){
+// --- Utils para ensamblar geometrías snappeadas ---
+function mergeCoordsWithOverlap(a, b, maxJoinGapM = 60){
+  if (!a.length) return b.slice();
+  if (!b.length) return a.slice();
+
+  const lastA = a[a.length - 1];
+  const firstB = b[0];
+  const gap = distMeters(lastA, firstB);
+
+  if (gap > maxJoinGapM){
+    let bestIdx = 0, bestD = Infinity;
+    for (let i=0;i<b.length;i++){
+      const d = distMeters(lastA, b[i]);
+      if (d < bestD){ bestD = d; bestIdx = i; }
+    }
+    const trimmed = b.slice(bestIdx);
+    if (!trimmed.length) return a.slice();
+    if (distMeters(lastA, trimmed[0]) > maxJoinGapM) {
+      return a.slice(); // evita “brazo”
+    }
+    const out = a.slice();
+    if (out.length && trimmed.length && out[out.length-1].lat === trimmed[0].lat && out[out.length-1].lng === trimmed[0].lng) {
+      trimmed.shift();
+    }
+    out.push(...trimmed);
+    return out;
+  }
+
+  const out = a.slice();
+  const toAdd = b.slice();
+  if (out.length && toAdd.length && out[out.length-1].lat === toAdd[0].lat && out[out.length-1].lng === toAdd[0].lng) {
+    toAdd.shift();
+  }
+  out.push(...toAdd);
+  return out;
+}
+
+// Mapbox Map-Matching por ventanas
+async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
+  if (seg.length < 2) return seg;
+  const token = CONFIG.MAPBOX_TOKEN;
+  if (!token) return seg;
+
+  const chunks = [];
+  for (let i = 0; i < seg.length; i += (chunkSize - overlap)) {
+    const end = Math.min(i + chunkSize, seg.length);
+    const slice = seg.slice(i, end);
+    if (slice.length >= 2) chunks.push(slice);
+    if (end === seg.length) break;
+  }
+
+  let merged = [];
+  for (const pts of chunks){
+    const coords = pts.map(p => `${p.lng},${p.lat}`).join(';');
+    const radiuses = pts.map(_ => 30).join(';'); // tolera +-30 m de ruido
+    const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&tidy=true&radiuses=${radiuses}&access_token=${encodeURIComponent(token)}`;
+
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`map-matching ${r.status}`);
+      const j = await r.json();
+      const geom = j.matchings?.[0]?.geometry?.coordinates || [];
+      const snapped = geom.map(([lng,lat]) => ({lat,lng}));
+      merged = mergeCoordsWithOverlap(merged, snapped, 60);
+      await sleep(80); // ser amable con la API
+    } catch (e){
+      console.warn('Map-matching falló, uso Directions en este tramo', e);
+      const fallback = await snapSegmentByPairs(pts, 40, 90);
+      merged = mergeCoordsWithOverlap(merged, fallback, 60);
+    }
+  }
+  return merged.length ? merged : seg;
+}
+
+// Par-a-par (Directions) con muestreo (helper)
+async function snapSegmentByPairs(seg, maxPairs=60, delayMs=120){
   if (seg.length < 2) return seg;
   const out = [];
   const step = Math.max(1, Math.ceil((seg.length-1)/maxPairs));
@@ -228,18 +303,27 @@ async function snapSegmentToRoad(seg, maxPairs=60, delayMs=120){
     const a = seg[i];
     const b = seg[Math.min(i+step, seg.length-1)];
     const geom = await routeBetween(a, b);
-    if (out.length && geom.length) geom.shift(); // evita duplicar
+    if (out.length && geom.length) geom.shift();
     out.push(...geom);
     await sleep(delayMs);
   }
   return out;
 }
 
+// Función de snap que decide Map-Matching o fallback
+async function snapSegmentToRoad(seg, maxPairs=60, delayMs=120){
+  const prov = (CONFIG.ROUTE_PROVIDER || 'none').toLowerCase();
+  if (prov === 'mapbox') {
+    return await mapMatchSegmentMapbox(seg, 100, 3);
+  }
+  return await snapSegmentByPairs(seg, maxPairs, delayMs);
+}
+
 // ====== Animación de marcador ======
 function animateMarker(marker, from, to){
   if (!from || !to) return marker.setLatLng(to || from);
   const d = distMeters({lat:from.lat,lng:from.lng},{lat:to.lat,lng:to.lng});
-  const dur = clamp(d/80*1000, 200, 3000); // 80 m/s cap
+  const dur = clamp(d/80*1000, 200, 3000);
 
   if (marker.__animFrame) cancelAnimationFrame(marker.__animFrame);
   if (marker._icon) marker._icon.classList.add('moving');
@@ -258,7 +342,6 @@ function animateMarker(marker, from, to){
   };
   marker.__animFrame = requestAnimationFrame(step);
 }
-
 function smoothUpdateMarker(userObj, newRow){
   const marker = userObj.marker;
   const from = marker.getLatLng();
@@ -331,7 +414,6 @@ async function fetchInitial(clearList){
   setStatus('Cargando…', 'gray');
   if (clearList) ui.userList.innerHTML = '';
 
-  // últimas 24h (DESC)
   const { data, error } = await supa
     .from('ubicaciones_brigadas')
     .select('*')
@@ -362,7 +444,7 @@ async function fetchInitial(clearList){
   state.userPaths.clear();
 
   grouped.forEach((rows, uid) => {
-    const last = rows[0]; // más reciente
+    const last = rows[0];
     state.pointsByUser.set(uid, rows);
 
     const marker = L.marker([last.latitud, last.longitud], {
@@ -481,7 +563,7 @@ async function drawUserPath(uid){
   let renderedSegs = [];
   if (useSnap){
     for (const seg of segs){
-      if (seg.length <= 40){ // solo segmentos cortos en vivo
+      if (seg.length <= 40){ // solo segmentos cortos en vivo (cuota)
         const snapped = await snapSegmentToRoad(seg, 40, 100);
         renderedSegs.push(snapped);
       } else {
@@ -536,7 +618,6 @@ async function exportKMZFromState(){
 
   if (error){ console.error(error); alert('Error al consultar datos del día'); return; }
 
-  // agrupar + filtros
   const byUser = new Map();
   for (const r of data){
     if (brig && (r.brigada || '').toLowerCase().indexOf(brig.toLowerCase()) === -1) continue;
