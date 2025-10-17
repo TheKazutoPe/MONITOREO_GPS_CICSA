@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Monitoreo GPS Brigadas – Realtime</title>
-
   <link rel="icon" href="assets/favicon.ico" />
 
   <!-- Leaflet + MarkerCluster -->
@@ -25,14 +24,8 @@
     <aside class="sidebar">
       <div class="panel">
         <div class="row">
-          <label class="switch">
-            <input id="followSel" type="checkbox" />
-            <span>Seguir selección</span>
-          </label>
-          <label class="switch">
-            <input id="showAcc" type="checkbox" />
-            <span>Mostrar exactitud</span>
-          </label>
+          <label class="switch"><input id="followSel" type="checkbox" /><span>Seguir selección</span></label>
+          <label class="switch"><input id="showAcc" type="checkbox" /><span>Mostrar exactitud</span></label>
         </div>
 
         <label class="lbl">Brigada
@@ -55,10 +48,11 @@
           </select>
         </label>
 
+        <!-- El snap SIEMPRE está activo; esto queda informativo -->
         <div class="row">
           <label class="switch">
-            <input id="snapRoads" type="checkbox" />
-            <span>Snap a vías (KMZ / segmentos cortos)</span>
+            <input id="snapRoads" type="checkbox" checked disabled />
+            <span>Snap a vías (activo)</span>
           </label>
         </div>
 

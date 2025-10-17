@@ -10,7 +10,6 @@ const ui = {
   baseSel:     document.getElementById('baseMapSel'),
   showAcc:     document.getElementById('showAcc'),
   followSel:   document.getElementById('followSel'),
-  snapRoads:   document.getElementById('snapRoads'),
   apply:       document.getElementById('applyFilters'),
   exportKmz:   document.getElementById('exportKmzBtn'),
   userList:    document.getElementById('userList')
@@ -23,10 +22,13 @@ const state = {
   cluster: null,
   pathLayer: null,
   users: new Map(),
-  pointsByUser: new Map(),   // uid -> [rows] (DESC por timestamp)
+  pointsByUser: new Map(),   // uid -> [rows] (DESC por timestamp recibido)
   selectedUid: null,
   userPaths: new Map(),      // uid -> { segments: L.Polyline[] }
 };
+
+// ====== Config lógica ======
+const SNAP_ALWAYS = true;     // snap a vías SIEMPRE (mapa y KMZ)
 
 // ====== Íconos por estado ======
 const ICONS = {
@@ -39,12 +41,10 @@ function getIconFor(row){
   const st = computeStatus(row);
   return ICONS[st] || ICONS.base;
 }
-
-// Pre-carga
 ['assets/carro.png','assets/carro-green.png','assets/carro-orange.png','assets/carro-gray.png']
   .forEach(src => { const i = new Image(); i.src = src; });
 
-// ====== Helpers base ======
+// ====== Helpers ======
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a, b, t){ return a + (b - a) * t; }
 function easeInOutCubic(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
@@ -62,15 +62,14 @@ function distMeters(a, b){
   return 2 * R * Math.atan2(Math.sqrt(aa), Math.sqrt(1-aa));
 }
 
-// ====== Calidad / anti-ruido ======
-let JITTER_M = 10;           // ignora saltos cortos
+// ====== Calidad / segmentación ======
+let JITTER_M = 10;           // ignora saltos menores
 let MAX_SPEED_KMH = 160;     // descarta glitches
-let GAP_MINUTES = 4;         // corta segmentos por gap
+let GAP_MINUTES = 4;         // corta segmentos si hay hueco > 4 min (desconexión)
 
-// Estancias y picos
-let STAY_RADIUS_M = 25;      // radio para detectar “parado”
-let STAY_MIN_MIN  = 2;       // duración mínima estancia
-let ANGLE_SPIKE_DEG = 135;   // giro imposible (descarta punto central)
+let STAY_RADIUS_M = 25;      // cluster de “parado”
+let STAY_MIN_MIN  = 2;       // min estancia
+let ANGLE_SPIKE_DEG = 135;   // giro imposible
 
 function speedKmh(a, b){
   const d = distMeters(a, b) / 1000;
@@ -91,7 +90,7 @@ function angleBetween(a, b, c){
   return diff;
 }
 
-// Colapsa estancias (reduce “telarañas”)
+// Colapsa estancias
 function collapseStays(points){
   if (points.length === 0) return points;
   const out = [];
@@ -131,7 +130,7 @@ function collapseStays(points){
   return out;
 }
 
-// Simplificación Douglas-Peucker (epsilon en metros)
+// Simplificación Douglas-Peucker (epsilon en m)
 function simplifyRDP(points, epsilonMeters = 5){
   if (points.length <= 2) return points;
   const eps = epsilonMeters / 111320;
@@ -159,7 +158,7 @@ function simplifyRDP(points, epsilonMeters = 5){
   return points.filter((_,i)=>keep.has(i));
 }
 
-// Construye segmentos limpios
+// Segmentación (cortes por desconexión y velocidad imposible)
 function buildSegmentsFromRows(rows){
   if (!rows.length) return [];
   let pts = rows.map(r => ({ lat:r.latitud, lng:r.longitud, timestamp:r.timestamp }));
@@ -220,10 +219,9 @@ async function routeBetween(a, b){
   return [a,b];
 }
 
-// --- Anti-puntas (stubs) ---
-const SPUR_MAX_LEN_M = 18;  // recorta segmentos finales <18 m
-const END_ANGLE_MIN  = 35;  // y con ángulo muy agudo
-
+// Anti-puntas (stubs) en extremos
+const SPUR_MAX_LEN_M = 18;
+const END_ANGLE_MIN  = 35;
 function endAngle(p1, p2, p3){
   let diff = Math.abs(bearing(p2, p3) - bearing(p2, p1));
   if (diff > 180) diff = 360 - diff;
@@ -231,28 +229,23 @@ function endAngle(p1, p2, p3){
 }
 function trimSpurs(points){
   if (!points || points.length < 3) return points;
-
   // cola
   while (points.length >= 3) {
     const n = points.length;
     const a = points[n-3], b = points[n-2], c = points[n-1];
-    const segLen = distMeters(b, c);
-    const ang = endAngle(a, b, c);
-    if (segLen < SPUR_MAX_LEN_M && ang < END_ANGLE_MIN) points = points.slice(0, n-1);
+    if (distMeters(b,c) < SPUR_MAX_LEN_M && endAngle(a,b,c) < END_ANGLE_MIN) points = points.slice(0, n-1);
     else break;
   }
   // cabeza
   while (points.length >= 3) {
     const a = points[0], b = points[1], c = points[2];
-    const segLen = distMeters(a, b);
-    const ang = endAngle(a, b, c);
-    if (segLen < SPUR_MAX_LEN_M && ang < END_ANGLE_MIN) points = points.slice(1);
+    if (distMeters(a,b) < SPUR_MAX_LEN_M && endAngle(a,b,c) < END_ANGLE_MIN) points = points.slice(1);
     else break;
   }
   return simplifyRDP(points, 3);
 }
 
-// --- Utils para ensamblar geometrías snappeadas ---
+// Costura con solape entre ventanas
 function mergeCoordsWithOverlap(a, b, maxJoinGapM = 60){
   if (!a.length) return b.slice();
   if (!b.length) return a.slice();
@@ -299,7 +292,7 @@ async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
   let merged = [];
   for (const pts of chunks){
     const coords = pts.map(p => `${p.lng},${p.lat}`).join(';');
-    const radiuses = pts.map(_ => 30).join(';');
+    const radiuses = pts.map(_ => 30).join(';'); // tolerancia
     const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&tidy=true&radiuses=${radiuses}&access_token=${encodeURIComponent(token)}`;
 
     try {
@@ -319,7 +312,7 @@ async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
   return merged.length ? trimSpurs(merged) : seg;
 }
 
-// Par-a-par (Directions) con muestreo (helper)
+// Fallback par-a-par con muestreo
 async function snapSegmentByPairs(seg, maxPairs=60, delayMs=120){
   if (seg.length < 2) return seg;
   const out = [];
@@ -373,7 +366,7 @@ function smoothUpdateMarker(userObj, newRow){
   marker.setPopupContent(buildPopup(newRow));
 }
 
-// ====== UI: popup y status ======
+// ====== UI ======
 function buildPopup(r){
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
@@ -432,7 +425,7 @@ function initMap(){
 }
 initMap();
 
-// ====== Carga inicial ======
+// ====== Carga inicial (últimas 24h para ver desconexiones) ======
 async function fetchInitial(clearList){
   setStatus('Cargando…', 'gray');
   if (clearList) ui.userList.innerHTML = '';
@@ -551,7 +544,6 @@ function onInsert(row){
     return;
   }
 
-  // anti-jitter + anti-glitch
   const prev = u.lastRow;
   const from = L.latLng(prev.latitud, prev.longitud);
   const to   = L.latLng(row.latitud, row.longitud);
@@ -573,7 +565,7 @@ function onInsert(row){
   drawUserPath(uid);
 }
 
-// ====== Dibujo del trazo (snap opcional) ======
+// ====== Dibujo del trazo (snap SIEMPRE) ======
 async function drawUserPath(uid){
   const rowsDesc = state.pointsByUser.get(uid) || [];
   const rows = rowsDesc.slice().reverse(); // cronológico
@@ -581,20 +573,11 @@ async function drawUserPath(uid){
 
   const segs = buildSegmentsFromRows(rows);
 
-  const useSnap = ui.snapRoads?.checked && (CONFIG.ROUTE_PROVIDER || 'none') !== 'none';
-
+  // Siempre hacer snap (map-matching por ventanas) para todos los segmentos
   let renderedSegs = [];
-  if (useSnap){
-    for (const seg of segs){
-      if (seg.length <= 40){
-        const snapped = await snapSegmentToRoad(seg, 40, 100);
-        renderedSegs.push(snapped);
-      } else {
-        renderedSegs.push(seg);
-      }
-    }
-  } else {
-    renderedSegs = segs;
+  for (const seg of segs){
+    const snapped = await snapSegmentToRoad(seg, 100, 80);
+    renderedSegs.push(snapped);
   }
 
   let entry = state.userPaths.get(uid);
@@ -611,7 +594,7 @@ async function drawUserPath(uid){
   }
 }
 
-// ====== Limpieza de marcadores viejos ======
+// ====== Limpieza marcadores viejos ======
 function pruneOldMarkers(){
   const now = Date.now();
   const lim = 5*60*1000; // 5 min
@@ -627,7 +610,7 @@ function pruneOldMarkers(){
 }
 setInterval(pruneOldMarkers, 60*1000);
 
-// ====== Exportar KMZ del día (mismo pipeline + snap si está activo) ======
+// ====== Exportar KMZ del día ======
 async function exportKMZFromState(){
   const today = new Date();
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0,0,0);
@@ -661,7 +644,7 @@ async function exportKMZFromState(){
   const kmlFooter = `</Document>\n</kml>`;
   let kmlBody = '';
 
-  const useSnap = ui.snapRoads?.checked && (CONFIG.ROUTE_PROVIDER || 'none') !== 'none';
+  const useSnap = SNAP_ALWAYS && (CONFIG.ROUTE_PROVIDER || 'none') !== 'none';
 
   for (const [uid, rows] of byUser.entries()){
     if (!rows.length) continue;
