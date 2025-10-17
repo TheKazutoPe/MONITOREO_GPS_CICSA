@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Monitoreo GPS Brigadas – Realtime</title>
 
-  <!-- Favicon -->
   <link rel="icon" href="assets/favicon.ico" />
 
   <!-- Leaflet + MarkerCluster -->
@@ -13,7 +12,6 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
-  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -24,7 +22,6 @@
   </header>
 
   <main class="layout">
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="panel">
         <div class="row">
@@ -70,22 +67,20 @@
       </div>
     </aside>
 
-    <!-- Mapa -->
     <section class="map-wrap">
       <div id="map" class="map"></div>
     </section>
   </main>
 
-  <!-- Supabase, Leaflet, Cluster, JSZip -->
+  <!-- Libs -->
   <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-  <!-- Config con tus claves -->
+  <!-- Config -->
   <script src="config.js"></script>
-
-  <!-- Lógica -->
+  <!-- App -->
   <script src="main.js"></script>
 </body>
 </html>
