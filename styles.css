@@ -7,6 +7,7 @@
 *{ box-sizing:border-box }
 html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-family: Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif }
 
+/* ---------- Header ---------- */
 .app-header{
   display:flex; align-items:center; gap:14px; padding:10px 16px;
   background:var(--panel); border-bottom:1px solid var(--border);
@@ -18,12 +19,19 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .status-badge.yellow{ background:#3a351b; color:#ffe58a; }
 .status-badge.gray{ background:#222a33; color:#b7c2ce }
 
+/* ---------- Layout ---------- */
 .layout{ display:grid; grid-template-columns: 300px 1fr; height: calc(100vh - 58px) }
+@media (max-width: 980px){
+  .layout{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .sidebar{ order:2; }
+  .map-wrap{ order:3; height: calc(100vh - 58px - 320px); }
+}
 
+/* ---------- Sidebar y controles ---------- */
 .sidebar{
   background:var(--panel); border-right:1px solid var(--border); padding:14px; overflow:auto
 }
-.sidebar h3{ margin:12px 0 8px; font-size:14px; color:#cfe2ff; font-weight:600 }
+.sidebar h3,.panel-title{ margin:12px 0 8px; font-size:14px; color:#cfe2ff; font-weight:600 }
 .lbl{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px }
 .inp{
   width:100%; background:var(--panel-2); color:var(--text);
@@ -31,12 +39,9 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 }
 .inp:focus{ border-color:#2da4f8 }
 
-.opts{ margin:12px 0; display:grid; gap:6px }
-.chk{ display:flex; align-items:center; gap:8px; font-size:13px; color:#d5dde7 }
-.chk input{ accent-color: var(--primary); width:16px; height:16px }
+.row{ display:flex; gap:8px; margin:10px 0 16px; flex-wrap:wrap }
 
-.row{ display:flex; gap:8px; margin:10px 0 16px }
-
+/* Botones */
 .btn{
   background:var(--panel-2); color:var(--text);
   border:1px solid var(--border); border-radius:10px; padding:8px 12px; cursor:pointer;
@@ -44,7 +49,9 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .btn:hover{ border-color:#365874 }
 .btn.primary{ background:var(--primary); border-color:transparent; color:#001725 }
 .btn.primary:hover{ filter:brightness(1.05) }
+.btn.btn-secondary{ background:#2a3440; }
 
+/* ---------- Listas antiguas (compat) ---------- */
 .users{ display:grid; gap:10px }
 .user{
   background:var(--panel-2); border:1px solid var(--border); border-radius:12px; padding:10px;
@@ -54,9 +61,12 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .user .name{ font-weight:600; font-size:14px; margin-bottom:4px }
 .user .meta{ color:var(--muted); font-size:12px; line-height:1.2 }
 
+/* ---------- Mapa ---------- */
 .map-wrap{ position:relative; }
-#map{ width:100%; height:100% }
+#map, .map{ width:100%; height:100% }           /* contenedor de mapa ocupa todo el panel */
+@media (max-width: 980px){ #map, .map{ min-height: 360px } } /* altura mínima en móvil */
 
+/* Leyenda opcional */
 .legend{
   position:absolute; left:14px; bottom:14px; background:var(--panel);
   border:1px solid var(--border); border-radius:12px; padding:8px 12px; display:flex; gap:14px; align-items:center;
@@ -67,7 +77,11 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .dot.yellow{ background:var(--yellow) }
 .dot.gray{ background:var(--gray) }
 
-/* Leaflet popups elegante */
+/* ---------- Leaflet dark theme ---------- */
+.leaflet-control-container .leaflet-control-zoom a{
+  background:var(--panel); color:var(--text); border:1px solid var(--border);
+}
+.leaflet-control-attribution{ background:var(--panel); color:var(--muted) }
 .leaflet-popup-content-wrapper{
   background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:12px;
 }
@@ -77,11 +91,10 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .badge.yellow{ background:#3d360f; color:#ffe58a }
 .badge.gray{ background:#232a34; color:#b7c2ce }
 
+/* Animación sutil al mover marcador */
+.leaflet-marker-icon.moving{ transition: transform .18s ease }
 
-
-/* === Complementos mínimos para el nuevo HTML === */
-
-/* Paneles laterales */
+/* ---------- Paneles y switches (HTML nuevo) ---------- */
 .panel{
   background:var(--panel-2);
   border:1px solid var(--border);
@@ -90,18 +103,10 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
   box-shadow: var(--shadow);
   margin-bottom:12px;
 }
-.panel-title{
-  font-size:13px;
-  font-weight:600;
-  color:#cfe2ff;
-  margin-bottom:8px;
-}
-
-/* Switch (checkbox + etiqueta) */
 .switch{ display:flex; align-items:center; gap:8px; font-size:13px; color:#d5dde7 }
 .switch input{ accent-color: var(--primary); width:16px; height:16px }
 
-/* Lista de usuarios usada en el nuevo HTML (equivalente a .users/.user) */
+/* Lista moderna de brigadas (HTML nuevo) */
 .user-list{ list-style:none; margin:0; padding:0; display:grid; gap:10px; }
 .user-item{
   background:var(--panel-2);
@@ -114,8 +119,6 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .user-item:hover{ border-color:#2a4257 }
 .user-item .title{ font-weight:600; font-size:14px; margin-bottom:4px; display:flex; align-items:center; gap:6px }
 .user-item .meta{ color:var(--muted); font-size:12px; line-height:1.2 }
-
-/* Colores de puntos de estado (reusamos tu paleta) */
 .user-item .dot{ width:10px; height:10px; border-radius:50%; display:inline-block }
 .user-item .dot.green{ background:var(--green) }
 .user-item .dot.yellow{ background:var(--yellow) }

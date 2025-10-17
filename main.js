@@ -22,7 +22,7 @@ const state = {
   baseLayers: {},
   cluster: null,
   pathLayer: null,
-  users: new Map(),          // uid -> { marker, lastRow }
+  users: new Map(),
   pointsByUser: new Map(),   // uid -> [rows] (DESC por timestamp)
   selectedUid: null,
   userPaths: new Map(),      // uid -> { segments: L.Polyline[] }
@@ -70,10 +70,10 @@ let GAP_MINUTES = 4;         // corta segmentos por gap
 // Estancias y picos
 let STAY_RADIUS_M = 25;      // radio para detectar “parado”
 let STAY_MIN_MIN  = 2;       // duración mínima estancia
-let ANGLE_SPIKE_DEG = 135;   // giro imposible (descartar punto central)
+let ANGLE_SPIKE_DEG = 135;   // giro imposible (descarta punto central)
 
 function speedKmh(a, b){
-  const d = distMeters(a, b) / 1000; // km
+  const d = distMeters(a, b) / 1000;
   const dtH = Math.max((new Date(b.timestamp) - new Date(a.timestamp)) / 3600000, 1e-6);
   return d / dtH;
 }
@@ -134,7 +134,7 @@ function collapseStays(points){
 // Simplificación Douglas-Peucker (epsilon en metros)
 function simplifyRDP(points, epsilonMeters = 5){
   if (points.length <= 2) return points;
-  const eps = epsilonMeters / 111320; // aprox grados/metro
+  const eps = epsilonMeters / 111320;
   const sq = x => x*x;
   const distToSeg = (p, a, b) => {
     const t = Math.max(0, Math.min(1, ((p.lat-a.lat)*(b.lat-a.lat)+(p.lng-a.lng)*(b.lng-a.lng)) / (sq(b.lat-a.lat)+sq(b.lng-a.lng) || 1)));
@@ -203,7 +203,7 @@ function buildSegmentsFromRows(rows){
 
 // ====== Ruteo / Snap a vías ======
 
-// Fallback par-a-par con Directions (se usa si Map-matching falla)
+// Fallback par-a-par con Directions
 async function routeBetween(a, b){
   try{
     if (CONFIG.MAPBOX_TOKEN){
@@ -220,11 +220,42 @@ async function routeBetween(a, b){
   return [a,b];
 }
 
+// --- Anti-puntas (stubs) ---
+const SPUR_MAX_LEN_M = 18;  // recorta segmentos finales <18 m
+const END_ANGLE_MIN  = 35;  // y con ángulo muy agudo
+
+function endAngle(p1, p2, p3){
+  let diff = Math.abs(bearing(p2, p3) - bearing(p2, p1));
+  if (diff > 180) diff = 360 - diff;
+  return diff;
+}
+function trimSpurs(points){
+  if (!points || points.length < 3) return points;
+
+  // cola
+  while (points.length >= 3) {
+    const n = points.length;
+    const a = points[n-3], b = points[n-2], c = points[n-1];
+    const segLen = distMeters(b, c);
+    const ang = endAngle(a, b, c);
+    if (segLen < SPUR_MAX_LEN_M && ang < END_ANGLE_MIN) points = points.slice(0, n-1);
+    else break;
+  }
+  // cabeza
+  while (points.length >= 3) {
+    const a = points[0], b = points[1], c = points[2];
+    const segLen = distMeters(a, b);
+    const ang = endAngle(a, b, c);
+    if (segLen < SPUR_MAX_LEN_M && ang < END_ANGLE_MIN) points = points.slice(1);
+    else break;
+  }
+  return simplifyRDP(points, 3);
+}
+
 // --- Utils para ensamblar geometrías snappeadas ---
 function mergeCoordsWithOverlap(a, b, maxJoinGapM = 60){
   if (!a.length) return b.slice();
   if (!b.length) return a.slice();
-
   const lastA = a[a.length - 1];
   const firstB = b[0];
   const gap = distMeters(lastA, firstB);
@@ -237,22 +268,16 @@ function mergeCoordsWithOverlap(a, b, maxJoinGapM = 60){
     }
     const trimmed = b.slice(bestIdx);
     if (!trimmed.length) return a.slice();
-    if (distMeters(lastA, trimmed[0]) > maxJoinGapM) {
-      return a.slice(); // evita “brazo”
-    }
+    if (distMeters(lastA, trimmed[0]) > maxJoinGapM) return a.slice();
     const out = a.slice();
-    if (out.length && trimmed.length && out[out.length-1].lat === trimmed[0].lat && out[out.length-1].lng === trimmed[0].lng) {
-      trimmed.shift();
-    }
+    if (out.length && trimmed.length && out[out.length-1].lat === trimmed[0].lat && out[out.length-1].lng === trimmed[0].lng) trimmed.shift();
     out.push(...trimmed);
     return out;
   }
 
   const out = a.slice();
   const toAdd = b.slice();
-  if (out.length && toAdd.length && out[out.length-1].lat === toAdd[0].lat && out[out.length-1].lng === toAdd[0].lng) {
-    toAdd.shift();
-  }
+  if (out.length && toAdd.length && out[out.length-1].lat === toAdd[0].lat && out[out.length-1].lng === toAdd[0].lng) toAdd.shift();
   out.push(...toAdd);
   return out;
 }
@@ -274,7 +299,7 @@ async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
   let merged = [];
   for (const pts of chunks){
     const coords = pts.map(p => `${p.lng},${p.lat}`).join(';');
-    const radiuses = pts.map(_ => 30).join(';'); // tolera +-30 m de ruido
+    const radiuses = pts.map(_ => 30).join(';');
     const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&tidy=true&radiuses=${radiuses}&access_token=${encodeURIComponent(token)}`;
 
     try {
@@ -284,14 +309,14 @@ async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
       const geom = j.matchings?.[0]?.geometry?.coordinates || [];
       const snapped = geom.map(([lng,lat]) => ({lat,lng}));
       merged = mergeCoordsWithOverlap(merged, snapped, 60);
-      await sleep(80); // ser amable con la API
+      await sleep(80);
     } catch (e){
       console.warn('Map-matching falló, uso Directions en este tramo', e);
       const fallback = await snapSegmentByPairs(pts, 40, 90);
       merged = mergeCoordsWithOverlap(merged, fallback, 60);
     }
   }
-  return merged.length ? merged : seg;
+  return merged.length ? trimSpurs(merged) : seg;
 }
 
 // Par-a-par (Directions) con muestreo (helper)
@@ -307,15 +332,13 @@ async function snapSegmentByPairs(seg, maxPairs=60, delayMs=120){
     out.push(...geom);
     await sleep(delayMs);
   }
-  return out;
+  return trimSpurs(out);
 }
 
-// Función de snap que decide Map-Matching o fallback
+// Decide Map-Matching o fallback
 async function snapSegmentToRoad(seg, maxPairs=60, delayMs=120){
   const prov = (CONFIG.ROUTE_PROVIDER || 'none').toLowerCase();
-  if (prov === 'mapbox') {
-    return await mapMatchSegmentMapbox(seg, 100, 3);
-  }
+  if (prov === 'mapbox') return await mapMatchSegmentMapbox(seg, 100, 3);
   return await snapSegmentByPairs(seg, maxPairs, delayMs);
 }
 
@@ -426,7 +449,7 @@ async function fetchInitial(clearList){
   const minAcc = parseFloat(ui.minAcc.value) || 0;
   const perUser = Math.max(1, Math.min(parseInt(ui.lastN.value || '100', 10), 1000));
 
-  const grouped = new Map(); // uid -> rows
+  const grouped = new Map();
   for (const r of data){
     if (brig && (r.brigada || '').toLowerCase().indexOf(brig.toLowerCase()) === -1) continue;
     if ((r.acc || 0) < minAcc) continue;
@@ -456,7 +479,7 @@ async function fetchInitial(clearList){
     state.users.set(uid, { marker, lastRow: last });
     addUserItem(uid, last);
 
-    drawUserPath(uid); // con snap opcional
+    drawUserPath(uid);
   });
 
   setStatus('OK', 'green');
@@ -513,7 +536,7 @@ function onInsert(row){
   const uid = String(row.usuario_id || '0');
   if (!state.pointsByUser.has(uid)) state.pointsByUser.set(uid, []);
   const list = state.pointsByUser.get(uid);
-  list.unshift(row); // DESC
+  list.unshift(row);
 
   let u = state.users.get(uid);
   if (!u){
@@ -563,7 +586,7 @@ async function drawUserPath(uid){
   let renderedSegs = [];
   if (useSnap){
     for (const seg of segs){
-      if (seg.length <= 40){ // solo segmentos cortos en vivo (cuota)
+      if (seg.length <= 40){
         const snapped = await snapSegmentToRoad(seg, 40, 100);
         renderedSegs.push(snapped);
       } else {
@@ -576,11 +599,15 @@ async function drawUserPath(uid){
 
   let entry = state.userPaths.get(uid);
   if (!entry){
-    const polys = renderedSegs.map(seg => L.polyline(seg.map(s=>[s.lat,s.lng]), { weight: 3, opacity: 0.9, color: '#f2c200' }).addTo(state.pathLayer));
+    const polys = renderedSegs.map(seg =>
+      L.polyline(seg.map(s=>[s.lat,s.lng]), { weight: 4, opacity: 0.95, color: '#00a6ff' }).addTo(state.pathLayer)
+    );
     state.userPaths.set(uid, { segments: polys });
   } else {
     entry.segments.forEach(pl => state.pathLayer.removeLayer(pl));
-    entry.segments = renderedSegs.map(seg => L.polyline(seg.map(s=>[s.lat,s.lng]), { weight: 3, opacity: 0.9, color: '#f2c200' }).addTo(state.pathLayer));
+    entry.segments = renderedSegs.map(seg =>
+      L.polyline(seg.map(s=>[s.lat,s.lng]), { weight: 4, opacity: 0.95, color: '#00a6ff' }).addTo(state.pathLayer)
+    );
   }
 }
 
@@ -647,7 +674,7 @@ async function exportKMZFromState(){
       kmlBody += `
         <Placemark>
           <name>${name}</name>
-          <Style><LineStyle><color>ff00c0ff</color><width>3</width></LineStyle></Style>
+          <Style><LineStyle><color>ffFFA600</color><width>4</width></LineStyle></Style>
           <LineString><coordinates>${coords}</coordinates></LineString>
         </Placemark>
       `;
