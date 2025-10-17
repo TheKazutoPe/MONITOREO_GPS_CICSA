@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Monitoreo GPS Brigadas – Realtime</title>
+
   <link rel="icon" href="assets/favicon.ico" />
 
   <!-- Leaflet + MarkerCluster -->
@@ -24,8 +25,14 @@
     <aside class="sidebar">
       <div class="panel">
         <div class="row">
-          <label class="switch"><input id="followSel" type="checkbox" /><span>Seguir selección</span></label>
-          <label class="switch"><input id="showAcc" type="checkbox" /><span>Mostrar exactitud</span></label>
+          <label class="switch">
+            <input id="followSel" type="checkbox" />
+            <span>Seguir selección</span>
+          </label>
+          <label class="switch">
+            <input id="showAcc" type="checkbox" />
+            <span>Mostrar exactitud</span>
+          </label>
         </div>
 
         <label class="lbl">Brigada
@@ -48,11 +55,11 @@
           </select>
         </label>
 
-        <!-- El snap SIEMPRE está activo; esto queda informativo -->
+        <!-- Snap siempre activo, visible/deshabilitado -->
         <div class="row">
           <label class="switch">
             <input id="snapRoads" type="checkbox" checked disabled />
-            <span>Snap a vías (activo)</span>
+            <span>Snap a vías (siempre activo)</span>
           </label>
         </div>
 
@@ -79,9 +86,8 @@
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-  <!-- Config -->
+  <!-- Config + App -->
   <script src="config.js"></script>
-  <!-- App -->
   <script src="main.js"></script>
 </body>
 </html>

@@ -71,6 +71,14 @@ let STAY_RADIUS_M = 25;      // cluster de “parado”
 let STAY_MIN_MIN  = 2;       // min estancia
 let ANGLE_SPIKE_DEG = 135;   // giro imposible
 
+// Conexión de micro-gaps entre puntos/segmentos
+const BRIDGE_TIME_MIN = 1.2; // si gap tiempo <= 1.2 min intentamos unir
+const BRIDGE_DIST_M   = 90;  // y distancia <= 90 m
+
+// Unión de ventanas / conectores
+const MAX_JOIN_GAP_M = 120;  // tolerancia al coser ventanas (antes 60)
+const ROUTE_BRIDGE_M = 200;  // si gap <= 200 m creamos un conector con Directions
+
 function speedKmh(a, b){
   const d = distMeters(a, b) / 1000;
   const dtH = Math.max((new Date(b.timestamp) - new Date(a.timestamp)) / 3600000, 1e-6);
@@ -158,7 +166,7 @@ function simplifyRDP(points, epsilonMeters = 5){
   return points.filter((_,i)=>keep.has(i));
 }
 
-// Segmentación (cortes por desconexión y velocidad imposible)
+// Segmentación (cortes por desconexión y velocidad imposible) + puenteo micro-gaps
 function buildSegmentsFromRows(rows){
   if (!rows.length) return [];
   let pts = rows.map(r => ({ lat:r.latitud, lng:r.longitud, timestamp:r.timestamp }));
@@ -188,9 +196,16 @@ function buildSegmentsFromRows(rows){
 
     const dtMin = (new Date(p.timestamp)-new Date(last.timestamp))/60000;
     const v = speedKmh(last, p);
+
     if (dtMin > GAP_MINUTES || v > MAX_SPEED_KMH){
-      if (cur.length >= 2) segments.push(cur);
-      cur = [p];
+      // === puenteo de huecos pequeños ===
+      const d = distMeters(last, p);
+      if (dtMin <= BRIDGE_TIME_MIN && d <= BRIDGE_DIST_M){
+        cur.push(p); // seguimos el mismo segmento
+      } else {
+        if (cur.length >= 2) segments.push(cur);
+        cur = [p]; // cortamos de verdad
+      }
     } else {
       const d = distMeters(last, p);
       if (d >= JITTER_M) cur.push(p);
@@ -245,38 +260,46 @@ function trimSpurs(points){
   return simplifyRDP(points, 3);
 }
 
-// Costura con solape entre ventanas
-function mergeCoordsWithOverlap(a, b, maxJoinGapM = 60){
+// Unión/puente entre ventanas de map-matching
+async function mergeOrBridgeCoords(a, b){
   if (!a.length) return b.slice();
   if (!b.length) return a.slice();
-  const lastA = a[a.length - 1];
-  const firstB = b[0];
-  const gap = distMeters(lastA, firstB);
 
-  if (gap > maxJoinGapM){
-    let bestIdx = 0, bestD = Infinity;
-    for (let i=0;i<b.length;i++){
-      const d = distMeters(lastA, b[i]);
-      if (d < bestD){ bestD = d; bestIdx = i; }
-    }
-    const trimmed = b.slice(bestIdx);
-    if (!trimmed.length) return a.slice();
-    if (distMeters(lastA, trimmed[0]) > maxJoinGapM) return a.slice();
+  const lastA  = a[a.length-1];
+  const firstB = b[0];
+  const gap    = distMeters(lastA, firstB);
+
+  // gap pequeño -> unimos normal con solape
+  if (gap <= MAX_JOIN_GAP_M){
     const out = a.slice();
-    if (out.length && trimmed.length && out[out.length-1].lat === trimmed[0].lat && out[out.length-1].lng === trimmed[0].lng) trimmed.shift();
-    out.push(...trimmed);
+    const toAdd = b.slice();
+    if (out.length && toAdd.length && out[out.length-1].lat === toAdd[0].lat && out[out.length-1].lng === toAdd[0].lng) toAdd.shift();
+    out.push(...toAdd);
     return out;
   }
 
-  const out = a.slice();
-  const toAdd = b.slice();
-  if (out.length && toAdd.length && out[out.length-1].lat === toAdd[0].lat && out[out.length-1].lng === toAdd[0].lng) toAdd.shift();
-  out.push(...toAdd);
-  return out;
+  // gap moderado -> creamos un conector por ruta
+  if (gap <= ROUTE_BRIDGE_M){
+    const out = a.slice();
+    try{
+      const conn = await routeBetween(lastA, firstB);
+      if (conn && conn.length){
+        if (out.length && conn.length && out[out.length-1].lat === conn[0].lat && out[out.length-1].lng === conn[0].lng) conn.shift();
+        out.push(...conn);
+      }
+    }catch(e){ /* ignore */ }
+    const toAdd = b.slice();
+    if (out.length && toAdd.length && out[out.length-1].lat === toAdd[0].lat && out[out.length-1].lng === toAdd[0].lng) toAdd.shift();
+    out.push(...toAdd);
+    return out;
+  }
+
+  // gap grande -> no unir
+  return a.slice();
 }
 
-// Mapbox Map-Matching por ventanas
-async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
+// Mapbox Map-Matching por ventanas (más solape y radios)
+async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=6){
   if (seg.length < 2) return seg;
   const token = CONFIG.MAPBOX_TOKEN;
   if (!token) return seg;
@@ -292,7 +315,7 @@ async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
   let merged = [];
   for (const pts of chunks){
     const coords = pts.map(p => `${p.lng},${p.lat}`).join(';');
-    const radiuses = pts.map(_ => 30).join(';'); // tolerancia
+    const radiuses = pts.map(_ => 45).join(';'); // más tolerancia
     const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&tidy=true&radiuses=${radiuses}&access_token=${encodeURIComponent(token)}`;
 
     try {
@@ -301,12 +324,12 @@ async function mapMatchSegmentMapbox(seg, chunkSize=100, overlap=3){
       const j = await r.json();
       const geom = j.matchings?.[0]?.geometry?.coordinates || [];
       const snapped = geom.map(([lng,lat]) => ({lat,lng}));
-      merged = mergeCoordsWithOverlap(merged, snapped, 60);
+      merged = await mergeOrBridgeCoords(merged, snapped);
       await sleep(80);
     } catch (e){
       console.warn('Map-matching falló, uso Directions en este tramo', e);
       const fallback = await snapSegmentByPairs(pts, 40, 90);
-      merged = mergeCoordsWithOverlap(merged, fallback, 60);
+      merged = await mergeOrBridgeCoords(merged, fallback);
     }
   }
   return merged.length ? trimSpurs(merged) : seg;
@@ -331,7 +354,7 @@ async function snapSegmentByPairs(seg, maxPairs=60, delayMs=120){
 // Decide Map-Matching o fallback
 async function snapSegmentToRoad(seg, maxPairs=60, delayMs=120){
   const prov = (CONFIG.ROUTE_PROVIDER || 'none').toLowerCase();
-  if (prov === 'mapbox') return await mapMatchSegmentMapbox(seg, 100, 3);
+  if (prov === 'mapbox') return await mapMatchSegmentMapbox(seg, 100, 6);
   return await snapSegmentByPairs(seg, maxPairs, delayMs);
 }
 
@@ -573,7 +596,7 @@ async function drawUserPath(uid){
 
   const segs = buildSegmentsFromRows(rows);
 
-  // Siempre hacer snap (map-matching por ventanas) para todos los segmentos
+  // Siempre snap/map-matching por ventanas
   let renderedSegs = [];
   for (const seg of segs){
     const snapped = await snapSegmentToRoad(seg, 100, 80);
