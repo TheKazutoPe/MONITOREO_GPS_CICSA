@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Monitoreo GPS Brigadas – Realtime</title>
 
+  <!-- Favicon -->
+  <link rel="icon" href="assets/favicon.ico" />
+
   <!-- Leaflet + MarkerCluster -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -23,57 +26,53 @@
   <main class="layout">
     <!-- Sidebar -->
     <aside class="sidebar">
-      <h3>Filtros</h3>
+      <div class="panel">
+        <div class="row">
+          <label class="switch">
+            <input id="followSel" type="checkbox" />
+            <span>Seguir selección</span>
+          </label>
+          <label class="switch">
+            <input id="showAcc" type="checkbox" />
+            <span>Mostrar exactitud</span>
+          </label>
+        </div>
 
-      <label class="lbl">Brigada
-        <input id="brigadaFilter" class="inp" placeholder="Ej: B-12" />
-      </label>
-
-      <label class="lbl">Min exactitud (m)
-        <input id="minAcc" type="number" class="inp" value="0" min="0" />
-      </label>
-
-      <label class="lbl">Últimos N puntos/usuario
-        <input id="lastN" type="number" class="inp" value="100" min="1" max="1000" />
-      </label>
-
-      <label class="lbl">Mapa base
-        <select id="baseMapSel" class="inp">
-          <option value="calle">Callejero</option>
-          <option value="sat">Satélite</option>
-          <option value="topo">Topográfico</option>
-        </select>
-      </label>
-
-      <div class="opts">
-        <label class="chk">
-          <input id="showAcc" type="checkbox" />
-          <span>Mostrar precisión</span>
+        <label class="lbl">Brigada
+          <input id="brigadaFilter" class="inp" placeholder="Ej: B-12" />
         </label>
-        <label class="chk">
-          <input id="followSel" type="checkbox" />
-          <span>Seguir seleccionado</span>
+
+        <label class="lbl">Min exactitud (m)
+          <input id="minAcc" type="number" class="inp" value="0" min="0" />
         </label>
+
+        <label class="lbl">Últimos N puntos/usuario
+          <input id="lastN" type="number" class="inp" value="100" min="1" max="1000" />
+        </label>
+
+        <label class="lbl">Mapa base
+          <select id="baseMapSel" class="inp">
+            <option value="osm">OpenStreetMap</option>
+            <option value="sat">Satélite</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+
+        <div class="row">
+          <button id="applyFilters" class="btn">Aplicar filtros</button>
+          <button id="exportKmzBtn" class="btn btn-secondary">Exportar KMZ (día)</button>
+        </div>
       </div>
 
-      <div class="row">
-        <button id="applyFilters" class="btn primary">Aplicar</button>
-        <button id="exportKmzBtn" class="btn">Exportar KMZ</button>
+      <div class="panel">
+        <div class="panel-title">Brigadas</div>
+        <ul id="userList" class="user-list"></ul>
       </div>
-
-      <h3>Usuarios</h3>
-      <div id="userList" class="users"></div>
     </aside>
 
     <!-- Mapa -->
     <section class="map-wrap">
-      <div id="map"></div>
-
-      <div class="legend">
-        <span class="dot green"></span> Online
-        <span class="dot yellow"></span> Inactivo
-        <span class="dot gray"></span> Offline
-      </div>
+      <div id="map" class="map"></div>
     </section>
   </main>
 
