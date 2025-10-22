@@ -1,63 +1,52 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Monitoreo GPS – CICSA</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoreo GPS Brigadas – Realtime</title>
 
   <link rel="icon" href="assets/favicon.ico" />
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
+
 <body>
-  <header class="app-header glass">
-    <img src="assets/logo.png" alt="logo" class="logo" />
-    <h1>Monitoreo GPS Brigadas</h1>
-    <span id="status" class="status-badge gray">Conectando…</span>
-  </header>
+  <div id="map"></div>
 
-  <main class="layout">
-    <aside class="sidebar glass">
-      <div class="panel">
-        <h2 class="panel-title">Filtros</h2>
-        <label class="lbl">Brigada
-          <input id="brigadaFilter" class="inp" placeholder="Ej: B-12" />
-        </label>
-
-        <label class="lbl">Mapa base
-          <select id="baseMapSel" class="inp">
-            <option value="osm">OpenStreetMap</option>
-            <option value="sat">Satélite</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-
-        <div class="row">
-          <button id="applyFilters" class="btn btn-primary">Actualizar</button>
-          <button id="exportKmzBtn" class="btn btn-secondary">Exportar KMZ</button>
-        </div>
+  <!-- Panel superior -->
+  <div id="top-panel" class="glass-card">
+    <div class="logo-title">
+      <img src="assets/logo.png" alt="Logo" class="logo" />
+      <div>
+        <h2>Monitoreo GPS</h2>
+        <p>Brigadas</p>
       </div>
+    </div>
 
-      <div class="panel brigadas">
-        <h2 class="panel-title">Brigadas Conectadas</h2>
-        <ul id="userList" class="user-list"></ul>
-      </div>
-    </aside>
+    <div class="panel-controls">
+      <input id="brigadaFilter" type="text" placeholder="Filtrar brigada (ej: B-12)" />
+      <select id="baseMapSel">
+        <option>OpenStreetMap</option>
+        <option>Claro</option>
+        <option>Oscuro</option>
+        <option>Satélite</option>
+      </select>
+      <button id="applyFilters">Aplicar</button>
+      <button id="exportKmzBtn" class="blue-btn">Exportar KMZ (día)</button>
+    </div>
 
-    <section class="map-wrap">
-      <div id="map" class="map"></div>
-      <div class="status-panel" id="statusPanel">
-        <span id="brigCount">0 brigadas conectadas</span>
-      </div>
-    </section>
-  </main>
+    <div id="status" class="status-badge">Desconectado</div>
+  </div>
 
-  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- Panel inferior -->
+  <div id="bottom-panel" class="glass-card">
+    <h3>Brigadas Conectadas</h3>
+    <ul id="userList"></ul>
+  </div>
+
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
