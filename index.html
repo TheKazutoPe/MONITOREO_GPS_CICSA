@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS Brigadas – Realtime</title>
+  <title>CARSO | Monitoreo GPS Brigadas</title>
   <link rel="stylesheet" href="styles.css" />
 
   <!-- Leaflet base -->
@@ -17,22 +17,30 @@
   <!-- JSZip para exportar KMZ -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
 </head>
-
 <body>
   <div id="map"></div>
 
-  <div id="sidebar" class="floating">
-    <h2><img src="logo.png" height="22" /> Monitoreo GPS <br><small>Brigadas</small></h2>
+  <!-- PANEL SUPERIOR IZQUIERDO -->
+  <div id="control-panel" class="floating">
+    <h2><img src="logo.png" height="22" style="vertical-align: middle; margin-right: 4px;"> CARSO</h2>
+    <h3>Monitoreo GPS<br><small>Brigadas</small></h3>
+
+    <label for="brigadaFilter">Filtrar brigada:</label>
+    <input id="brigadaFilter" type="text" placeholder="Ej: B-12" />
+
+    <label>Mapa base</label>
     <select id="baseMapSel">
       <option value="osm">OpenStreetMap</option>
-      <option value="sat">Satélite (Mapbox)</option>
-      <option value="dark">Modo oscuro</option>
+      <option value="sat">Satélite</option>
+      <option value="dark">Oscuro</option>
     </select>
+
     <button id="applyFilters">Aplicar</button>
     <button id="exportKmzBtn">Exportar KMZ (día)</button>
   </div>
 
-  <div id="bottom-panel" class="floating">
+  <!-- PANEL INFERIOR -->
+  <div id="brigadas-panel" class="floating">
     <h3>Brigadas Conectadas</h3>
     <ul id="userList"></ul>
   </div>

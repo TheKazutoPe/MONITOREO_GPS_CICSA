@@ -1,93 +1,113 @@
-:root{
-  --glass-bg: rgba(20,25,35,0.7);
-  --text: #f1f4f8;
-  --muted: #aab7c4;
-  --border: rgba(255,255,255,0.15);
-  --accent: #00a6ff;
-  --green: #22d37f;
-  --yellow: #f3c14f;
-  --gray: #7c8591;
-  font-family: "Inter", system-ui, sans-serif;
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #111;
+  font-family: "Segoe UI", sans-serif;
+  color: #ddd;
 }
 
-html, body { margin:0; padding:0; height:100%; background:#0d1117; color:var(--text); }
-#map { width:100%; height:100%; position:relative; z-index:1; }
-
-/* Paneles flotantes */
-.glass {
-  backdrop-filter: blur(12px);
-  background: var(--glass-bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 0 12px rgba(0,0,0,0.35);
-  color: var(--text);
+#map {
+  height: 100%;
+  width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
-.top-panel {
-  position:absolute; top:16px; right:16px;
-  padding:12px 16px; width:340px;
-  z-index:10000 !important;
+.floating {
+  background: rgba(25, 25, 25, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+  padding: 15px;
+  color: #eee;
+  z-index: 9999;
+  backdrop-filter: blur(6px);
 }
-.bottom-panel {
-  position:absolute; bottom:16px; right:16px;
-  padding:12px 16px; width:340px; max-height:40%;
-  overflow:auto;
-  z-index:10000 !important;
-}
-.header {
-  display:flex; align-items:center; gap:10px; margin-bottom:8px;
-}
-.header h1 { font-size:15px; font-weight:600; flex:1; margin:0; }
-.logo { height:26px; }
 
-.status {
-  padding:4px 10px; border-radius:999px; font-size:12px; text-transform:capitalize;
+#control-panel {
+  top: 15px;
+  left: 15px;
+  width: 240px;
+  position: absolute;
 }
-.status.green { background:#133b28; color:var(--green); }
-.status.yellow { background:#3b3713; color:var(--yellow); }
-.status.gray { background:#232931; color:var(--gray); }
 
-.controls { display:flex; flex-wrap:wrap; gap:6px; }
-.inp {
-  flex:1 1 45%; padding:6px 8px; border-radius:10px;
-  background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text);
+#control-panel h2 {
+  margin: 0;
+  color: #ff9800;
+  font-weight: 600;
+  font-size: 20px;
 }
-.btn {
-  padding:6px 10px; border:none; border-radius:10px;
-  background:var(--accent); color:#fff; cursor:pointer; font-weight:600;
-}
-.btn:hover { opacity:0.9; }
-.btn.secondary { background:#2a2f3a; color:var(--text); }
 
-.bottom-panel h2 {
-  font-size:14px; font-weight:600; margin:0 0 8px 0; color:#cfe2ff;
+#control-panel h3 {
+  margin-top: 5px;
+  font-size: 15px;
+  color: #ccc;
 }
-.user-list { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
-.user-item {
-  padding:8px 10px; border:1px solid var(--border);
-  border-radius:12px; background:rgba(0,0,0,0.3);
-  transition:border-color .2s ease;
-}
-.user-item:hover { border-color:var(--accent); cursor:pointer; }
-.user-item .title { font-weight:600; font-size:14px; margin-bottom:3px; }
-.user-item .meta { color:var(--muted); font-size:12px; line-height:1.3; }
-.user-item .dot {
-  display:inline-block; width:10px; height:10px; border-radius:50%;
-  margin-right:6px;
-}
-.dot.green{background:var(--green)}
-.dot.yellow{background:var(--yellow)}
-.dot.gray{background:var(--gray)}
 
-.leaflet-marker-icon.moving { transition: transform .25s ease; }
-
-/* Animación de pulso para marcadores online */
-@keyframes pulseGreen {
-  0% { box-shadow: 0 0 0 0 rgba(34, 211, 127, 0.6); }
-  70% { box-shadow: 0 0 0 15px rgba(34, 211, 127, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(34, 211, 127, 0); }
+#control-panel label {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #aaa;
 }
-.marker-online {
-  animation: pulseGreen 2s infinite;
-  border-radius: 50%;
+
+#control-panel input,
+#control-panel select {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px;
+  border-radius: 5px;
+  border: none;
+  background: #222;
+  color: #fff;
+}
+
+#control-panel button {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: #ff9800;
+  color: #111;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#control-panel button:hover {
+  background: #ffc107;
+}
+
+#brigadas-panel {
+  bottom: 15px;
+  right: 15px;
+  width: 320px;
+  position: absolute;
+}
+
+#brigadas-panel h3 {
+  margin: 0 0 5px 0;
+  font-size: 16px;
+  color: #fff;
+  border-bottom: 1px solid #444;
+  padding-bottom: 4px;
+}
+
+#userList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+#userList li {
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+#userList li:hover {
+  background: #333;
 }
