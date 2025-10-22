@@ -5,36 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Monitoreo GPS - Brigadas</title>
 
-  <!-- Leaflet -->
+  <!-- CSS principal -->
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Leaflet Core -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- MarkerCluster -->
+  <!-- Leaflet MarkerCluster (para agrupar brigadas, requerido por main.js) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
-  <!-- Supabase -->
+  <!-- Librerías externas -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
-
-  <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
   <header class="header">
     <div class="header-left">
+      <!-- Asegúrate de que este archivo exista en /assets/logo_carso.png -->
       <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
       <h1>Monitoreo GPS <span>- Brigadas</span></h1>
     </div>
-
-    <div class="header-right">
-      <div id="status" class="status-badge gray">CONECTANDO...</div>
-      <div class="live-info">
-        <span id="statusInfo">🟢 0 Activas | 🟡 0 Inactivas | 🔴 0 Desconectadas</span>
-        <small id="lastUpdate">Última actualización: --:--</small>
-      </div>
-      <button id="btnRefresh" class="btn-refresh" title="Recargar datos">⟳</button>
-    </div>
+    <div id="status" class="status-badge gray">CARGANDO...</div>
   </header>
 
   <div class="main-container">
@@ -43,24 +38,18 @@
         <h2>Brigadas conectadas</h2>
         <div class="filter-box">
           <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
-          <button id="applyFilters">🔍</button>
+          <button id="applyFilters">Aplicar</button>
         </div>
       </div>
 
       <div id="userList" class="brigada-list">
-        <div class="placeholder">Cargando brigadas...</div>
+        <!-- Brigadas cargadas dinámicamente -->
       </div>
 
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
     <main id="map" class="map-container"></main>
-
-    <div class="map-controls">
-      <button class="btn-control" id="btnNight">🌓 Modo Noche</button>
-      <button class="btn-control" id="btnCenter">🎯 Centrar Brigadas</button>
-      <button class="btn-control" id="btnActive">🟢 Solo Activas</button>
-    </div>
   </div>
 
   <footer class="footer">
