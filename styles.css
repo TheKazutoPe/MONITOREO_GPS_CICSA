@@ -1,98 +1,80 @@
 :root{
-  --bg:#0f141a; --panel:#131a21; --panel-2:#0d1218; --text:#e6edf3;
-  --muted:#aab4bf; --primary:#2da4f8; --green:#2fb67f; --yellow:#f1c40f; --gray:#5e6b7a;
-  --border:#1f2a36; --shadow:0 2px 10px rgba(0,0,0,.35);
+  --glass-bg: rgba(20,25,35,0.7);
+  --text: #f1f4f8;
+  --muted: #aab7c4;
+  --border: rgba(255,255,255,0.15);
+  --accent: #00a6ff;
+  --green: #22d37f;
+  --yellow: #f3c14f;
+  --gray: #7c8591;
+  font-family: "Inter", system-ui, sans-serif;
 }
 
-*{ box-sizing:border-box }
-html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-family: Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif }
+html, body { margin:0; padding:0; height:100%; background:#0d1117; color:var(--text); }
+#map { width:100%; height:100%; }
 
-/* Header */
-.app-header{
-  display:flex; align-items:center; gap:14px; padding:10px 16px;
-  background:var(--panel); border-bottom:1px solid var(--border);
-}
-.app-header .logo{ height:26px }
-.app-header h1{ font-size:16px; font-weight:600; margin:0; flex:1 }
-.status-badge{ padding:6px 10px; border-radius:999px; font-size:12px; box-shadow:var(--shadow) }
-.status-badge.green{ background:#1b3a2b; color:#8ff0c3; }
-.status-badge.yellow{ background:#3a351b; color:#ffe58a; }
-.status-badge.gray{ background:#222a33; color:#b7c2ce }
-
-/* Layout */
-.layout{ display:grid; grid-template-columns: 300px 1fr; height: calc(100vh - 58px) }
-@media (max-width: 980px){
-  .layout{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .sidebar{ order:2; }
-  .map-wrap{ order:3; height: calc(100vh - 58px - 320px); }
+/* Paneles flotantes */
+.glass {
+  backdrop-filter: blur(12px);
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 0 12px rgba(0,0,0,0.35);
+  color: var(--text);
 }
 
-/* Sidebar */
-.sidebar{
-  background:var(--panel); border-right:1px solid var(--border); padding:14px; overflow:auto
+.top-panel {
+  position:absolute; top:16px; right:16px;
+  padding:12px 16px; width:340px;
 }
-.lbl{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px }
-.inp{
-  width:100%; background:var(--panel-2); color:var(--text);
-  border:1px solid var(--border); border-radius:10px; padding:8px 10px; outline:none;
+.bottom-panel {
+  position:absolute; bottom:16px; right:16px;
+  padding:12px 16px; width:340px; max-height:40%;
+  overflow:auto;
 }
-.inp:focus{ border-color:#2da4f8 }
-.row{ display:flex; gap:8px; margin:10px 0 16px; flex-wrap:wrap }
+.header {
+  display:flex; align-items:center; gap:10px; margin-bottom:8px;
+}
+.header h1 { font-size:15px; font-weight:600; flex:1; margin:0; }
+.logo { height:26px; }
 
-/* Buttons */
-.btn{
-  background:var(--panel-2); color:var(--text);
-  border:1px solid var(--border); border-radius:10px; padding:8px 12px; cursor:pointer;
+.status {
+  padding:4px 10px; border-radius:999px; font-size:12px; text-transform:capitalize;
 }
-.btn:hover{ border-color:#365874 }
-.btn.btn-secondary{ background:#2a3440; }
+.status.green { background:#133b28; color:var(--green); }
+.status.yellow { background:#3b3713; color:var(--yellow); }
+.status.gray { background:#232931; color:var(--gray); }
 
-/* Mapa */
-.map-wrap{ position:relative; }
-#map, .map{ width:100%; height:100% }
-@media (max-width: 980px){ #map, .map{ min-height: 360px } }
+.controls { display:flex; flex-wrap:wrap; gap:6px; }
+.inp {
+  flex:1 1 45%; padding:6px 8px; border-radius:10px;
+  background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text);
+}
+.btn {
+  padding:6px 10px; border:none; border-radius:10px;
+  background:var(--accent); color:#fff; cursor:pointer; font-weight:600;
+}
+.btn:hover { opacity:0.9; }
+.btn.secondary { background:#2a2f3a; color:var(--text); }
 
-/* Leaflet dark */
-.leaflet-control-container .leaflet-control-zoom a{
-  background:var(--panel); color:var(--text); border:1px solid var(--border);
+.bottom-panel h2 {
+  font-size:14px; font-weight:600; margin:0 0 8px 0; color:#cfe2ff;
 }
-.leaflet-control-attribution{ background:var(--panel); color:var(--muted) }
-.leaflet-popup-content-wrapper{
-  background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:12px;
+.user-list { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.user-item {
+  padding:8px 10px; border:1px solid var(--border);
+  border-radius:12px; background:rgba(0,0,0,0.3);
+  transition:border-color .2s ease;
 }
-.leaflet-popup-tip{ background:var(--panel); }
-.badge{ padding:2px 8px; border-radius:999px; font-size:11px; display:inline-block }
-.badge.green{ background:#103c2b; color:#89f2c1 }
-.badge.yellow{ background:#3d360f; color:#ffe58a }
-.badge.gray{ background:#232a34; color:#b7c2ce }
-.leaflet-marker-icon.moving{ transition: transform .18s ease }
+.user-item:hover { border-color:var(--accent); cursor:pointer; }
+.user-item .title { font-weight:600; font-size:14px; margin-bottom:3px; }
+.user-item .meta { color:var(--muted); font-size:12px; line-height:1.3; }
+.user-item .dot {
+  display:inline-block; width:10px; height:10px; border-radius:50%;
+  margin-right:6px;
+}
+.dot.green{background:var(--green)}
+.dot.yellow{background:var(--yellow)}
+.dot.gray{background:var(--gray)}
 
-/* Paneles / switches / lista (HTML nuevo) */
-.panel{
-  background:var(--panel-2);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:12px;
-  box-shadow: var(--shadow);
-  margin-bottom:12px;
-}
-.panel-title{ margin:12px 0 8px; font-size:14px; color:#cfe2ff; font-weight:600 }
-.switch{ display:flex; align-items:center; gap:8px; font-size:13px; color:#d5dde7 }
-.switch input{ accent-color: var(--primary); width:16px; height:16px }
-
-.user-list{ list-style:none; margin:0; padding:0; display:grid; gap:10px; }
-.user-item{
-  background:var(--panel-2);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:10px;
-  box-shadow: var(--shadow);
-  cursor:pointer;
-}
-.user-item:hover{ border-color:#2a4257 }
-.user-item .title{ font-weight:600; font-size:14px; margin-bottom:4px; display:flex; align-items:center; gap:6px }
-.user-item .meta{ color:var(--muted); font-size:12px; line-height:1.2 }
-.user-item .dot{ width:10px; height:10px; border-radius:50%; display:inline-block }
-.user-item .dot.green{ background:var(--green) }
-.user-item .dot.yellow{ background:var(--yellow) }
-.user-item .dot.gray{ background:var(--gray) }
+.leaflet-marker-icon.moving { transition: transform .25s ease; }
