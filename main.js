@@ -23,8 +23,8 @@ const state = {
 };
 
 // ====== Config ======
-const ROUTE_BRIDGE_M = 250; // distancia máxima para puente
-const GAP_MINUTES = 5; // minutos máximo entre puntos
+const ROUTE_BRIDGE_M = 250;
+const GAP_MINUTES = 5;
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
 // ====== Íconos ======
@@ -74,7 +74,7 @@ function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
 
-// ====== Animación del marcador ======
+// ====== Animación de marcador ======
 function animateMarker(marker, from, to) {
   if (!from || !to) {
     marker.setLatLng(to || from);
@@ -94,7 +94,7 @@ function animateMarker(marker, from, to) {
   requestAnimationFrame(step);
 }
 
-// ====== Mapbox: rutas y autocompletar ======
+// ====== Mapbox ======
 async function routeBetween(a, b) {
   try {
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
@@ -102,8 +102,7 @@ async function routeBetween(a, b) {
     const j = await r.json();
     const coords = j.routes?.[0]?.geometry?.coordinates || [];
     return coords.map(([lng, lat]) => ({ lat, lng }));
-  } catch (e) {
-    console.warn("Error en routeBetween", e);
+  } catch {
     return [a, b];
   }
 }
@@ -119,7 +118,7 @@ async function snapSegmentToRoad(seg) {
     const j = await r.json();
     const c = j.matchings?.[0]?.geometry?.coordinates || [];
     return c.map(([lng, lat]) => ({ lat, lng }));
-  } catch (e) {
+  } catch {
     return seg;
   }
 }
@@ -146,6 +145,7 @@ function initMap() {
     "https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
     { subdomains: ["mt0", "mt1", "mt2", "mt3"] }
   );
+
   state.map = L.map("map", {
     center: [-12.0464, -77.0428],
     zoom: 12,
@@ -165,10 +165,25 @@ function initMap() {
 }
 initMap();
 
+// ====== Popup ======
+function buildPopup(r) {
+  const acc = Math.round(r.acc || 0);
+  const spd = (r.spd || 0).toFixed(1);
+  const ts = new Date(r.timestamp).toLocaleString();
+  return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${
+    r.brigada || "-"
+  }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
+}
+function setStatus(text, kind) {
+  ui.status.textContent = text;
+  ui.status.className = `status-badge ${kind || "gray"}`;
+}
+
 // ====== Cargar datos iniciales ======
 async function fetchInitial(clear) {
   setStatus("Cargando…", "gray");
   if (clear) ui.userList.innerHTML = "";
+
   const { data, error } = await supa
     .from("ubicaciones_brigadas")
     .select("*")
@@ -216,20 +231,6 @@ async function fetchInitial(clear) {
   setStatus("OK", "green");
 }
 
-// ====== Popup ======
-function buildPopup(r) {
-  const acc = Math.round(r.acc || 0);
-  const spd = (r.spd || 0).toFixed(1);
-  const ts = new Date(r.timestamp).toLocaleString();
-  return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${
-    r.brigada || "-"
-  }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
-}
-function setStatus(text, kind) {
-  ui.status.textContent = text;
-  ui.status.className = `status-badge ${kind || "gray"}`;
-}
-
 // ====== Realtime ======
 function subscribeRealtime() {
   supa
@@ -273,23 +274,30 @@ function subscribeRealtime() {
 }
 subscribeRealtime();
 
-// ====== Panel lateral ======
+// ====== Panel lateral mejorado ======
 function addOrUpdateUserInList(row) {
   const uid = String(row.usuario_id || "0");
   const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
   let color = "text-gray";
-  if (mins <= 2) color = "text-green";
-  else if (mins <= 5) color = "text-yellow";
+  let estado = "Desconectado";
+  if (mins <= 2) { color = "text-green"; estado = "Activo"; }
+  else if (mins <= 5) { color = "text-yellow"; estado = "Inactivo"; }
 
   const existing = ui.userList.querySelector(`[data-uid="${uid}"]`);
+  const hora = new Date(row.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
   const html = `
-    🚙 <b>${row.tecnico || "Sin nombre"}</b><br>
-    Brigada: ${row.brigada || "-"}<br>
-    <small>${new Date(row.timestamp).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    })}</small>
+    <div class="brigada-header">
+      <span class="brigada-dot ${color}"></span>
+      <div class="brigada-info">
+        <b>${row.tecnico || "Sin nombre"}</b>
+        <span class="brigada-sub">${row.brigada || "-"}</span>
+      </div>
+      <div class="brigada-hora">${hora}</div>
+    </div>
+    <div class="brigada-footer ${color}">${estado}</div>
   `;
+
   if (existing) {
     existing.className = `brigada-item ${color}`;
     existing.innerHTML = html;
@@ -298,6 +306,13 @@ function addOrUpdateUserInList(row) {
     div.className = `brigada-item ${color}`;
     div.setAttribute("data-uid", uid);
     div.innerHTML = html;
+    div.addEventListener("click", () => {
+      const u = state.users.get(uid);
+      if (u && u.marker) {
+        state.map.setView(u.marker.getLatLng(), 16, { animate: true });
+        u.marker.openPopup();
+      }
+    });
     ui.userList.appendChild(div);
   }
 }
