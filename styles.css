@@ -5,46 +5,46 @@
   box-sizing: border-box;
   font-family: "Inter", sans-serif;
 }
-
 body {
   background: #0f0f10;
   color: #f5f5f5;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
 }
 
 /* ===== HEADER ===== */
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   background: #121316;
   border-bottom: 2px solid #222;
   padding: 8px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   height: 56px;
 }
-
 .header-left {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-
 .header-left h1 {
   font-size: 1.2rem;
   font-weight: 600;
 }
-
 .header-left span {
   color: #aaa;
   font-weight: 400;
 }
-
 .logo {
   height: 26px;
 }
-
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
 .status-badge {
   padding: 6px 12px;
   border-radius: 10px;
@@ -54,36 +54,39 @@ body {
 }
 .status-badge.green { background: #3cb371; color: #fff; }
 .status-badge.gray { background: #3a3a3a; color: #eee; }
+.status-info {
+  font-size: 0.85rem;
+  color: #aaa;
+}
 
 /* ===== MAIN CONTAINER ===== */
 .main-container {
   flex: 1;
   display: flex;
+  position: relative;
   overflow: hidden;
 }
 
 /* ===== SIDEBAR ===== */
 .sidebar {
   width: 310px;
-  background: #17181a;
+  background: linear-gradient(180deg, #17181a 0%, #1c1e21 100%);
   border-right: 1px solid #202124;
   display: flex;
   flex-direction: column;
   padding: 15px;
+  z-index: 10;
 }
-
 .sidebar-header h2 {
   font-size: 1rem;
   color: #fff;
   margin-bottom: 8px;
 }
-
 .filter-box {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
 }
-
 .filter-box input {
   flex: 1;
   background: #232427;
@@ -109,7 +112,6 @@ body {
   scrollbar-width: thin;
   padding-right: 5px;
 }
-
 .brigada-item {
   background: #1d1f22;
   border-radius: 10px;
@@ -122,43 +124,39 @@ body {
 .brigada-item:hover {
   background: #25272b;
   border-left: 4px solid #3b82f6;
-  transform: scale(1.01);
+  transform: scale(1.02);
 }
-
 .brigada-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
 .brigada-name {
   font-weight: 600;
   font-size: 0.9rem;
   color: #fff;
 }
-
 .brigada-status {
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
 }
-
 .brigada-info {
   margin-top: 6px;
   font-size: 0.8rem;
   color: #aaa;
   line-height: 1.3;
 }
-
 .brigada-hora {
   font-size: 0.75rem;
   color: #8b949e;
   margin-top: 3px;
 }
 
+/* ===== STATUS COLORS ===== */
 .status-activo { color: #4ade80; }
-.status-inactivo { color: #eab308; }
-.status-desconectado { color: #ef4444; }
+.status-inactivo { color: #facc15; }
+.status-desconectado { color: #f87171; }
 
 /* ===== BOTÓN EXPORTAR ===== */
 .export-btn {
@@ -177,6 +175,31 @@ body {
 .map-container {
   flex: 1;
   height: 100%;
+  position: relative;
+}
+
+/* ===== CONTROLES DEL MAPA ===== */
+.map-controls {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 999;
+}
+.btn-control {
+  background: #1e1f22;
+  border: 1px solid #333;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-control:hover {
+  background: #2563eb;
 }
 
 /* ===== FOOTER ===== */
@@ -189,12 +212,16 @@ body {
   border-top: 1px solid #202124;
 }
 
-/* ===== ANIMACIÓN DE ENFOQUE ===== */
-.marker-pulse {
-  animation: pulse 0.8s ease-out 1;
+/* ===== ANIMACIONES ===== */
+@keyframes pulseGreen {
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94, 0.6); }
+  70% { box-shadow: 0 0 0 10px rgba(34,197,94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94, 0); }
 }
-@keyframes pulse {
-  0% { transform: scale(1); filter: brightness(1.2); }
-  50% { transform: scale(1.2); filter: brightness(1.5); }
-  100% { transform: scale(1); filter: brightness(1); }
+.active-icon {
+  background-color: #22c55e;
+  border-radius: 50%;
+  width: 10px;
+  height: 10px;
+  animation: pulseGreen 2s infinite;
 }
