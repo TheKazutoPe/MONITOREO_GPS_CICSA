@@ -3,29 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS Brigadas – CICSA</title>
-
-  <link rel="icon" href="assets/favicon.ico" />
+  <title>Monitoreo GPS | CICSA</title>
+  <link rel="icon" type="image/png" href="assets/favicon.ico" />
   <link rel="stylesheet" href="styles.css" />
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-  <!-- Supabase y utilidades -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
   <div id="map"></div>
 
   <!-- PANEL SUPERIOR -->
   <div id="top-panel" class="glass">
-    <div class="header">
-      <img src="assets/logo.png" alt="logo" class="logo" />
-      <div class="titles">
-        <h2>Monitoreo GPS</h2>
-        <p>Brigadas en tiempo real</p>
+    <div class="logo">
+      <img src="assets/logo.png" alt="CARSO" />
+      <div>
+        <h3>Monitoreo GPS</h3>
+        <span>Brigadas en tiempo real</span>
       </div>
     </div>
 
@@ -39,14 +34,13 @@
       </select>
       <button id="applyFilters">Actualizar</button>
       <button id="exportKmzBtn" class="blue">Exportar KMZ</button>
+      <span id="status" class="status gray">Desconectado</span>
     </div>
-
-    <div id="status" class="status-badge">Desconectado</div>
   </div>
 
   <!-- PANEL INFERIOR -->
   <div id="bottom-panel" class="glass">
-    <h3>Brigadas Conectadas</h3>
+    <h4>Brigadas Conectadas</h4>
     <ul id="userList"></ul>
   </div>
 
