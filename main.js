@@ -5,9 +5,6 @@ const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
-  minAcc: document.getElementById("minAcc"),
-  lastN: document.getElementById("lastN"),
-  baseSel: document.getElementById("baseMapSel"),
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
@@ -154,12 +151,6 @@ function initMap() {
   state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 16 });
   state.map.addLayer(state.cluster);
 
-  ui.baseSel.onchange = () => {
-    Object.values(state.baseLayers).forEach((l) => state.map.removeLayer(l));
-    (state.baseLayers[ui.baseSel.value] || state.baseLayers.osm).addTo(
-      state.map
-    );
-  };
   ui.apply.onclick = () => fetchInitial(true);
   ui.exportKmz.onclick = () => exportKMZFromState();
 }
@@ -174,6 +165,7 @@ function buildPopup(r) {
     r.brigada || "-"
   }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
+
 function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
@@ -196,8 +188,7 @@ async function fetchInitial(clear) {
   }
 
   const brig = (ui.brigada.value || "").trim();
-  const minAcc = parseFloat(ui.minAcc.value) || 0;
-  const perUser = parseInt(ui.lastN.value || "100");
+  const perUser = 100;
   const grouped = new Map();
 
   for (const r of data) {
@@ -206,7 +197,6 @@ async function fetchInitial(clear) {
       (r.brigada || "").toLowerCase().indexOf(brig.toLowerCase()) === -1
     )
       continue;
-    if ((r.acc || 0) < minAcc) continue;
     const uid = String(r.usuario_id || "0");
     if (!grouped.has(uid)) grouped.set(uid, []);
     if (grouped.get(uid).length >= perUser) continue;
@@ -228,7 +218,7 @@ async function fetchInitial(clear) {
     addOrUpdateUserInList(last);
   });
 
-  setStatus("OK", "green");
+  setStatus("Conectado", "green");
 }
 
 // ====== Realtime ======
@@ -254,10 +244,7 @@ function subscribeRealtime() {
           return;
         }
 
-        const from = {
-          lat: u.lastRow.latitud,
-          lng: u.lastRow.longitud,
-        };
+        const from = { lat: u.lastRow.latitud, lng: u.lastRow.longitud };
         const to = { lat: row.latitud, lng: row.longitud };
         animateMarker(u.marker, from, to);
         u.marker.setIcon(getIconFor(row));
@@ -274,7 +261,7 @@ function subscribeRealtime() {
 }
 subscribeRealtime();
 
-// ====== Panel lateral mejorado ======
+// ====== Panel lateral ======
 function addOrUpdateUserInList(row) {
   const uid = String(row.usuario_id || "0");
   const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
@@ -311,6 +298,15 @@ function addOrUpdateUserInList(row) {
       if (u && u.marker) {
         state.map.setView(u.marker.getLatLng(), 16, { animate: true });
         u.marker.openPopup();
+
+        ui.userList.querySelectorAll(".brigada-item").forEach(el => el.classList.remove("active"));
+        div.classList.add("active");
+
+        const icon = u.marker._icon;
+        if (icon) {
+          icon.classList.add("marker-pulse");
+          setTimeout(() => icon.classList.remove("marker-pulse"), 900);
+        }
       }
     });
     ui.userList.appendChild(div);
@@ -348,25 +344,15 @@ async function exportKMZFromState() {
     byUser.get(uid).push(r);
   }
 
-  let kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Rutas ${start
-    .toISOString()
-    .slice(0, 10)}</name>`;
+  let kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Rutas ${start.toISOString().slice(0, 10)}</name>`;
 
   for (const [uid, rows] of byUser.entries()) {
     if (rows.length < 2) continue;
     const name = (rows[0].tecnico || `Brigada ${uid}`).replace(/&/g, "&amp;");
     let full = [];
     for (let i = 0; i < rows.length - 1; i++) {
-      const a = {
-        lat: rows[i].latitud,
-        lng: rows[i].longitud,
-        timestamp: rows[i].timestamp,
-      };
-      const b = {
-        lat: rows[i + 1].latitud,
-        lng: rows[i + 1].longitud,
-        timestamp: rows[i + 1].timestamp,
-      };
+      const a = { lat: rows[i].latitud, lng: rows[i].longitud, timestamp: rows[i].timestamp };
+      const b = { lat: rows[i + 1].latitud, lng: rows[i + 1].longitud, timestamp: rows[i + 1].timestamp };
       const dt = (new Date(b.timestamp) - new Date(a.timestamp)) / 60000;
       const gap = distMeters(a, b);
       let seg = [a, b];
