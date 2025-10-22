@@ -1,20 +1,8 @@
-/* ===== GENERAL ===== */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  font-family: "Inter", sans-serif;
-}
-body {
-  background: #0f0f10;
-  color: #f5f5f5;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-}
+/* === GENERAL === */
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: "Inter", sans-serif; }
+body { background: #0f0f10; color: #f5f5f5; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-/* ===== HEADER ===== */
+/* === HEADER === */
 .header {
   background: #121316;
   border-bottom: 2px solid #222;
@@ -22,206 +10,94 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 56px;
 }
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.header-left h1 {
-  font-size: 1.2rem;
-  font-weight: 600;
-}
-.header-left span {
-  color: #aaa;
-  font-weight: 400;
-}
-.logo {
-  height: 26px;
-}
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-.status-badge {
-  padding: 6px 12px;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  font-weight: 600;
-}
+.header-left { display: flex; align-items: center; gap: 10px; }
+.header-left h1 { font-size: 1.2rem; font-weight: 600; }
+.header-left span { color: #aaa; }
+.logo { height: 28px; }
+
+.header-right { display: flex; align-items: center; gap: 15px; }
+.status-badge { padding: 6px 12px; border-radius: 10px; font-size: 0.8rem; text-transform: uppercase; font-weight: 600; }
 .status-badge.green { background: #3cb371; color: #fff; }
 .status-badge.gray { background: #3a3a3a; color: #eee; }
-.status-info {
-  font-size: 0.85rem;
-  color: #aaa;
-}
 
-/* ===== MAIN CONTAINER ===== */
-.main-container {
-  flex: 1;
-  display: flex;
-  position: relative;
-  overflow: hidden;
+.live-info { display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; color: #bbb; text-align: right; }
+.btn-refresh {
+  background: #1e1f22; border: 1px solid #333; color: #fff;
+  border-radius: 6px; padding: 6px 10px; cursor: pointer;
 }
+.btn-refresh:hover { background: #2563eb; }
 
-/* ===== SIDEBAR ===== */
+/* === MAIN === */
+.main-container { flex: 1; display: flex; position: relative; overflow: hidden; }
+
+/* === SIDEBAR === */
 .sidebar {
-  width: 310px;
-  background: linear-gradient(180deg, #17181a 0%, #1c1e21 100%);
+  width: 320px;
+  background: linear-gradient(180deg, #17181a, #1c1e21);
   border-right: 1px solid #202124;
-  display: flex;
-  flex-direction: column;
-  padding: 15px;
-  z-index: 10;
+  display: flex; flex-direction: column; padding: 15px;
 }
-.sidebar-header h2 {
-  font-size: 1rem;
-  color: #fff;
-  margin-bottom: 8px;
-}
-.filter-box {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
+.sidebar-header h2 { font-size: 1rem; color: #fff; margin-bottom: 8px; }
+.filter-box { display: flex; gap: 8px; margin-bottom: 10px; }
 .filter-box input {
-  flex: 1;
-  background: #232427;
-  border: none;
-  color: #ddd;
-  padding: 6px 10px;
-  border-radius: 6px;
+  flex: 1; background: #232427; border: none; color: #ddd;
+  padding: 6px 10px; border-radius: 6px;
 }
 .filter-box button {
-  background: #007bff;
-  border: none;
-  border-radius: 6px;
-  color: #fff;
-  width: 38px;
-  cursor: pointer;
+  background: #007bff; border: none; border-radius: 6px;
+  color: #fff; width: 38px; cursor: pointer;
 }
 .filter-box button:hover { background: #005fd1; }
 
-/* ===== BRIGADAS ===== */
 .brigada-list {
-  flex: 1;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  padding-right: 5px;
+  flex: 1; overflow-y: auto; scrollbar-width: thin; padding-right: 5px;
+}
+.placeholder {
+  color: #888; text-align: center; padding: 30px 0; font-size: 0.85rem;
 }
 .brigada-item {
-  background: #1d1f22;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  border-left: 4px solid transparent;
-  transition: all 0.2s ease;
-  cursor: pointer;
+  background: #1f2125; border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 8px; border-left: 4px solid transparent;
+  transition: all 0.2s ease; cursor: pointer; animation: fadeIn 0.3s ease;
 }
-.brigada-item:hover {
-  background: #25272b;
-  border-left: 4px solid #3b82f6;
-  transform: scale(1.02);
-}
-.brigada-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.brigada-name {
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #fff;
-}
-.brigada-status {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.brigada-info {
-  margin-top: 6px;
-  font-size: 0.8rem;
-  color: #aaa;
-  line-height: 1.3;
-}
-.brigada-hora {
-  font-size: 0.75rem;
-  color: #8b949e;
-  margin-top: 3px;
-}
+.brigada-item:hover { background: #26282d; border-left: 4px solid #3b82f6; }
+.brigada-item.active { border-left: 4px solid #60a5fa; }
 
-/* ===== STATUS COLORS ===== */
+.brigada-header { display: flex; justify-content: space-between; align-items: center; }
+.brigada-name { font-weight: 600; font-size: 0.9rem; color: #fff; display: flex; align-items: center; gap: 5px; }
+.brigada-info { font-size: 0.8rem; color: #bbb; line-height: 1.3; margin-top: 5px; }
+.brigada-hora { font-size: 0.75rem; color: #8b949e; }
+.brigada-status { margin-top: 5px; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; }
 .status-activo { color: #4ade80; }
-.status-inactivo { color: #facc15; }
+.status-inactivo { color: #eab308; }
 .status-desconectado { color: #f87171; }
 
-/* ===== BOTÓN EXPORTAR ===== */
-.export-btn {
-  background: linear-gradient(90deg, #007bff, #00a6ff);
-  border: none;
-  border-radius: 8px;
-  color: #fff;
-  padding: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.2s ease;
-}
-.export-btn:hover { opacity: 0.85; }
-
-/* ===== MAPA ===== */
-.map-container {
-  flex: 1;
-  height: 100%;
-  position: relative;
-}
-
-/* ===== CONTROLES DEL MAPA ===== */
+/* === MAPA === */
+.map-container { flex: 1; height: 100%; position: relative; }
 .map-controls {
-  position: absolute;
-  top: 15px;
-  right: 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 999;
+  position: absolute; top: 15px; right: 15px;
+  display: flex; flex-direction: column; gap: 8px; z-index: 999;
 }
 .btn-control {
-  background: #1e1f22;
-  border: 1px solid #333;
-  color: #fff;
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.2s;
+  background: #1e1f22; border: 1px solid #333; color: #fff;
+  border-radius: 6px; padding: 6px 12px; font-size: 0.8rem;
+  cursor: pointer; transition: background 0.2s;
 }
-.btn-control:hover {
-  background: #2563eb;
-}
+.btn-control:hover { background: #2563eb; }
 
-/* ===== FOOTER ===== */
-.footer {
-  background: #121316;
-  color: #888;
-  text-align: center;
-  font-size: 0.75rem;
-  padding: 6px;
-  border-top: 1px solid #202124;
-}
-
-/* ===== ANIMACIONES ===== */
+/* === ANIMACIÓN === */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulseGreen {
-  0% { box-shadow: 0 0 0 0 rgba(34,197,94, 0.6); }
-  70% { box-shadow: 0 0 0 10px rgba(34,197,94, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(34,197,94, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+  70% { box-shadow: 0 0 0 10px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
 }
 .active-icon {
-  background-color: #22c55e;
-  border-radius: 50%;
-  width: 10px;
-  height: 10px;
-  animation: pulseGreen 2s infinite;
+  background-color: #22c55e; border-radius: 50%;
+  width: 10px; height: 10px; animation: pulseGreen 2s infinite;
+}
+.footer {
+  background: #121316; color: #888; text-align: center;
+  font-size: 0.75rem; padding: 6px; border-top: 1px solid #202124;
 }

@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Monitoreo GPS - Brigadas</title>
 
-  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Leaflet Core -->
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -19,8 +18,6 @@
 
   <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-
-  <!-- Librerías auxiliares -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
 </head>
 <body>
@@ -29,9 +26,14 @@
       <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
       <h1>Monitoreo GPS <span>- Brigadas</span></h1>
     </div>
+
     <div class="header-right">
       <div id="status" class="status-badge gray">CONECTANDO...</div>
-      <div id="statusInfo" class="status-info">🟢 0 Activas | 🟡 0 Inactivas | 🔴 0 Desconectadas</div>
+      <div class="live-info">
+        <span id="statusInfo">🟢 0 Activas | 🟡 0 Inactivas | 🔴 0 Desconectadas</span>
+        <small id="lastUpdate">Última actualización: --:--</small>
+      </div>
+      <button id="btnRefresh" class="btn-refresh">⟳</button>
     </div>
   </header>
 
@@ -46,7 +48,7 @@
       </div>
 
       <div id="userList" class="brigada-list">
-        <!-- Se carga dinámicamente desde main.js -->
+        <div class="placeholder">Cargando brigadas...</div>
       </div>
 
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
@@ -57,6 +59,7 @@
     <div class="map-controls">
       <button class="btn-control" id="btnNight">🌓 Modo Noche</button>
       <button class="btn-control" id="btnCenter">🎯 Centrar Brigadas</button>
+      <button class="btn-control" id="btnActive">🟢 Solo Activas</button>
     </div>
   </div>
 
