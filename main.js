@@ -20,14 +20,15 @@ const state = {
   map: null,
   baseLayers: {},
   cluster: null,
+  pathLayer: null,
   users: new Map(),
-  pointsByUser: new Map(), // uid -> [rows]
+  pointsByUser: new Map(),
+  showPaths: false
 };
 
 // ====== Config ======
-const SNAP_ALWAYS = true;
-const ROUTE_BRIDGE_M = 250;   // autocompletar si la brecha <= 250m
-const GAP_MINUTES = 5;        // tolerancia en minutos para unir tramos
+const ROUTE_BRIDGE_M = 250;
+const GAP_MINUTES = 5;
 
 // ====== Íconos ======
 const ICONS = {
@@ -53,7 +54,7 @@ function distMeters(a,b){
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
-// ====== Animación de marcador ======
+// ====== Animación del marcador ======
 function animateMarker(marker, from, to){
   if (!from || !to) { marker.setLatLng(to || from); return; }
   const d = distMeters(from, to);
@@ -70,7 +71,7 @@ function animateMarker(marker, from, to){
   requestAnimationFrame(step);
 }
 
-// ====== Snap / autocompletar rutas ======
+// ====== Map Matching y rutas ======
 async function routeBetween(a,b){
   try{
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${CONFIG.MAPBOX_TOKEN}`;
@@ -80,7 +81,6 @@ async function routeBetween(a,b){
     return coords.map(([lng,lat]) => ({lat,lng}));
   }catch(e){ return [a,b]; }
 }
-
 async function snapSegmentToRoad(seg){
   if (seg.length < 2) return seg;
   const token = CONFIG.MAPBOX_TOKEN;
@@ -93,8 +93,6 @@ async function snapSegmentToRoad(seg){
     return c.map(([lng,lat])=>({lat,lng}));
   }catch(e){ return seg; }
 }
-
-// Une o completa brechas largas con routeBetween
 async function mergeOrBridgeCoords(a,b){
   if (!a.length) return b;
   const last = a[a.length-1], first = b[0];
@@ -106,7 +104,7 @@ async function mergeOrBridgeCoords(a,b){
   return [...a, ...b];
 }
 
-// ====== Popup y estado ======
+// ====== Popup ======
 function buildPopup(r){
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
@@ -115,13 +113,29 @@ function buildPopup(r){
 }
 function setStatus(text, kind){ ui.status.textContent=text; ui.status.className=`status-badge ${kind||'gray'}`; }
 
-// ====== Mapa ======
+// ====== Inicializar mapa ======
 function initMap(){
   state.baseLayers.osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20});
   state.baseLayers.sat=L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{subdomains:['mt0','mt1','mt2','mt3']});
   state.map=L.map('map',{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
   state.cluster=L.markerClusterGroup({disableClusteringAtZoom:16});
+  state.pathLayer=L.layerGroup().addTo(state.map);
   state.map.addLayer(state.cluster);
+
+  // Botón “Mostrar trazos”
+  const toggleBtn = L.control({position:'topleft'});
+  toggleBtn.onAdd = () => {
+    const div = L.DomUtil.create('div','leaflet-bar leaflet-control');
+    div.innerHTML = `<a href="#" title="Mostrar trazos" style="padding:4px 8px;display:block;">🧭</a>`;
+    div.onclick = () => {
+      state.showPaths = !state.showPaths;
+      div.style.background = state.showPaths ? '#2da4f8' : '#1a1f24';
+      refreshPathsVisibility();
+    };
+    return div;
+  };
+  toggleBtn.addTo(state.map);
+
   ui.baseSel.onchange=()=>{Object.values(state.baseLayers).forEach(l=>state.map.removeLayer(l));(state.baseLayers[ui.baseSel.value]||state.baseLayers.osm).addTo(state.map);};
   ui.apply.onclick=()=>fetchInitial(true);
   ui.exportKmz.onclick=()=>exportKMZFromState();
@@ -141,6 +155,7 @@ async function fetchInitial(clear){
   const minAcc=parseFloat(ui.minAcc.value)||0;
   const perUser=parseInt(ui.lastN.value||'100');
   const grouped=new Map();
+
   for(const r of data){
     if(brig&&(r.brigada||'').toLowerCase().indexOf(brig.toLowerCase())===-1)continue;
     if((r.acc||0)<minAcc)continue;
@@ -150,13 +165,21 @@ async function fetchInitial(clear){
     grouped.get(uid).push(r);
   }
 
-  state.pointsByUser.clear();state.cluster.clearLayers();state.users.clear();
+  state.pointsByUser.clear();
+  state.cluster.clearLayers();
+  state.users.clear();
+  state.pathLayer.clearLayers();
+  ui.userList.innerHTML='';
+
   grouped.forEach((rows,uid)=>{
     const last=rows[0];
     const marker=L.marker([last.latitud,last.longitud],{icon:getIconFor(last)}).bindPopup(buildPopup(last));
     state.cluster.addLayer(marker);
-    state.users.set(uid,{marker,lastRow:last});
+    state.users.set(uid,{marker,lastRow:last,path:null});
+    state.pointsByUser.set(uid,rows);
+    addOrUpdateUserInList(last);
   });
+
   setStatus('OK','green');
 }
 
@@ -167,24 +190,72 @@ function subscribeRealtime(){
     const row=payload.new;
     const uid=String(row.usuario_id||'0');
     let u=state.users.get(uid);
+
     if(!u){
       const m=L.marker([row.latitud,row.longitud],{icon:getIconFor(row)}).bindPopup(buildPopup(row));
       state.cluster.addLayer(m);
-      state.users.set(uid,{marker:m,lastRow:row});
+      state.users.set(uid,{marker:m,lastRow:row,path:null});
+      state.pointsByUser.set(uid,[row]);
+      addOrUpdateUserInList(row);
       return;
     }
+
     const from={lat:u.lastRow.latitud,lng:u.lastRow.longitud};
     const to={lat:row.latitud,lng:row.longitud};
     animateMarker(u.marker,from,to);
     u.marker.setIcon(getIconFor(row));
     u.marker.setPopupContent(buildPopup(row));
     u.lastRow=row;
+
+    const list = state.pointsByUser.get(uid) || [];
+    list.unshift(row);
+    state.pointsByUser.set(uid, list.slice(0, 100));
+
+    if(state.showPaths) drawLiveTrace(u, from, to);
+    addOrUpdateUserInList(row);
   })
   .subscribe(()=>setStatus('Conectado','green'));
 }
 subscribeRealtime();
 
-// ====== Exportar KMZ con autocompletado ======
+// ====== Actualiza panel lateral ======
+function addOrUpdateUserInList(row){
+  const uid = String(row.usuario_id||'0');
+  const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
+  let color = 'text-gray';
+  if (mins <= 2) color = 'text-green';
+  else if (mins <= 5) color = 'text-yellow';
+
+  const existing = ui.userList.querySelector(`[data-uid="${uid}"]`);
+  const html = `
+    🚙 <b>${row.tecnico || 'Sin nombre'}</b><br>
+    Brigada: ${row.brigada || '-'}<br>
+    <small>${new Date(row.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</small>
+  `;
+  if (existing){
+    existing.className = `brigada-item ${color}`;
+    existing.innerHTML = html;
+  } else {
+    const div = document.createElement('div');
+    div.className = `brigada-item ${color}`;
+    div.setAttribute('data-uid', uid);
+    div.innerHTML = html;
+    ui.userList.appendChild(div);
+  }
+}
+
+// ====== Mostrar/ocultar trazos ======
+function refreshPathsVisibility(){
+  if(!state.showPaths) state.pathLayer.clearLayers();
+}
+
+// ====== Dibujo línea temporal ======
+function drawLiveTrace(u, from, to){
+  if(!state.showPaths)return;
+  L.polyline([[from.lat,from.lng],[to.lat,to.lng]],{color:'#00a6ff',opacity:0.7,weight:3}).addTo(state.pathLayer);
+}
+
+// ====== Exportar KMZ ======
 async function exportKMZFromState(){
   const today=new Date();
   const start=new Date(today.getFullYear(),today.getMonth(),today.getDate(),0,0,0);

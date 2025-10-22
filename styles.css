@@ -96,3 +96,33 @@ html,body{ height:100%; margin:0; background:var(--bg); color:var(--text); font-
 .user-item .dot.green{ background:var(--green) }
 .user-item .dot.yellow{ background:var(--yellow) }
 .user-item .dot.gray{ background:var(--gray) }
+
+/* ===== Panel lateral de brigadas ===== */
+.brigada-item {
+  background: #1e1f22;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 1.3em;
+  transition: background 0.2s ease;
+}
+.brigada-item:hover {
+  background: #2b2d31;
+}
+.text-green { color: #22c55e; }
+.text-yellow { color: #eab308; }
+.text-gray { color: #9ca3af; }
+
+/* ===== Botón Mostrar trazos ===== */
+.leaflet-control a {
+  color: white;
+  text-decoration: none;
+  font-size: 16px;
+  background: #1a1f24;
+  border-radius: 4px;
+}
+.leaflet-control a:hover {
+  background: #2da4f8;
+}
+
