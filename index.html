@@ -1,92 +1,51 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Monitoreo GPS Brigadas – Realtime</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoreo GPS Brigadas</title>
 
-  <link rel="icon" href="assets/favicon.ico" />
-
-  <!-- Leaflet + MarkerCluster -->
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-
+  
+  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
   <header class="app-header">
-    <img src="assets/logo_cicsa.png" alt="carso" class="logo" />
-    <h1>Monitoreo GPS Brigadas – Realtime</h1>
-    <span id="status" class="status-badge gray">Conectando…</span>
+    <div class="logo-title">
+      <img src="assets/logo_cicsa.png" class="logo" alt="Logo" />
+      <h1>Monitoreo GPS - Brigadas</h1>
+    </div>
+    <div id="status" class="status-badge gray">Cargando...</div>
   </header>
 
-  <main class="layout">
+  <div class="layout">
     <aside class="sidebar">
-      <div class="panel">
-        <div class="row">
-          <label class="switch">
-            <input id="followSel" type="checkbox" />
-            <span>Seguir selección</span>
-          </label>
-          <label class="switch">
-            <input id="showAcc" type="checkbox" />
-            <span>Mostrar exactitud</span>
-          </label>
-        </div>
-
-        <label class="lbl">Brigada
-          <input id="brigadaFilter" class="inp" placeholder="Ej: B-12" />
-        </label>
-
-        <label class="lbl">Min exactitud (m)
-          <input id="minAcc" type="number" class="inp" value="0" min="0" />
-        </label>
-
-        <label class="lbl">Últimos N puntos/usuario
-          <input id="lastN" type="number" class="inp" value="100" min="1" max="1000" />
-        </label>
-
-        <label class="lbl">Mapa base
-          <select id="baseMapSel" class="inp">
-            <option value="osm">OpenStreetMap</option>
-            <option value="sat">Satélite</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-
-        <!-- Snap siempre activo, visible/deshabilitado -->
-        <div class="row">
-          <label class="switch">
-            <input id="snapRoads" type="checkbox" checked disabled />
-            <span>Snap a vías (siempre activo)</span>
-          </label>
-        </div>
-
-        <div class="row">
-          <button id="applyFilters" class="btn">Aplicar filtros</button>
-          <button id="exportKmzBtn" class="btn btn-secondary">Exportar KMZ (día)</button>
-        </div>
+      <h2>Brigadas conectadas</h2>
+      <div class="filters">
+        <input type="text" id="brigadaFilter" placeholder="Buscar brigada..." />
+        <button id="applyFilters">Aplicar</button>
       </div>
-
-      <div class="panel">
-        <div class="panel-title">Brigadas</div>
-        <ul id="userList" class="user-list"></ul>
-      </div>
+      <div id="userList" class="user-list"></div>
+      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
     <section class="map-wrap">
       <div id="map" class="map"></div>
     </section>
-  </main>
+  </div>
 
-  <!-- Libs -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <!-- Librerías -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 
-  <!-- Config + App -->
+  <!-- Config y script -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
