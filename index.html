@@ -3,49 +3,46 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS Brigadas</title>
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  
-  <!-- Estilos -->
+  <title>Monitoreo GPS - Brigadas</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
 </head>
-
 <body>
-  <header class="app-header">
-    <div class="logo-title">
-      <img src="assets/logo_cicsa.png" class="logo" alt="Logo" />
-      <h1>Monitoreo GPS - Brigadas</h1>
+  <header class="header">
+    <div class="header-left">
+      <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
+      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
     </div>
-    <div id="status" class="status-badge gray">Cargando...</div>
+    <div id="status" class="status-badge gray">CARGANDO...</div>
   </header>
 
-  <div class="layout">
+  <div class="main-container">
     <aside class="sidebar">
-      <h2>Brigadas conectadas</h2>
-      <div class="filters">
-        <input type="text" id="brigadaFilter" placeholder="Buscar brigada..." />
-        <button id="applyFilters">Aplicar</button>
+      <div class="sidebar-header">
+        <h2>Brigadas conectadas</h2>
+        <div class="filter-box">
+          <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
+          <button id="applyFilters">Aplicar</button>
+        </div>
       </div>
-      <div id="userList" class="user-list"></div>
+
+      <div id="userList" class="brigada-list">
+        <!-- Brigadas dinámicas -->
+      </div>
+
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
-    <section class="map-wrap">
-      <div id="map" class="map"></div>
-    </section>
+    <main id="map" class="map-container"></main>
   </div>
 
-  <!-- Librerías -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <footer class="footer">
+    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
+  </footer>
 
-  <!-- Config y script -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
