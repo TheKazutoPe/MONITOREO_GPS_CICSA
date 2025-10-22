@@ -1,49 +1,92 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS | CICSA</title>
-  <link rel="icon" type="image/png" href="assets/favicon.ico" />
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitoreo GPS Brigadas – Realtime</title>
+
+  <link rel="icon" href="assets/favicon.ico" />
+
+  <!-- Leaflet + MarkerCluster -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="map"></div>
+  <header class="app-header">
+    <img src="assets/logo_cicsa.png" alt="carso" class="logo" />
+    <h1>Monitoreo GPS Brigadas – Realtime</h1>
+    <span id="status" class="status-badge gray">Conectando…</span>
+  </header>
 
-  <!-- PANEL SUPERIOR -->
-  <div id="top-panel" class="glass">
-    <div class="logo">
-      <img src="assets/logo.png" alt="CARSO" />
-      <div>
-        <h3>Monitoreo GPS</h3>
-        <span>Brigadas en tiempo real</span>
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="panel">
+        <div class="row">
+          <label class="switch">
+            <input id="followSel" type="checkbox" />
+            <span>Seguir selección</span>
+          </label>
+          <label class="switch">
+            <input id="showAcc" type="checkbox" />
+            <span>Mostrar exactitud</span>
+          </label>
+        </div>
+
+        <label class="lbl">Brigada
+          <input id="brigadaFilter" class="inp" placeholder="Ej: B-12" />
+        </label>
+
+        <label class="lbl">Min exactitud (m)
+          <input id="minAcc" type="number" class="inp" value="0" min="0" />
+        </label>
+
+        <label class="lbl">Últimos N puntos/usuario
+          <input id="lastN" type="number" class="inp" value="100" min="1" max="1000" />
+        </label>
+
+        <label class="lbl">Mapa base
+          <select id="baseMapSel" class="inp">
+            <option value="osm">OpenStreetMap</option>
+            <option value="sat">Satélite</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+
+        <!-- Snap siempre activo, visible/deshabilitado -->
+        <div class="row">
+          <label class="switch">
+            <input id="snapRoads" type="checkbox" checked disabled />
+            <span>Snap a vías (siempre activo)</span>
+          </label>
+        </div>
+
+        <div class="row">
+          <button id="applyFilters" class="btn">Aplicar filtros</button>
+          <button id="exportKmzBtn" class="btn btn-secondary">Exportar KMZ (día)</button>
+        </div>
       </div>
-    </div>
 
-    <div class="controls">
-      <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
-      <select id="baseMapSel">
-        <option>OpenStreetMap</option>
-        <option>Claro</option>
-        <option>Oscuro</option>
-        <option>Satélite</option>
-      </select>
-      <button id="applyFilters">Actualizar</button>
-      <button id="exportKmzBtn" class="blue">Exportar KMZ</button>
-      <span id="status" class="status gray">Desconectado</span>
-    </div>
-  </div>
+      <div class="panel">
+        <div class="panel-title">Brigadas</div>
+        <ul id="userList" class="user-list"></ul>
+      </div>
+    </aside>
 
-  <!-- PANEL INFERIOR -->
-  <div id="bottom-panel" class="glass">
-    <h4>Brigadas Conectadas</h4>
-    <ul id="userList"></ul>
-  </div>
+    <section class="map-wrap">
+      <div id="map" class="map"></div>
+    </section>
+  </main>
 
+  <!-- Libs -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <!-- Config + App -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
