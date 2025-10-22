@@ -3,19 +3,17 @@ const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY
 
 // ====== Estado y UI ======
 const ui = {
-  status: document.getElementById("status"),
-  brigada: document.getElementById("brigadaFilter"),
   baseSel: document.getElementById("baseMapSel"),
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
-  userList: document.getElementById("userList")
+  userList: document.getElementById("userList"),
 };
 
 const state = {
   map: null,
+  markers: new Map(),
   cluster: null,
-  markers: new Map(), // uid → { marker, lastRow }
-  pathLayer: null
+  routeCache: new Map(),
 };
 
 // ====== Helpers ======
@@ -31,11 +29,15 @@ function brigadaColor(str) {
   return `hsl(${hue}, 70%, 55%)`;
 }
 async function getSnapped(from, to) {
+  const key = `${from.lat},${from.lng}|${to.lat},${to.lng}`;
+  if (state.routeCache.has(key)) return state.routeCache.get(key);
   const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${from.lng},${from.lat};${to.lng},${to.lat}?geometries=geojson&access_token=${CONFIG.MAPBOX_TOKEN}`;
   const res = await fetch(url);
   const json = await res.json();
   const coords = json.routes?.[0]?.geometry?.coordinates || [];
-  return coords.map(c => [c[1], c[0]]);
+  const formatted = coords.map(c => [c[1], c[0]]);
+  state.routeCache.set(key, formatted);
+  return formatted;
 }
 function animMarker(marker, from, to, steps = 30, dur = 400) {
   let i = 0;
@@ -53,15 +55,17 @@ function initMap() {
   state.map = L.map("map", {
     center: [-12.0464, -77.0428],
     zoom: 12,
-    zoomControl: true
+    zoomControl: true,
   });
+
   const baseLayers = {
     osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20 }),
     sat: L.tileLayer("https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{z}/{x}/{y}?access_token=" + CONFIG.MAPBOX_TOKEN),
-    dark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png")
+    dark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"),
   };
   baseLayers.osm.addTo(state.map);
-  state.pathLayer = L.layerGroup().addTo(state.map);
+
+  // Cluster corregido
   state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 16 });
   state.map.addLayer(state.cluster);
 
@@ -70,12 +74,13 @@ function initMap() {
     baseLayers[ui.baseSel.value].addTo(state.map);
     state.map.addLayer(state.cluster);
   };
+
   ui.apply.onclick = () => updateVehicles();
   ui.exportKmz.onclick = () => exportKmz();
 }
 initMap();
 
-// ====== VEHÍCULOS EN TIEMPO REAL ======
+// ====== VEHÍCULOS EN TIEMPO REAL (con popup) ======
 async function updateVehicles() {
   const { data } = await supa
     .from("ubicaciones_brigadas")
@@ -101,10 +106,9 @@ async function updateVehicles() {
     const icon = L.icon({
       iconUrl: "assets/carro-animado.png",
       iconSize: [42, 26],
-      iconAnchor: [21, 13]
+      iconAnchor: [21, 13],
     });
 
-    let entry = state.markers.get(uid);
     const popup = `
       <b>🚘 Brigada:</b> ${brig}<br>
       <b>Técnico:</b> ${last.tecnico || "—"}<br>
@@ -113,6 +117,7 @@ async function updateVehicles() {
       <b>Última actualización:</b> ${fmtAgo(last.timestamp)}
     `;
 
+    let entry = state.markers.get(uid);
     if (!entry) {
       const marker = L.marker([last.latitud, last.longitud], { icon }).addTo(state.cluster);
       marker.bindPopup(popup);
@@ -133,22 +138,12 @@ async function exportKmz() {
   try {
     ui.exportKmz.textContent = "Generando KMZ...";
     ui.exportKmz.disabled = true;
-    if (typeof JSZip === "undefined") {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js";
-        s.onload = resolve;
-        s.onerror = () => reject(new Error("No se pudo cargar JSZip."));
-        document.head.appendChild(s);
-      });
-    }
 
-    const { data, error } = await supa
+    const { data } = await supa
       .from("ubicaciones_brigadas")
       .select("*")
       .gte("timestamp", new Date(Date.now() - 24 * 3600 * 1000).toISOString())
       .order("timestamp", { ascending: true });
-    if (error) throw error;
     if (!data?.length) {
       alert("No hay datos para exportar hoy.");
       return;
@@ -161,11 +156,11 @@ async function exportKmz() {
       grouped.get(u).push(r);
     }
 
-    let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>`;
+    let kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>`;
     for (const [uid, rows] of grouped) {
-      const last = rows.at(-1);
-      const brig = last.brigada || `Brig-${uid}`;
+      const brig = rows.at(-1).brigada || `Brig-${uid}`;
       const color = brigadaColor(brig);
+
       const tmp = document.createElement("div");
       tmp.style.color = color;
       document.body.appendChild(tmp);

@@ -1,49 +1,53 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CICSA Connect – Monitoreo GPS Brigadas</title>
-  <link rel="icon" href="assets/favicon.ico" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <div id="map"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CICSA - Monitoreo GPS</title>
+    <link rel="stylesheet" href="styles.css" />
 
-  <!-- Panel superior flotante -->
-  <div class="top-panel glass">
-    <div class="header">
-      <img src="assets/logo_cicsa.png" alt="CICSA" class="logo" />
-      <h1>Monitoreo GPS Brigadas</h1>
-      <span id="status" class="status gray">Desconectado</span>
-    </div>
-    <div class="controls">
-      <input id="brigadaFilter" class="inp" placeholder="Filtrar brigada (ej: B-12)" />
-      <input id="minAcc" type="number" class="inp" value="0" min="0" title="Min exactitud" />
-      <select id="baseMapSel" class="inp">
-        <option value="osm">🗺️ OpenStreetMap</option>
-        <option value="sat">🛰️ Satélite (Google)</option>
-        <option value="dark">🌃 Dark</option>
-        <option value="light">💡 Street Light</option>
-        <option value="topo">🗻 Topográfico</option>
-        <option value="gray">⚪ Grayscale</option>
+    <!-- Leaflet base -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet MarkerCluster -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    />
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+    <!-- Supabase -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+  </head>
+
+  <body>
+    <div id="map"></div>
+
+    <div id="sidebar" class="floating">
+      <h2>
+        <img src="logo.png" alt="Logo" height="22" /> Monitoreo GPS
+        <span>Brigadas</span>
+      </h2>
+      <select id="baseMapSel">
+        <option value="osm">OpenStreetMap</option>
+        <option value="sat">Satélite (Mapbox)</option>
+        <option value="dark">Modo oscuro</option>
       </select>
-      <button id="applyFilters" class="btn">Aplicar</button>
-      <button id="exportKmzBtn" class="btn secondary">Exportar KMZ (día)</button>
+      <button id="applyFilters">Aplicar</button>
+      <button id="exportKmzBtn">Exportar KMZ (día)</button>
+      <ul id="userList"></ul>
     </div>
-  </div>
 
-  <!-- Panel inferior flotante -->
-  <div class="bottom-panel glass">
-    <h2>Brigadas Conectadas</h2>
-    <ul id="userList" class="user-list"></ul>
-  </div>
-
-  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="config.js"></script>
-  <script src="main.js"></script>
-</body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script src="main.js"></script>
+  </body>
 </html>
