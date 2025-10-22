@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Monitoreo GPS - Brigadas</title>
 
-  <link rel="stylesheet" href="styles.css" />
-
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -19,6 +17,8 @@
   <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="header">
@@ -33,7 +33,7 @@
         <span id="statusInfo">🟢 0 Activas | 🟡 0 Inactivas | 🔴 0 Desconectadas</span>
         <small id="lastUpdate">Última actualización: --:--</small>
       </div>
-      <button id="btnRefresh" class="btn-refresh">⟳</button>
+      <button id="btnRefresh" class="btn-refresh" title="Recargar datos">⟳</button>
     </div>
   </header>
 
