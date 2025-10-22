@@ -1,12 +1,13 @@
-// main.js — Monitoreo GPS CICSA (solo vehículos animados en mapa)
-// Exporta KMZ con rutas reales + reconstrucciones con Mapbox Directions
-// Usa las variables de config.js (CONFIG.MAPBOX_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY)
+// main.js — Monitoreo GPS CICSA
+// ✅ Solo vehículos animados en el mapa (sin trazos)
+// ✅ KMZ con rutas reales + reconstruidas (Mapbox Directions API)
+// ✅ Colores aleatorios por brigada (persistentes)
+// Usa CONFIG definido en config.js
 
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
 const ui = {
   status: document.getElementById("status"),
-  brigada: document.getElementById("brigadaFilter"),
   baseSel: document.getElementById("baseMapSel"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
@@ -27,6 +28,7 @@ function initMap() {
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
   state.baseLayers.sat = L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", { subdomains: ["mt0", "mt1", "mt2", "mt3"] });
   state.baseLayers.dark = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png");
+
   state.map = L.map("map", { center: [-12.0464, -77.0428], zoom: 12, layers: [state.baseLayers.osm] });
 
   ui.baseSel.onchange = () => {
@@ -66,7 +68,7 @@ function brigadaColor(brig) {
   return state.colors.get(brig);
 }
 
-// ===================== ANIMACIÓN DE MARCADORES =====================
+// ===================== ANIMACIÓN DE CARROS =====================
 function animMarker(marker, from, to) {
   if (!from || !to) return marker.setLatLng(to || from);
   const start = performance.now();
@@ -103,7 +105,7 @@ async function getSnapped(from, to) {
   }
 }
 
-// ===================== ACTUALIZAR VEHÍCULOS =====================
+// ===================== VEHÍCULOS EN TIEMPO REAL =====================
 async function updateVehicles() {
   const { data } = await supa
     .from("ubicaciones_brigadas")
@@ -125,11 +127,11 @@ async function updateVehicles() {
     const last = rows.at(-1);
     const brig = last.brigada || `Brig-${uid}`;
     const color = brigadaColor(brig);
-    const icon = L.divIcon({
-      html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color};border:2px solid white"></div>`,
-      className: "car-marker",
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
+
+    const icon = L.icon({
+      iconUrl: "assets/carro-animado.png",
+      iconSize: [42, 26],
+      iconAnchor: [21, 13],
     });
 
     let entry = state.markers.get(uid);
@@ -153,7 +155,7 @@ async function updateVehicles() {
   }
 }
 
-// ===================== EXPORTAR KMZ (con reconstrucción) =====================
+// ===================== EXPORTAR KMZ =====================
 async function exportKmz() {
   const { data } = await supa
     .from("ubicaciones_brigadas")
@@ -188,7 +190,7 @@ async function exportKmz() {
       const gap = (new Date(b.timestamp) - new Date(a.timestamp)) / 60000;
       const dash = gap > 5;
       const coords = await getSnapped(from, to);
-      kml += `<Placemark><Style><LineStyle><color>${dash ? "7d" + hex.slice(2) : hex}</color><width>${dash ? 3 : 4}</width>${dash ? "<gx:labelVisibility>0</gx:labelVisibility>" : ""}</LineStyle></Style>`;
+      kml += `<Placemark><Style><LineStyle><color>${dash ? "7d" + hex.slice(2) : hex}</color><width>${dash ? 3 : 4}</width></LineStyle></Style>`;
       kml += `<LineString><coordinates>${coords.map(c => `${c[1]},${c[0]},0`).join(" ")}</coordinates></LineString></Placemark>`;
     }
     const lastP = rows.at(-1);
