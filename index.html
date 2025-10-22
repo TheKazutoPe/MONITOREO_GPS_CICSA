@@ -3,46 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS Brigadas – Realtime</title>
+  <title>Monitoreo GPS Brigadas – CICSA</title>
 
   <link rel="icon" href="assets/favicon.ico" />
   <link rel="stylesheet" href="styles.css" />
+
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Supabase y utilidades -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
-
 <body>
   <div id="map"></div>
 
-  <!-- Panel superior -->
-  <div id="top-panel" class="glass-card">
-    <div class="logo-title">
-      <img src="assets/logo.png" alt="Logo" class="logo" />
-      <div>
+  <!-- PANEL SUPERIOR -->
+  <div id="top-panel" class="glass">
+    <div class="header">
+      <img src="assets/logo.png" alt="logo" class="logo" />
+      <div class="titles">
         <h2>Monitoreo GPS</h2>
-        <p>Brigadas</p>
+        <p>Brigadas en tiempo real</p>
       </div>
     </div>
 
-    <div class="panel-controls">
-      <input id="brigadaFilter" type="text" placeholder="Filtrar brigada (ej: B-12)" />
+    <div class="controls">
+      <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
       <select id="baseMapSel">
         <option>OpenStreetMap</option>
         <option>Claro</option>
         <option>Oscuro</option>
         <option>Satélite</option>
       </select>
-      <button id="applyFilters">Aplicar</button>
-      <button id="exportKmzBtn" class="blue-btn">Exportar KMZ (día)</button>
+      <button id="applyFilters">Actualizar</button>
+      <button id="exportKmzBtn" class="blue">Exportar KMZ</button>
     </div>
 
     <div id="status" class="status-badge">Desconectado</div>
   </div>
 
-  <!-- Panel inferior -->
-  <div id="bottom-panel" class="glass-card">
+  <!-- PANEL INFERIOR -->
+  <div id="bottom-panel" class="glass">
     <h3>Brigadas Conectadas</h3>
     <ul id="userList"></ul>
   </div>

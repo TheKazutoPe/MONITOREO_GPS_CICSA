@@ -2,8 +2,9 @@ body, html {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: "Segoe UI", Arial, sans-serif;
+  font-family: "Segoe UI", sans-serif;
   background: #0a0a0a;
+  overflow: hidden;
 }
 
 #map {
@@ -11,93 +12,119 @@ body, html {
   height: 100vh;
 }
 
-/* ==== Glass panels ==== */
-.glass-card {
-  background: rgba(30, 30, 30, 0.7);
+/* === Glass panels === */
+.glass {
+  background: rgba(20, 25, 35, 0.8);
   backdrop-filter: blur(10px);
-  border-radius: 14px;
+  border-radius: 12px;
   color: #fff;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.4);
-  padding: 1rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  padding: 14px;
   position: absolute;
   z-index: 1000;
-  transition: all 0.2s ease;
 }
 
+/* Panel superior */
 #top-panel {
   top: 15px;
   right: 15px;
-  width: 320px;
+  width: 330px;
 }
 
-#bottom-panel {
-  bottom: 15px;
-  right: 15px;
-  width: 320px;
-  max-height: 250px;
-  overflow-y: auto;
-}
-
-.logo-title {
+.header {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
 .logo {
-  width: 45px;
-  height: 45px;
+  width: 40px;
+  height: 40px;
 }
 
-h2 {
+.titles h2 {
+  margin: 0;
+  color: #ffb300;
   font-size: 1.2rem;
-  margin: 0;
-  color: #ffaf00;
 }
 
-p {
+.titles p {
   margin: 0;
-  font-size: 0.9rem;
   color: #ccc;
+  font-size: 0.85rem;
 }
 
-.panel-controls {
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+/* Panel inferior */
+#bottom-panel {
+  bottom: 15px;
+  right: 15px;
+  width: 330px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
-button {
-  background: #333;
-  border: none;
-  padding: 6px 10px;
-  border-radius: 6px;
-  color: #fff;
+h3 {
+  margin-top: 0;
+  color: #9cc0ff;
+  font-weight: 600;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+li {
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer;
 }
 
-button:hover {
-  background: #444;
+li:hover {
+  color: #ffb300;
 }
 
-.blue-btn {
-  background: #007bff;
-}
-
-.blue-btn:hover {
-  background: #005dc1;
+/* Controles */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 input, select {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
   color: #fff;
-  padding: 5px;
+  border-radius: 6px;
+  padding: 6px;
   flex: 1;
 }
 
+button {
+  background: #333;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #fff;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+button:hover {
+  background: #555;
+}
+
+button.blue {
+  background: #007bff;
+}
+
+button.blue:hover {
+  background: #005fc1;
+}
+
+/* Status */
 .status-badge {
   margin-top: 10px;
   font-size: 0.85rem;
@@ -105,20 +132,15 @@ input, select {
   text-align: right;
 }
 
-ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* Animación */
+.car-icon {
+  animation: pulse 1.5s infinite;
+  filter: drop-shadow(0 0 5px rgba(0, 255, 255, 0.5));
 }
 
-li {
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
-}
-
-li:hover {
-  color: #ffaf00;
+@keyframes pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 6px rgba(0,255,255,0.6)); }
+  50% { transform: scale(1.1); filter: drop-shadow(0 0 12px rgba(0,255,255,1)); }
 }
 
 /* Scrollbar */
@@ -129,6 +151,24 @@ li:hover {
   background: #888;
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #aaa;
+
+.notif {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  background: rgba(20, 25, 35, 0.95);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.5s ease;
+  font-size: 14px;
+  z-index: 99999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
+.notif.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
