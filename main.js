@@ -5,11 +5,9 @@ const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
-  fecha: document.getElementById("fechaExport"),
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
-  mapStyle: document.getElementById("mapStyleSel"),
 };
 
 // ====== Estado ======
@@ -19,7 +17,6 @@ const state = {
   cluster: null,
   users: new Map(),
   pointsByUser: new Map(),
-  brigadasDisponibles: [],
 };
 
 // ====== Config ======
@@ -31,18 +28,18 @@ const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 const ICONS = {
   green: L.icon({
     iconUrl: "assets/carro-green.png",
-    iconSize: [42, 25],
-    iconAnchor: [21, 12],
+    iconSize: [40, 24],
+    iconAnchor: [20, 12],
   }),
   yellow: L.icon({
     iconUrl: "assets/carro-orange.png",
-    iconSize: [42, 25],
-    iconAnchor: [21, 12],
+    iconSize: [40, 24],
+    iconAnchor: [20, 12],
   }),
   gray: L.icon({
     iconUrl: "assets/carro-gray.png",
-    iconSize: [42, 25],
-    iconAnchor: [21, 12],
+    iconSize: [40, 24],
+    iconAnchor: [20, 12],
   }),
 };
 
@@ -68,7 +65,7 @@ function distMeters(a, b) {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// ====== Animación del marcador ======
+// ====== Animación ======
 function animateMarker(marker, from, to) {
   if (!from || !to) { marker.setLatLng(to || from); return; }
   const d = distMeters(from, to);
@@ -84,11 +81,12 @@ function animateMarker(marker, from, to) {
   requestAnimationFrame(step);
 }
 
-// ====== Mapbox Routing ======
+// ====== Mapbox ======
 async function routeBetween(a, b) {
   try {
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
-    const r = await fetch(url);
+    const r = await fetch(url, { mode: "cors", cache: "no-cache" });
+    if (!r.ok) throw new Error(`Mapbox error: ${r.status}`);
     const j = await r.json();
     const coords = j.routes?.[0]?.geometry?.coordinates || [];
     return coords.map(([lng, lat]) => ({ lat, lng }));
@@ -103,11 +101,13 @@ async function snapSegmentToRoad(seg) {
   const coords = seg.map((p) => `${p.lng},${p.lat}`).join(";");
   const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&tidy=true&radiuses=${seg.map(() => 40).join(";")}&access_token=${MAPBOX_TOKEN}`;
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { mode: "cors", cache: "no-cache" });
+    if (!r.ok) throw new Error(`Mapbox error: ${r.status}`);
     const j = await r.json();
     const c = j.matchings?.[0]?.geometry?.coordinates || [];
     return c.map(([lng, lat]) => ({ lat, lng }));
-  } catch {
+  } catch (err) {
+    console.warn("snapSegmentToRoad error:", err);
     return seg;
   }
 }
@@ -125,22 +125,11 @@ async function mergeOrBridgeCoords(a, b) {
 
 // ====== Inicializar mapa ======
 function initMap() {
-  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
-  state.baseLayers.sat = L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-  });
-  state.baseLayers.color = L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`, { tileSize: 512, zoomOffset: -1 });
-  state.baseLayers.dark = L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`, { tileSize: 512, zoomOffset: -1 });
-
-  state.map = L.map("map", { center: [-12.0464, -77.0428], zoom: 12, layers: [state.baseLayers.color] });
-  state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 15 });
+  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20 });
+  state.baseLayers.sat = L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", { subdomains: ["mt0","mt1","mt2","mt3"] });
+  state.map = L.map("map", { center: [-12.0464, -77.0428], zoom: 12, layers: [state.baseLayers.osm] });
+  state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 16 });
   state.map.addLayer(state.cluster);
-
-  ui.mapStyle.addEventListener("change", () => {
-    const sel = ui.mapStyle.value;
-    Object.values(state.baseLayers).forEach(l => state.map.removeLayer(l));
-    state.map.addLayer(state.baseLayers[sel]);
-  });
 
   ui.apply.onclick = () => fetchInitial(true);
   ui.exportKmz.onclick = () => exportKMZFromState();
@@ -149,67 +138,43 @@ initMap();
 
 // ====== Popup ======
 function buildPopup(r) {
+  const acc = Math.round(r.acc || 0);
+  const spd = (r.spd || 0).toFixed(1);
   const ts = new Date(r.timestamp).toLocaleString();
-  return `
-    <div>
-      <b>${r.tecnico || "Sin nombre"}</b><br>
-      <b>Brigada:</b> ${r.brigada || "-"}<br>
-      <b>Contrata:</b> ${r.contrata || "-"}<br>
-      <b>Zona:</b> ${r.zona || "-"}<br>
-      <b>${ts}</b>
-    </div>`;
+  return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${r.brigada || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
 }
 
-// ====== Cargar brigadas disponibles ======
-async function cargarBrigadasDisponibles() {
-  const { data, error } = await supa.from("usuarios_brigadas").select("brigada");
-  if (error) return console.warn("Error brigadas:", error);
-  state.brigadasDisponibles = [...new Set(data.map(r => r.brigada))];
-  ui.brigada.addEventListener("input", () => {
-    const val = ui.brigada.value.toLowerCase();
-    const sugerencias = state.brigadasDisponibles.filter(b => b.toLowerCase().includes(val)).slice(0, 5);
-    const list = document.getElementById("brigada-suggest") || document.createElement("ul");
-    list.id = "brigada-suggest";
-    list.className = "suggest-box";
-    list.innerHTML = sugerencias.map(s => `<li>${s}</li>`).join("");
-    ui.brigada.parentNode.appendChild(list);
-    list.querySelectorAll("li").forEach(li => {
-      li.onclick = () => { ui.brigada.value = li.textContent; list.remove(); };
-    });
-  });
-}
-cargarBrigadasDisponibles();
-
-// ====== Fetch inicial ======
+// ====== Cargar datos iniciales ======
 async function fetchInitial(clear) {
   setStatus("Cargando…", "gray");
   if (clear) ui.userList.innerHTML = "";
-
   const { data, error } = await supa
     .from("ubicaciones_brigadas")
     .select("*")
     .gte("timestamp", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
     .order("timestamp", { ascending: false });
 
-  if (error) return setStatus("Error", "gray");
+  if (error) { setStatus("Error", "gray"); return; }
 
   const brig = (ui.brigada.value || "").trim();
+  const perUser = 100;
   const grouped = new Map();
 
   for (const r of data) {
     if (brig && (r.brigada || "").toLowerCase().indexOf(brig.toLowerCase()) === -1) continue;
     const uid = String(r.usuario_id || "0");
     if (!grouped.has(uid)) grouped.set(uid, []);
+    if (grouped.get(uid).length >= perUser) continue;
     grouped.get(uid).push(r);
   }
 
+  state.pointsByUser.clear();
   state.cluster.clearLayers();
   state.users.clear();
-  state.pointsByUser.clear();
 
   grouped.forEach((rows, uid) => {
     const last = rows[0];
@@ -219,32 +184,40 @@ async function fetchInitial(clear) {
     state.pointsByUser.set(uid, rows);
     addOrUpdateUserInList(last);
   });
-
   setStatus("Conectado", "green");
 }
 
 // ====== Realtime ======
 function subscribeRealtime() {
-  supa.channel("ubicaciones_brigadas-changes")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "ubicaciones_brigadas" }, (payload) => {
-      const row = payload.new;
-      const uid = String(row.usuario_id || "0");
-      let u = state.users.get(uid);
-      if (!u) {
-        const m = L.marker([row.latitud, row.longitud], { icon: getIconFor(row) }).bindPopup(buildPopup(row));
-        state.cluster.addLayer(m);
-        state.users.set(uid, { marker: m, lastRow: row });
+  supa
+    .channel("ubicaciones_brigadas-changes")
+    .on("postgres_changes",
+      { event: "INSERT", schema: "public", table: "ubicaciones_brigadas" },
+      (payload) => {
+        const row = payload.new;
+        const uid = String(row.usuario_id || "0");
+        let u = state.users.get(uid);
+        if (!u) {
+          const m = L.marker([row.latitud, row.longitud], { icon: getIconFor(row) }).bindPopup(buildPopup(row));
+          state.cluster.addLayer(m);
+          state.users.set(uid, { marker: m, lastRow: row });
+          state.pointsByUser.set(uid, [row]);
+          addOrUpdateUserInList(row);
+          return;
+        }
+        const from = { lat: u.lastRow.latitud, lng: u.lastRow.longitud };
+        const to = { lat: row.latitud, lng: row.longitud };
+        animateMarker(u.marker, from, to);
+        u.marker.setIcon(getIconFor(row));
+        u.marker.setPopupContent(buildPopup(row));
+        u.lastRow = row;
+        const list = state.pointsByUser.get(uid) || [];
+        list.unshift(row);
+        state.pointsByUser.set(uid, list.slice(0, 100));
         addOrUpdateUserInList(row);
-        return;
       }
-      const from = { lat: u.lastRow.latitud, lng: u.lastRow.longitud };
-      const to = { lat: row.latitud, lng: row.longitud };
-      animateMarker(u.marker, from, to);
-      u.marker.setIcon(getIconFor(row));
-      u.marker.setPopupContent(buildPopup(row));
-      u.lastRow = row;
-      addOrUpdateUserInList(row);
-    }).subscribe(() => setStatus("Conectado", "green"));
+    )
+    .subscribe(() => setStatus("Conectado", "green"));
 }
 subscribeRealtime();
 
@@ -268,35 +241,35 @@ function addOrUpdateUserInList(row) {
       </div>
       <div class="brigada-hora">${hora}</div>
     </div>
-    <div class="brigada-footer ${color}">${estado}</div>`;
-
-  if (existing) existing.innerHTML = html;
+    <div class="brigada-footer ${color}">${estado}</div>
+  `;
+  if (existing) { existing.className = `brigada-item ${color}`; existing.innerHTML = html; }
   else {
     const div = document.createElement("div");
     div.className = `brigada-item ${color}`;
-    div.dataset.uid = uid;
+    div.setAttribute("data-uid", uid);
     div.innerHTML = html;
-    div.onclick = () => {
+    div.addEventListener("click", () => {
       const u = state.users.get(uid);
-      if (u?.marker) {
+      if (u && u.marker) {
         state.map.setView(u.marker.getLatLng(), 16, { animate: true });
         u.marker.openPopup();
       }
-    };
+    });
     ui.userList.appendChild(div);
   }
 }
 
-// ====== Exportar KMZ filtrado ======
+// ====== Exportar KMZ (corregido y optimizado) ======
 async function exportKMZFromState() {
   try {
-    const brig = (ui.brigada.value || "").trim();
-    const fechaSel = ui.fecha.value ? new Date(ui.fecha.value) : new Date();
-    const start = new Date(fechaSel.getFullYear(), fechaSel.getMonth(), fechaSel.getDate());
-    const end = new Date(fechaSel.getFullYear(), fechaSel.getMonth(), fechaSel.getDate() + 1);
-
     setStatus("Generando KMZ...", "gray");
     ui.exportKmz.disabled = true;
+
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const brig = (ui.brigada.value || "").trim();
 
     const { data, error } = await supa
       .from("ubicaciones_brigadas")
@@ -305,58 +278,61 @@ async function exportKMZFromState() {
       .lt("timestamp", end.toISOString())
       .order("timestamp", { ascending: true });
 
-    if (error) throw new Error("Error Supabase");
-    if (!data.length) return alert("⚠️ No hay datos para la fecha seleccionada.");
+    if (error) throw new Error("Error en consulta Supabase");
+    if (!data || data.length === 0) { alert("⚠️ No hay datos disponibles para exportar."); return; }
 
-    const filtered = data.filter(r => !brig || (r.brigada || "").toLowerCase().includes(brig.toLowerCase()));
-    if (!filtered.length) return alert("⚠️ No hay datos para esa brigada.");
-
-    let kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Rutas ${brig} ${start.toISOString().slice(0,10)}</name>`;
-    let count = 0;
-
-    const grouped = filtered.reduce((m, r) => {
+    const byUser = new Map();
+    for (const r of data) {
+      if (brig && (r.brigada || "").toLowerCase().indexOf(brig.toLowerCase()) === -1) continue;
       const uid = String(r.usuario_id || "0");
-      if (!m.has(uid)) m.set(uid, []);
-      m.get(uid).push(r);
-      return m;
-    }, new Map());
+      if (!byUser.has(uid)) byUser.set(uid, []);
+      byUser.get(uid).push(r);
+    }
 
-    for (const [uid, rows] of grouped) {
+    let kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Rutas ${start.toISOString().slice(0,10)}</name>`;
+    let totalProcessed = 0;
+
+    for (const [uid, rows] of byUser.entries()) {
       if (rows.length < 2) continue;
       const name = (rows[0].tecnico || `Brigada ${uid}`).replace(/&/g, "&amp;");
       let full = [];
+
       for (let i = 0; i < rows.length - 1; i++) {
         const a = { lat: rows[i].latitud, lng: rows[i].longitud, timestamp: rows[i].timestamp };
         const b = { lat: rows[i + 1].latitud, lng: rows[i + 1].longitud, timestamp: rows[i + 1].timestamp };
         const dt = (new Date(b.timestamp) - new Date(a.timestamp)) / 60000;
         const gap = distMeters(a, b);
         let seg = [a, b];
+
         if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M) seg = await routeBetween(a, b);
         const snap = await snapSegmentToRoad(seg);
         full = await mergeOrBridgeCoords(full, snap);
-        await sleep(120);
+        await sleep(150); // evitar bloqueo Mapbox
       }
+
       if (full.length < 2) continue;
       const coords = full.map(s => `${s.lng},${s.lat},0`).join(" ");
       kml += `<Placemark><name>${name}</name><Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`;
-      count++;
+      totalProcessed++;
     }
 
     kml += `</Document></kml>`;
-    if (!count) throw new Error("No se generó ninguna ruta.");
+
+    if (totalProcessed === 0) throw new Error("No se generó ninguna ruta válida.");
 
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `RUTA_${brig || "GENERAL"}_${start.toISOString().slice(0,10)}.kmz`;
+    a.download = `monitoreo_${start.toISOString().slice(0,10)}.kmz`;
     a.click();
     URL.revokeObjectURL(a.href);
 
-    alert(`✅ KMZ generado (${count} rutas).`);
+    alert(`✅ Archivo KMZ generado correctamente (${totalProcessed} brigadas).`);
   } catch (err) {
-    alert("❌ Error al generar KMZ: " + err.message);
+    console.error("Error al exportar KMZ:", err);
+    alert("❌ No se pudo generar el KMZ:\n" + err.message);
   } finally {
     setStatus("Conectado", "green");
     ui.exportKmz.disabled = false;
