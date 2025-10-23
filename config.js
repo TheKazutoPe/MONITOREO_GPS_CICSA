@@ -11,8 +11,8 @@ window.CONFIG = {
 
   // 🔹 Mapbox / Map Matching
   ROUTE_PROVIDER: "mapbox", // mapbox | ors | valhalla
-  MAPBOX_TOKEN:
-    "sk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZqaHo2MnAzNDJrcTJsdGh4ZTJrdSJ9.V58FW_wpDpQ1tguxoO0IqQ",
+  MAPBOX_TOKEN: "pk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZrNnVvMnZvNzJscTRhdG82OGxodyJ9.RahZf0ZGEcT3y_MIIQV8mg",
+
 
   // 🔹 Opciones generales
   DEFAULT_CENTER: [-77.03, -12.05], // Lima
