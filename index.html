@@ -6,7 +6,7 @@
   <title>Monitoreo GPS - Brigadas</title>
   <link rel="icon" href="assets/favicon.ico" />
 
-  <!-- Mapbox GL -->
+  <!-- Mapbox -->
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet" />
 
@@ -32,31 +32,32 @@
         <h2>Brigadas conectadas</h2>
         <div class="filter-box">
           <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
-          <button id="applyFilters">Aplicar</button>
+          <button id="applyFilters">Buscar</button>
         </div>
       </div>
-
       <div id="userList" class="brigada-list"></div>
-      <button id="openKmzModal" class="export-btn">📍 Exportar KMZ</button>
+      <button id="openKmzModal" class="export-btn">📍 Generar KMZ</button>
     </aside>
 
-    <main id="map" class="map-container"></main>
+    <main id="map" class="map-container">
+      <img src="assets/logo_carso.png" class="logo-overlay" alt="Logo" />
+    </main>
   </div>
 
   <footer class="footer">
     <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
   </footer>
 
-  <!-- Modal para elegir brigada y fecha -->
+  <!-- Modal KMZ -->
   <div id="kmzModal" class="modal hidden">
     <div class="modal-content">
-      <h3>Generar recorrido KMZ</h3>
-      <label>Selecciona Brigada:</label>
+      <h3>Exportar recorrido KMZ</h3>
+      <label>Brigada:</label>
       <select id="brigadaSelect"></select>
-      <label>Selecciona Fecha:</label>
+      <label>Fecha:</label>
       <input type="date" id="fechaSelect" />
       <div class="modal-actions">
-        <button id="cancelKmz">Cancelar</button>
+        <button id="cancelKmz" class="cancel">Cancelar</button>
         <button id="generateKmz" class="blue">Generar</button>
       </div>
     </div>
