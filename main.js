@@ -1,6 +1,6 @@
 // =======================================================
 //  MONITOREO GPS - CICSA 2025
-//  Versión: Animación vehículo + KMZ con rutas pulidas (Mapbox Matching API)
+//  Versión FINAL: Animación + KMZ con rutas pulidas (Mapbox Matching API)
 // =======================================================
 
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
@@ -22,7 +22,7 @@ const state = {
   lastPositions: {}
 };
 
-// ==== Mapa base ====
+// ==== Inicializar mapa ====
 function initMap() {
   state.map = new mapboxgl.Map({
     container: "map",
@@ -41,7 +41,7 @@ function setStatus(text, color) {
   ui.status.className = `status-badge ${color}`;
 }
 
-// ==== Funciones útiles ====
+// ==== Funciones auxiliares ====
 function distance(a, b) {
   const R = 6371e3;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
@@ -212,6 +212,7 @@ async function getSnappedCoords(coords) {
   }
 
   const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords.join(";")}?geometries=geojson&access_token=${CONFIG.MAPBOX_TOKEN}`;
+  console.log("Solicitando ruta pulida a Mapbox:", coords.length, "puntos");
   const res = await fetch(url);
   const json = await res.json();
 
@@ -280,14 +281,37 @@ async function exportKMZ(brigada, fecha) {
 }
 
 // ==== Eventos ====
+const openBtn = document.getElementById("openKmzModal");
+const modal = document.getElementById("kmzModal");
+const cancelBtn = document.getElementById("cancelKmz");
+const brigadaSelect = document.getElementById("brigadaSelect");
+const fechaSelect = document.getElementById("fechaSelect");
+
+openBtn.addEventListener("click", () => {
+  modal.classList.remove("hidden");
+  brigadaSelect.innerHTML = "";
+  state.brigadas.forEach((r) => {
+    const opt = document.createElement("option");
+    opt.value = r.brigada;
+    opt.textContent = r.brigada;
+    brigadaSelect.appendChild(opt);
+  });
+  fechaSelect.valueAsDate = new Date();
+});
+
+cancelBtn.addEventListener("click", () => {
+  modal.classList.add("hidden");
+});
+
 ui.generateKmz.addEventListener("click", async () => {
-  const brigada = ui.brigadaSelect.value;
-  const fecha = ui.fechaSelect.value;
+  const brigada = brigadaSelect.value;
+  const fecha = fechaSelect.value;
   if (!brigada || !fecha) return alert("Selecciona brigada y fecha.");
+  modal.classList.add("hidden");
   await exportKMZ(brigada, fecha);
 });
 
-// ==== Start ====
+// ==== Inicio ====
 fetchBrigadas();
 subscribeRealtime();
 setStatus("Cargando...", "gray");
