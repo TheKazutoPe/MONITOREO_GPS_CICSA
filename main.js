@@ -1,21 +1,29 @@
 // ===============================
 //  CICSA Monitoreo GPS PRO
-//  Lógica principal
+//  Lógica principal (versión corregida)
 // ===============================
 
+// Extrae configuración global
 const { SUPABASE_URL, SUPABASE_ANON_KEY, MAPBOX_TOKEN, DEFAULT_CENTER, DEFAULT_ZOOM } = CONFIG;
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Inicializa Supabase correctamente
+const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let map, markers = {}, mapMode = "mapbox";
 let lastUpdateTime = null;
 
-// Inicialización del mapa
+// ===============================
+//  Inicialización del mapa
+// ===============================
 function initMap() {
+  const container = document.getElementById("map");
+  container.innerHTML = ""; // limpia si cambia de modo
+
   if (mapMode === "mapbox") {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     map = new mapboxgl.Map({
       container: "map",
-      style: "mapbox://styles/mapbox/streets-v12",
+      style: "mapbox://styles/mapbox/dark-v11",
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     });
@@ -26,29 +34,44 @@ function initMap() {
     }).addTo(map);
   }
 }
+
 initMap();
 
-// Escucha de cambio de modo de mapa
+// Cambiar modo de mapa dinámicamente
 document.getElementById("mapMode").addEventListener("change", (e) => {
   mapMode = e.target.value;
-  document.getElementById("map").innerHTML = "";
   initMap();
   loadRealtimeData();
 });
 
 // ===============================
-//  Actualización en tiempo real
+//  Actualización de datos en tiempo real
 // ===============================
 async function loadRealtimeData() {
-  const { data } = await supabase
-    .from("ubicaciones_brigadas")
-    .select("*")
-    .order("timestamp_pe", { ascending: false })
-    .limit(200);
+  try {
+    document.getElementById("status").innerText = "Conectando...";
+    const { data, error } = await supa
+      .from("ubicaciones_brigadas")
+      .select("*")
+      .order("timestamp_pe", { ascending: false })
+      .limit(200);
 
-  if (data) renderBrigadas(data);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      renderBrigadas(data);
+      document.getElementById("status").innerText = "Conectado ✅";
+    } else {
+      document.getElementById("status").innerText = "Sin datos ⚠️";
+    }
+  } catch (err) {
+    console.error("Error al cargar datos:", err);
+    document.getElementById("status").innerText = "Desconectado ⚠️";
+  }
 }
 
+// ===============================
+//  Renderizado de brigadas
+// ===============================
 function renderBrigadas(data) {
   const userList = document.getElementById("userList");
   userList.innerHTML = "";
@@ -111,35 +134,69 @@ function renderBrigadas(data) {
     `Última actualización: ${lastUpdateTime.toLocaleTimeString("es-PE", { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+// ===============================
+//  Dibujar y animar marcadores
+// ===============================
 function drawMarker(p, color) {
   if (!p.latitud || !p.longitud) return;
   const key = p.brigada;
 
+  // Animación de movimiento
+  const animate = (marker, newLat, newLng) => {
+    const start = marker.getLatLng();
+    const latDiff = newLat - start.lat;
+    const lngDiff = newLng - start.lng;
+    let step = 0;
+    const interval = setInterval(() => {
+      step += 0.05;
+      if (step >= 1) {
+        clearInterval(interval);
+        marker.setLatLng([newLat, newLng]);
+      } else {
+        marker.setLatLng([
+          start.lat + latDiff * step,
+          start.lng + lngDiff * step
+        ]);
+      }
+    }, 25);
+  };
+
   if (mapMode === "mapbox") {
-    if (markers[key]) markers[key].remove();
-    const el = document.createElement("div");
-    el.className = "marker";
-    el.style.background = color;
-    el.style.width = "14px";
-    el.style.height = "14px";
-    el.style.borderRadius = "50%";
-    markers[key] = new mapboxgl.Marker(el)
-      .setLngLat([p.longitud, p.latitud])
-      .addTo(map);
+    if (markers[key]) {
+      markers[key].setLngLat([p.longitud, p.latitud]);
+    } else {
+      const el = document.createElement("div");
+      el.className = "marker";
+      el.style.backgroundImage = "url('assets/carro-green.png')";
+      el.style.backgroundSize = "cover";
+      el.style.width = "24px";
+      el.style.height = "24px";
+      el.style.borderRadius = "50%";
+      markers[key] = new mapboxgl.Marker(el)
+        .setLngLat([p.longitud, p.latitud])
+        .addTo(map);
+    }
   } else {
-    if (markers[key]) map.removeLayer(markers[key]);
-    markers[key] = L.circleMarker([p.latitud, p.longitud], {
-      color, radius: 6, fillOpacity: 0.8
-    }).addTo(map);
+    if (markers[key]) {
+      animate(markers[key], p.latitud, p.longitud);
+    } else {
+      markers[key] = L.marker([p.latitud, p.longitud], {
+        icon: L.icon({
+          iconUrl: "assets/carro-green.png",
+          iconSize: [26, 26],
+        })
+      }).addTo(map);
+    }
   }
 }
 
 // ===============================
-//  Exportación KMZ / CSV
+//  Exportaciones (KMZ y CSV)
 // ===============================
 document.getElementById("exportBtn").addEventListener("click", () => {
   document.getElementById("modalExport").style.display = "flex";
 });
+
 document.getElementById("closeModal").addEventListener("click", () => {
   document.getElementById("modalExport").style.display = "none";
 });
@@ -149,7 +206,7 @@ async function getDataByBrigadaAndDate(brigada, fecha) {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
 
-  const { data } = await supabase
+  const { data } = await supa
     .from("ubicaciones_brigadas")
     .select("*")
     .eq("brigada", brigada)
@@ -160,7 +217,7 @@ async function getDataByBrigadaAndDate(brigada, fecha) {
   return data || [];
 }
 
-// --- MAP MATCHING con Mapbox API ---
+// --- MAP MATCHING ---
 async function mapMatchRoute(points) {
   if (!points.length) return [];
   const coords = points.map(p => `${p.longitud},${p.latitud}`).join(";");
@@ -190,7 +247,7 @@ document.getElementById("exportKmzBtn").addEventListener("click", async () => {
   let kml = `<?xml version="1.0" encoding="UTF-8"?>
   <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document><name>${brigada}_${fecha}</name>
-  <Style id="line"><LineStyle><color>ff0000ff</color><width>3</width></LineStyle></Style>
+  <Style id="line"><LineStyle><color>ff00ff00</color><width>3</width></LineStyle></Style>
   <Placemark><styleUrl>#line</styleUrl><LineString><coordinates>`;
 
   matched.forEach(c => kml += `${c[0]},${c[1]},0 `);
@@ -226,7 +283,7 @@ document.getElementById("exportCsvBtn").addEventListener("click", async () => {
 });
 
 // ===============================
-//  Auto Refresh y Actualización
+//  Auto Refresh
 // ===============================
-setInterval(loadRealtimeData, 30000); // cada 30 segundos
+setInterval(loadRealtimeData, 30000);
 loadRealtimeData();

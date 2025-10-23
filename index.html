@@ -3,85 +3,86 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CICSA Monitoreo GPS PRO</title>
-
-  <!-- Estilos -->
+  <title>CICSA Monitoreo GPS</title>
+  <link rel="icon" href="assets/favicon.ico" />
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Librerías -->
+  <!-- Mapbox -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
 
-  <!-- Leaflet alternativo -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
+  <!-- Configuración -->
+  <script src="config.js"></script>
 </head>
+
 <body>
+  <div id="app">
+    <!-- ========== HEADER / NAVBAR SUPERIOR ========== -->
+    <header>
+      <h1>
+        <img src="assets/logo_carso.png" class="logo" alt="Logo" />
+        CICSA Monitoreo GPS
+      </h1>
 
-  <!-- Header flotante -->
-  <header class="app-header glass">
-    <div class="header-left">
-      <img src="assets/logo_carso.png" alt="CICSA Logo" class="logo" />
-      <h1>CICSA Monitoreo GPS</h1>
-    </div>
+      <div class="controls">
+        <select id="mapMode">
+          <option value="mapbox" selected>Mapbox</option>
+          <option value="leaflet">Leaflet</option>
+        </select>
 
-    <div class="header-right">
-      <select id="mapMode">
-        <option value="mapbox">🗺️ Mapbox</option>
-        <option value="leaflet">🌍 Leaflet</option>
-      </select>
-      <button id="exportBtn" class="btn-primary">📦 Exportar</button>
-      <div id="status" class="status-indicator gray">Conectando...</div>
-    </div>
-  </header>
+        <button id="exportBtn">📤 Exportar</button>
+        <span id="status">Conectando...</span>
+      </div>
+    </header>
 
-  <!-- Panel lateral -->
-  <aside id="sidebar" class="glass">
-    <div class="search-box">
-      <input type="text" id="searchBrigada" placeholder="Buscar brigada..." />
-    </div>
-    <div id="userList" class="brigada-list"></div>
-  </aside>
+    <!-- ========== CUERPO PRINCIPAL ========== -->
+    <main>
+      <!-- PANEL IZQUIERDO -->
+      <div class="sidebar">
+        <input type="text" id="searchInput" placeholder="Buscar brigada..." />
+        <div id="userList"></div>
+      </div>
 
-  <!-- Mapa principal -->
-  <main>
-    <div id="map"></div>
-  </main>
+      <!-- MAPA -->
+      <div id="map"></div>
+    </main>
 
-  <!-- Panel inferior -->
-  <footer class="footer-bar glass">
-    <div class="status-summary">
-      <span class="active-dot"></span> <b id="countActive">0</b> Activas
-      <span class="inactive-dot"></span> <b id="countInactive">0</b> Inactivas
-      <span class="off-dot"></span> <b id="countOff">0</b> Desconectadas
-      <span class="time-update" id="lastUpdate">Actualizando...</span>
-    </div>
-  </footer>
+    <!-- ========== FOOTER / STATUS ========== -->
+    <footer>
+      <span><div class="dot green"></div> <span id="countActive">0</span> Activas</span>
+      <span><div class="dot yellow"></div> <span id="countInactive">0</span> Inactivas</span>
+      <span><div class="dot red"></div> <span id="countOff">0</span> Desconectadas</span>
+      <span id="lastUpdate">Actualizando...</span>
+    </footer>
+  </div>
 
-  <!-- Modal flotante -->
-  <div id="modalExport" class="modal">
-    <div class="modal-content glass">
-      <h2>📦 Exportar Recorrido</h2>
-      <label>Brigada:</label>
-      <input type="text" id="brigadaSelect" placeholder="Ej: LIMA 03" />
+  <!-- ========== MODAL DE EXPORTACIÓN ========== -->
+  <div class="modal" id="modalExport">
+    <div class="modal-content">
+      <h3>📦 Exportar Recorrido</h3>
 
-      <label>Fecha:</label>
+      <label for="brigadaSelect">Brigada:</label>
+      <input type="text" id="brigadaSelect" placeholder="Ej: LIMA 05" />
+
+      <label for="fechaSelect">Fecha:</label>
       <input type="date" id="fechaSelect" />
 
-      <div class="export-buttons">
-        <button id="exportKmzBtn" class="btn-primary">📍 KMZ (Optimizado)</button>
-        <button id="exportCsvBtn" class="btn-secondary">📑 CSV</button>
+      <div class="modal-buttons">
+        <button id="exportKmzBtn">📍 Descargar KMZ</button>
+        <button id="exportCsvBtn">📊 Descargar CSV</button>
+        <button id="closeModal">✖ Cerrar</button>
       </div>
-      <button id="closeModal" class="btn-cancel">Cancelar</button>
     </div>
   </div>
 
-  <!-- Scripts -->
-  <script src="config.js"></script>
+  <!-- ========== SCRIPT PRINCIPAL ========== -->
   <script src="main.js"></script>
-
 </body>
 </html>
