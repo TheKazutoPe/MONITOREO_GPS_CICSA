@@ -1,7 +1,9 @@
-// ==========================
-//  MONITOREO GPS - MAPBOX GL
-//  Kevin (CICSA 2025) - Versión PRO Azul Oscuro
-// ==========================
+// =======================================================
+//  MONITOREO GPS - CICSA 2025 (Versión profesional animada)
+//  - Mapa colorido (Mapbox Streets)
+//  - Vehículos rotan según dirección de movimiento
+//  - KMZ informativo
+// =======================================================
 
 // ===== Configuración principal =====
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
@@ -22,19 +24,20 @@ const ui = {
   generateKmz: document.getElementById("generateKmz")
 };
 
-// ===== Estado =====
+// ===== Estado global =====
 const state = {
   map: null,
   markers: {},
-  brigadas: new Map()
+  brigadas: new Map(),
+  lastPositions: {}
 };
 
 // ===== Inicializar mapa =====
 function initMap() {
   state.map = new mapboxgl.Map({
     container: "map",
-    style: "mapbox://styles/mapbox/streets-v12", // mapa colorido pro
-    center: [-77.0428, -12.0464], // Lima
+    style: "mapbox://styles/mapbox/streets-v12", // colorido profesional
+    center: [-77.0428, -12.0464],
     zoom: 12
   });
 
@@ -49,8 +52,16 @@ function setStatus(text, color) {
   ui.status.className = `status-badge ${color}`;
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
+function bearingBetweenPoints(a, b) {
+  const rad = Math.PI / 180;
+  const lat1 = a.lat * rad;
+  const lat2 = b.lat * rad;
+  const dLon = (b.lng - a.lng) * rad;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) -
+            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const brng = Math.atan2(y, x);
+  return (brng * 180 / Math.PI + 360) % 360;
 }
 
 // ===== Cargar brigadas =====
@@ -116,10 +127,11 @@ function addBrigadaToList(r, id, color) {
   ui.userList.appendChild(div);
 }
 
+// ===== Marcadores con rotación animada =====
 function placeMarker(r, id, color) {
   const iconUrl =
     color === "text-green"
-      ? "assets/carro-green.png"
+      ? "assets/carro-animado.png"
       : color === "text-yellow"
       ? "assets/carro-orange.png"
       : "assets/carro-gray.png";
@@ -127,23 +139,47 @@ function placeMarker(r, id, color) {
   const el = document.createElement("div");
   el.className = "marker";
   el.style.backgroundImage = `url(${iconUrl})`;
-  el.style.width = "40px";
-  el.style.height = "24px";
-  el.style.backgroundSize = "contain";
+  el.style.width = "36px";
+  el.style.height = "36px";
+  el.style.backgroundSize = "cover";
+  el.style.backgroundRepeat = "no-repeat";
+  el.style.filter = "drop-shadow(0 0 3px rgba(0,0,0,0.6))";
+  el.style.transition = "transform 0.4s linear";
 
-  const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-  <div style="font-family: 'Inter', sans-serif; background: rgba(0, 51, 102, 0.9);
-              color: white; padding: 8px 10px; border-radius: 8px; min-width: 150px;">
-    <b style="font-size:14px; color:#00bfff;">${r.tecnico || "Sin nombre"}</b><br>
-    <span style="font-size:13px;">🚧 Brigada: <b>${r.brigada || "-"}</b></span><br>
-    <span style="font-size:13px;">📍 Zona: <b>${r.zona || "-"}</b></span><br>
-    <span style="font-size:12px; opacity:0.8;">🕒 ${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-  </div>
-`);
-
+  const popup = new mapboxgl.Popup({ offset: 30 }).setHTML(`
+    <div style="font-family:'Inter',sans-serif;background:rgba(0,51,102,0.9);
+                color:white;padding:8px 10px;border-radius:8px;min-width:160px;">
+      <b style="font-size:14px;color:#00bfff;">${r.tecnico || "Sin nombre"}</b><br>
+      <span style="font-size:13px;">🚧 Brigada: <b>${r.brigada || "-"}</b></span><br>
+      <span style="font-size:13px;">📍 Zona: <b>${r.zona || "-"}</b></span><br>
+      <span style="font-size:12px;opacity:0.8;">🕒 ${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span>
+    </div>
+  `);
 
   const marker = new mapboxgl.Marker(el).setLngLat([r.longitud, r.latitud]).setPopup(popup).addTo(state.map);
   state.markers[id] = marker;
+  state.lastPositions[id] = { lat: r.latitud, lng: r.longitud };
+}
+
+function updateMarkerDirection(id, newData) {
+  const marker = state.markers[id];
+  if (!marker) return;
+
+  const prev = state.lastPositions[id];
+  if (!prev) {
+    state.lastPositions[id] = { lat: newData.latitud, lng: newData.longitud };
+    return;
+  }
+
+  const newPos = { lat: newData.latitud, lng: newData.longitud };
+  const bearing = bearingBetweenPoints(prev, newPos);
+
+  // Actualizar posición y rotación del ícono
+  const el = marker.getElement();
+  el.style.transform = `rotate(${bearing}deg)`;
+
+  marker.setLngLat([newData.longitud, newData.latitud]);
+  state.lastPositions[id] = newPos;
 }
 
 function focusBrigada(id) {
@@ -166,11 +202,8 @@ function subscribeRealtime() {
         fetchBrigadas();
         return;
       }
-      const marker = state.markers[id];
-      if (marker) {
-        marker.setLngLat([row.longitud, row.latitud]);
-        state.brigadas.set(id, row);
-      }
+      updateMarkerDirection(id, row);
+      state.brigadas.set(id, row);
     })
     .subscribe();
 }
@@ -227,7 +260,6 @@ async function exportKMZ(brigada, fecha) {
       return;
     }
 
-    // === Construcción de KML ===
     const inicio = data[0];
     const fin = data[data.length - 1];
     const coords = data.map(r => `${r.longitud},${r.latitud},0`).join(" ");
@@ -258,11 +290,13 @@ async function exportKMZ(brigada, fecha) {
 
         <Placemark>
           <name>Inicio</name>
+          <Style><IconStyle><Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon></IconStyle></Style>
           <Point><coordinates>${inicio.longitud},${inicio.latitud},0</coordinates></Point>
         </Placemark>
 
         <Placemark>
           <name>Fin</name>
+          <Style><IconStyle><Icon><href>http://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon></IconStyle></Style>
           <Point><coordinates>${fin.longitud},${fin.latitud},0</coordinates></Point>
         </Placemark>
       </Document></kml>`;
