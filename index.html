@@ -3,60 +3,85 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS - Brigadas</title>
+  <title>CICSA Monitoreo GPS PRO</title>
 
-  <!-- CSS principal -->
+  <!-- Estilos -->
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Leaflet Core -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Librerías -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet" />
 
-  <!-- Leaflet MarkerCluster (para agrupar brigadas, requerido por main.js) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <!-- Leaflet alternativo -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Librerías externas -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
 </head>
-
 <body>
-  <header class="header">
+
+  <!-- Header flotante -->
+  <header class="app-header glass">
     <div class="header-left">
-      <!-- Asegúrate de que este archivo exista en /assets/logo_carso.png -->
-      <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
-      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
+      <img src="assets/logo_carso.png" alt="CICSA Logo" class="logo" />
+      <h1>CICSA Monitoreo GPS</h1>
     </div>
-    <div id="status" class="status-badge gray">CARGANDO...</div>
+
+    <div class="header-right">
+      <select id="mapMode">
+        <option value="mapbox">🗺️ Mapbox</option>
+        <option value="leaflet">🌍 Leaflet</option>
+      </select>
+      <button id="exportBtn" class="btn-primary">📦 Exportar</button>
+      <div id="status" class="status-indicator gray">Conectando...</div>
+    </div>
   </header>
 
-  <div class="main-container">
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h2>Brigadas conectadas</h2>
-        <div class="filter-box">
-          <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
-          <button id="applyFilters">Aplicar</button>
-        </div>
-      </div>
+  <!-- Panel lateral -->
+  <aside id="sidebar" class="glass">
+    <div class="search-box">
+      <input type="text" id="searchBrigada" placeholder="Buscar brigada..." />
+    </div>
+    <div id="userList" class="brigada-list"></div>
+  </aside>
 
-      <div id="userList" class="brigada-list">
-        <!-- Brigadas cargadas dinámicamente -->
-      </div>
+  <!-- Mapa principal -->
+  <main>
+    <div id="map"></div>
+  </main>
 
-      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
-    </aside>
-
-    <main id="map" class="map-container"></main>
-  </div>
-
-  <footer class="footer">
-    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
+  <!-- Panel inferior -->
+  <footer class="footer-bar glass">
+    <div class="status-summary">
+      <span class="active-dot"></span> <b id="countActive">0</b> Activas
+      <span class="inactive-dot"></span> <b id="countInactive">0</b> Inactivas
+      <span class="off-dot"></span> <b id="countOff">0</b> Desconectadas
+      <span class="time-update" id="lastUpdate">Actualizando...</span>
+    </div>
   </footer>
 
+  <!-- Modal flotante -->
+  <div id="modalExport" class="modal">
+    <div class="modal-content glass">
+      <h2>📦 Exportar Recorrido</h2>
+      <label>Brigada:</label>
+      <input type="text" id="brigadaSelect" placeholder="Ej: LIMA 03" />
+
+      <label>Fecha:</label>
+      <input type="date" id="fechaSelect" />
+
+      <div class="export-buttons">
+        <button id="exportKmzBtn" class="btn-primary">📍 KMZ (Optimizado)</button>
+        <button id="exportCsvBtn" class="btn-secondary">📑 CSV</button>
+      </div>
+      <button id="closeModal" class="btn-cancel">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
   <script src="config.js"></script>
   <script src="main.js"></script>
+
 </body>
 </html>
