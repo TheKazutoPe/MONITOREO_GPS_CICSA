@@ -1,88 +1,49 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CICSA Monitoreo GPS</title>
-  <link rel="icon" href="assets/favicon.ico" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="assets/favicon.ico">
+  <link rel="stylesheet" href="styles.css">
 
-  <!-- Mapbox -->
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
-  <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet" />
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Supabase -->
+  <!-- Librerías -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-  <!-- Configuración -->
-  <script src="config.js"></script>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.16.1/mapbox-gl.css" rel="stylesheet">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 
 <body>
-  <div id="app">
-    <!-- ========== HEADER / NAVBAR SUPERIOR ========== -->
-    <header>
-      <h1>
-        <img src="assets/logo_carso.png" class="logo" alt="Logo" />
-        CICSA Monitoreo GPS
-      </h1>
-
-      <div class="controls">
-        <select id="mapMode">
-          <option value="mapbox" selected>Mapbox</option>
-          <option value="leaflet">Leaflet</option>
-        </select>
-
-        <button id="exportBtn">📤 Exportar</button>
-        <span id="status">Conectando...</span>
-      </div>
-    </header>
-
-    <!-- ========== CUERPO PRINCIPAL ========== -->
-    <main>
-      <!-- PANEL IZQUIERDO -->
-      <div class="sidebar">
-        <input type="text" id="searchInput" placeholder="Buscar brigada..." />
-        <div id="userList"></div>
-      </div>
-
-      <!-- MAPA -->
-      <div id="map"></div>
-    </main>
-
-    <!-- ========== FOOTER / STATUS ========== -->
-    <footer>
-      <span><div class="dot green"></div> <span id="countActive">0</span> Activas</span>
-      <span><div class="dot yellow"></div> <span id="countInactive">0</span> Inactivas</span>
-      <span><div class="dot red"></div> <span id="countOff">0</span> Desconectadas</span>
-      <span id="lastUpdate">Actualizando...</span>
-    </footer>
-  </div>
-
-  <!-- ========== MODAL DE EXPORTACIÓN ========== -->
-  <div class="modal" id="modalExport">
-    <div class="modal-content">
-      <h3>📦 Exportar Recorrido</h3>
-
-      <label for="brigadaSelect">Brigada:</label>
-      <input type="text" id="brigadaSelect" placeholder="Ej: LIMA 05" />
-
-      <label for="fechaSelect">Fecha:</label>
-      <input type="date" id="fechaSelect" />
-
-      <div class="modal-buttons">
-        <button id="exportKmzBtn">📍 Descargar KMZ</button>
-        <button id="exportCsvBtn">📊 Descargar CSV</button>
-        <button id="closeModal">✖ Cerrar</button>
-      </div>
+  <header>
+    <div class="logo-container">
+      <img src="assets/logo_carso.png" alt="logo">
+      <h1>CICSA Monitoreo GPS</h1>
     </div>
-  </div>
+    <div class="controls">
+      <select id="providerSelect">
+        <option value="mapbox">Mapbox</option>
+        <option value="leaflet">Leaflet</option>
+      </select>
+      <button id="exportBtn" class="export">📦 Exportar Recorrido</button>
+      <div id="status" class="status">Cargando...</div>
+    </div>
+  </header>
 
-  <!-- ========== SCRIPT PRINCIPAL ========== -->
+  <main>
+    <aside id="sidebar">
+      <input id="searchBrigada" placeholder="Buscar brigada...">
+      <div id="brigadaList"></div>
+    </aside>
+
+    <section class="map-container">
+      <div id="map"></div>
+      <div id="map2"></div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

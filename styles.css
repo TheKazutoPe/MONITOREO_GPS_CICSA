@@ -1,310 +1,211 @@
-/* ===============================
-   CICSA Monitoreo GPS - Estilos Pro
-   Autor: Kevin + GPT Dev Partner
-   =============================== */
-
-:root {
-  --bg-dark: #0e0f11;
-  --panel-dark: #15171a;
-  --accent: #007bff;
-  --success: #00c853;
-  --warning: #ffb300;
-  --danger: #ff5252;
-  --text-light: #f1f1f1;
-  --text-muted: #9ca3af;
-  --glass: rgba(255, 255, 255, 0.05);
-  --blur: blur(12px);
-  --radius: 14px;
-  --shadow: 0 0 20px rgba(0, 0, 0, 0.4);
-}
-
-html, body {
+* {
   margin: 0;
   padding: 0;
-  font-family: "Inter", "Segoe UI", Roboto, sans-serif;
-  background: var(--bg-dark);
-  color: var(--text-light);
-  height: 100%;
+  box-sizing: border-box;
+  font-family: "Segoe UI", sans-serif;
+}
+
+body {
+  background: #f0f6fb;
+  color: #222;
   overflow: hidden;
 }
 
-#app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-/* ===============================
-   NAVBAR SUPERIOR
-   =============================== */
+/* HEADER */
 header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  background: linear-gradient(90deg, #1e1f25 0%, #111214 100%);
-  color: var(--text-light);
+  align-items: center;
+  background: linear-gradient(90deg, #007bff, #00aaff);
+  color: white;
   padding: 10px 20px;
-  font-weight: 500;
-  border-bottom: 1px solid #222;
-  box-shadow: var(--shadow);
-  position: relative;
-  z-index: 1000;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
-header img.logo {
-  height: 30px;
-  margin-right: 8px;
-}
-
-header h1 {
-  font-size: 1rem;
-  margin: 0;
+header .logo-container {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+header .logo-container img {
+  height: 35px;
+}
+
+header h1 {
+  font-size: 1.2rem;
+  font-weight: 600;
 }
 
 header .controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-header select, header button {
-  background: var(--panel-dark);
-  color: var(--text-light);
-  border: 1px solid #2a2c2f;
-  border-radius: var(--radius);
+select, button {
+  border: none;
+  border-radius: 6px;
   padding: 6px 12px;
-  font-size: 0.85rem;
+  font-size: 14px;
   cursor: pointer;
+}
+
+button.export {
+  background: #ff6b00;
+  color: white;
+  font-weight: bold;
+  transition: 0.3s;
+}
+
+button.export:hover {
+  background: #ff8533;
+}
+
+.status {
+  background: #1ed760;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* LAYOUT */
+main {
+  display: flex;
+  height: calc(100vh - 60px);
+}
+
+#sidebar {
+  width: 270px;
+  background: #ffffff;
+  border-right: 1px solid #cfdff2;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+#searchBrigada {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  margin-bottom: 10px;
+}
+
+#brigadaList {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.brigada-card {
+  background: #e8f4ff;
+  border: 1px solid #b7defe;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 3px rgba(0,0,0,0.05);
   transition: all 0.2s ease-in-out;
 }
 
-header button {
-  background: var(--accent);
-  border: none;
-  font-weight: 600;
-  color: white;
-}
-
-header button:hover {
-  opacity: 0.9;
+.brigada-card:hover {
+  background: #d5edff;
   transform: scale(1.02);
 }
 
-#status {
-  font-size: 0.85rem;
-  color: var(--text-muted);
+.brigada-card h3 {
+  font-size: 15px;
+  color: #0077cc;
 }
 
-/* ===============================
-   CUERPO PRINCIPAL
-   =============================== */
-main {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
+.brigada-card p {
+  font-size: 13px;
+  color: #333;
+  margin: 2px 0;
 }
 
-/* PANEL LATERAL IZQUIERDO */
-.sidebar {
-  width: 270px;
-  background: rgba(21, 23, 26, 0.95);
-  backdrop-filter: var(--blur);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
-  overflow-y: auto;
-}
-
-.sidebar input {
-  background: var(--glass);
-  border: 1px solid #333;
-  border-radius: var(--radius);
-  padding: 8px 12px;
-  color: var(--text-light);
-  outline: none;
-  font-size: 0.85rem;
-}
-
-.sidebar input::placeholder {
-  color: var(--text-muted);
-}
-
-/* Tarjetas de brigadas */
-.brigada-item {
-  background: var(--glass);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.brigada-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateY(-2px);
-}
-
-.brigada-header {
-  display: flex;
-  justify-content: space-between;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.brigada-body {
-  font-size: 0.78rem;
-  margin-top: 4px;
-  color: var(--text-muted);
-}
-
-/* ===============================
-   MAPA PRINCIPAL
-   =============================== */
-#map {
-  flex: 1;
+/* MAP */
+.map-container {
+  flex-grow: 1;
   position: relative;
-  background: #090a0b;
 }
 
-/* ===============================
-   FOOTER STATUS BAR
-   =============================== */
-footer {
-  background: rgba(15, 15, 15, 0.95);
-  border-top: 1px solid #222;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 6px 0;
-  backdrop-filter: var(--blur);
-}
-
-footer span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-footer .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.dot.green { background: var(--success); }
-.dot.yellow { background: var(--warning); }
-.dot.red { background: var(--danger); }
-
-/* ===============================
-   MODAL EXPORTACIÓN
-   =============================== */
-.modal {
-  display: none;
-  position: fixed;
-  top: 0; left: 0;
+#map, #map2 {
   width: 100%;
   height: 100%;
-  background: rgba(0,0,0,0.65);
-  backdrop-filter: blur(6px);
-  justify-content: center;
+}
+
+#map2 {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* MODAL */
+.modal-export {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
   align-items: center;
-  z-index: 2000;
+  justify-content: center;
+  z-index: 9999;
 }
 
 .modal-content {
-  background: var(--panel-dark);
-  padding: 20px 30px;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  max-width: 400px;
-  width: 90%;
-  color: var(--text-light);
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px 25px;
+  width: 320px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  animation: fadeIn 0.2s ease-in-out;
 }
 
-.modal-content h3 {
-  margin-top: 0;
-  font-weight: 600;
-  text-align: center;
+.modal-content h2 {
+  font-size: 18px;
+  margin-bottom: 10px;
+  color: #0077cc;
 }
 
 .modal-content label {
-  display: block;
+  font-size: 14px;
   margin-top: 10px;
-  font-size: 0.85rem;
+  display: block;
+  color: #333;
 }
 
-.modal-content input, .modal-content select {
+.modal-content select,
+.modal-content input {
   width: 100%;
   margin-top: 4px;
-  padding: 8px;
-  border-radius: var(--radius);
-  border: 1px solid #333;
-  background: #1d1f22;
-  color: var(--text-light);
+  padding: 7px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #f9f9f9;
 }
 
-.modal-buttons {
-  margin-top: 16px;
+.modal-actions {
+  margin-top: 15px;
   display: flex;
   justify-content: space-between;
+  gap: 8px;
 }
 
-.modal-buttons button {
-  flex: 1;
-  margin: 4px;
-  border-radius: var(--radius);
-  padding: 8px;
-  font-weight: 600;
+.modal-actions button {
   border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-#exportKmzBtn { background: var(--accent); color: white; }
-#exportCsvBtn { background: var(--success); color: white; }
-#closeModal { background: var(--danger); color: white; }
-
-.modal-buttons button:hover {
-  opacity: 0.9;
-  transform: translateY(-2px);
-}
-
-/* ===============================
-   MARCADORES (Mapbox / Leaflet)
-   =============================== */
-.marker {
-  background-size: cover;
-  background-repeat: no-repeat;
-  background-position: center;
-  width: 24px;
-  height: 24px;
-  transition: transform 0.3s ease;
-}
-
-.marker:hover {
-  transform: scale(1.2);
-}
-
-/* ===============================
-   SCROLLBAR PERSONALIZADO
-   =============================== */
-.sidebar::-webkit-scrollbar {
-  width: 8px;
-}
-
-.sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
   border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-weight: 600;
 }
 
-.sidebar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.2);
+#btnCancelar { background: #ccc; color: #222; }
+#btnKMZ { background: #0077cc; color: #fff; }
+#btnCSV { background: #1ed760; color: #fff; }
+
+@keyframes fadeIn {
+  from {opacity: 0; transform: scale(0.9);}
+  to {opacity: 1; transform: scale(1);}
 }
