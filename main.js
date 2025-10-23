@@ -1,360 +1,59 @@
-// =======================================================
-//  MONITOREO GPS - CICSA 2025
-//  Versión FINAL: Animación + KMZ con rutas pulidas + notificaciones visuales
-// =======================================================
-
+// ==================== CONFIGURACIÓN GLOBAL ====================
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 mapboxgl.accessToken = CONFIG.MAPBOX_TOKEN;
 
-// ==== UI y estado ====
 const ui = {
   status: document.getElementById("status"),
-  userList: document.getElementById("userList"),
+  exportBtn: document.getElementById("exportKmzBtn"),
   brigadaSelect: document.getElementById("brigadaSelect"),
   fechaSelect: document.getElementById("fechaSelect"),
-  generateKmz: document.getElementById("generateKmz")
+  userList: document.getElementById("userList"),
 };
 
-const state = {
-  map: null,
-  markers: {},
-  brigadas: new Map(),
-  lastPositions: {}
-};
+const state = { map: null, markers: {}, brigadas: new Map() };
 
-// ==== Inicializar mapa ====
+// ==================== MAPA MAPBOX ====================
 function initMap() {
   state.map = new mapboxgl.Map({
     container: "map",
     style: "mapbox://styles/mapbox/streets-v12",
     center: [-77.0428, -12.0464],
-    zoom: 12
+    zoom: 13,
   });
-
   state.map.addControl(new mapboxgl.NavigationControl(), "bottom-right");
   state.map.addControl(new mapboxgl.FullscreenControl(), "bottom-right");
 }
 initMap();
 
+// ==================== UTILIDADES ====================
 function setStatus(text, color) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${color}`;
 }
 
-// ==== Funciones auxiliares ====
-function distance(a, b) {
-  const R = 6371e3;
-  const dLat = (b.lat - a.lat) * Math.PI / 180;
-  const dLon = (b.lng - a.lng) * Math.PI / 180;
-  const x = Math.sin(dLat / 2) ** 2 +
-    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
-function bearing(a, b) {
-  const rad = Math.PI / 180;
-  const lat1 = a.lat * rad;
-  const lat2 = b.lat * rad;
-  const dLon = (b.lng - a.lng) * rad;
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) -
-            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  const brng = Math.atan2(y, x);
-  return (brng * 180 / Math.PI + 360) % 360;
-}
-
-// ==== Cargar brigadas activas ====
-async function fetchBrigadas() {
-  setStatus("Cargando brigadas...", "gray");
-
-  const { data, error } = await supa
-    .from("ubicaciones_brigadas")
-    .select("usuario_id, tecnico, brigada, zona, latitud, longitud, timestamp")
-    .gte("timestamp", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-    .order("timestamp", { ascending: false });
-
-  if (error) return console.error(error);
-
-  const grouped = new Map();
-  for (const row of data) {
-    const id = String(row.usuario_id || row.brigada);
-    if (!grouped.has(id)) grouped.set(id, row);
-  }
-
-  ui.userList.innerHTML = "";
-  state.brigadas.clear();
-
-  grouped.forEach((r, id) => {
-    const mins = Math.round((Date.now() - new Date(r.timestamp)) / 60000);
-    const color = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
-    addBrigadaToList(r, id, color);
-    placeMarker(r, id, color);
-    state.brigadas.set(id, r);
-  });
-
-  setStatus("Conectado", "green");
-}
-
-function addBrigadaToList(r, id, color) {
-  const hora = new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const div = document.createElement("div");
-  div.className = `brigada-item ${color}`;
-  div.innerHTML = `
-    <div class="brigada-header">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span class="brigada-dot"></span>
-        <div><b>${r.tecnico}</b><div class="brigada-sub">${r.brigada}</div></div>
-      </div>
-      <div class="brigada-hora">${hora}</div>
-    </div>
-    <div class="brigada-footer">${color === "text-green" ? "Activo" : color === "text-yellow" ? "Inactivo" : "Desconectado"}</div>
-  `;
-  div.addEventListener("click", () => focusBrigada(id));
-  ui.userList.appendChild(div);
-}
-
-// ==== Marcadores animados ====
-function placeMarker(r, id, color) {
-  const iconUrl =
-    color === "text-green"
-      ? "assets/carro-animado.png"
-      : color === "text-yellow"
-      ? "assets/carro-orange.png"
-      : "assets/carro-gray.png";
-
-  const el = document.createElement("div");
-  el.className = "marker";
-  el.style.backgroundImage = `url(${iconUrl})`;
-  el.style.width = "42px";
-  el.style.height = "42px";
-  el.style.backgroundSize = "contain";
-  el.style.backgroundRepeat = "no-repeat";
-  el.style.filter = "drop-shadow(0 0 3px rgba(0,0,0,0.6))";
-  el.style.transition = "transform 0.5s linear";
-
-  const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-    <div style="background:rgba(0,51,102,0.9);color:white;padding:8px 10px;border-radius:8px;">
-      <b style="color:#00bfff">${r.tecnico}</b><br>
-      🚧 Brigada: <b>${r.brigada}</b><br>
-      📍 Zona: ${r.zona}<br>
-      🕒 ${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
-    </div>
-  `);
-
-  const marker = new mapboxgl.Marker({
-    element: el,
-    anchor: "bottom",
-    offset: [0, 5],
-  })
-    .setLngLat([r.longitud, r.latitud])
-    .setPopup(popup)
-    .addTo(state.map);
-
-  state.markers[id] = marker;
-  state.lastPositions[id] = { lat: r.latitud, lng: r.longitud };
-}
-
-// ==== Movimiento suave ====
-function smoothMove(id, newData) {
-  const marker = state.markers[id];
-  if (!marker) return;
-
-  const prev = state.lastPositions[id];
-  const newPos = { lat: newData.latitud, lng: newData.longitud };
-  const d = distance(prev, newPos);
-  if (d > 200) return;
-
-  const br = bearing(prev, newPos);
-  const el = marker.getElement();
-  el.style.transform = `rotate(${br}deg)`;
-
-  let t = 0;
-  const duration = 900;
-  const animate = () => {
-    t += 16;
-    const p = Math.min(t / duration, 1);
-    const lat = prev.lat + (newPos.lat - prev.lat) * p;
-    const lng = prev.lng + (newPos.lng - prev.lng) * p;
-    marker.setLngLat([lng, lat]);
-    if (p < 1) requestAnimationFrame(animate);
-  };
-  requestAnimationFrame(animate);
-
-  state.lastPositions[id] = newPos;
-}
-
-function focusBrigada(id) {
-  const r = state.brigadas.get(id);
-  if (r) state.map.flyTo({ center: [r.longitud, r.latitud], zoom: 15 });
-  const marker = state.markers[id];
-  if (marker) marker.togglePopup();
-}
-
-// ==== Realtime ====
-function subscribeRealtime() {
-  supa.channel("ubicaciones_brigadas-updates")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "ubicaciones_brigadas" }, (payload) => {
-      const r = payload.new;
-      const id = String(r.usuario_id || r.brigada);
-      if (!state.brigadas.has(id)) return fetchBrigadas();
-      smoothMove(id, r);
-      state.brigadas.set(id, r);
-    })
-    .subscribe();
-}
-
-// ==== Snap-to-road para KMZ ====
-async function getSnappedCoords(coords) {
-  if (!CONFIG.MAPBOX_TOKEN.startsWith("pk.")) {
-    alert("⚠️ Usa un token público (pk.) de Mapbox en config.js");
-    return coords;
-  }
-
-  const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords.join(";")}?geometries=geojson&access_token=${CONFIG.MAPBOX_TOKEN}`;
-  console.log("Solicitando ruta pulida a Mapbox:", coords.length, "puntos");
-  const res = await fetch(url);
-  const json = await res.json();
-
-  return json.matchings?.[0]?.geometry?.coordinates || coords;
-}
-
-// ==== Exportar KMZ corregido ====
-async function exportKMZ(brigada, fecha) {
-  try {
-    setStatus("Generando KMZ...", "gray");
-
-    const start = new Date(fecha);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 1);
-
-    const { data, error } = await supa
-      .from("ubicaciones_brigadas")
-      .select("latitud,longitud,timestamp,tecnico,brigada")
-      .gte("timestamp", start.toISOString())
-      .lt("timestamp", end.toISOString())
-      .ilike("brigada", `%${brigada}%`)
-      .order("timestamp", { ascending: true });
-
-    if (error) throw error;
-    if (!data || data.length < 2) {
-      alert("⚠️ No hay suficientes datos para generar el KMZ.");
-      setStatus("Conectado", "green");
-      return;
-    }
-
-    const coords = data.map(r => [r.longitud, r.latitud]).filter(c => c[0] && c[1]);
-    let snapped = coords;
-
-    if (CONFIG.MAPBOX_TOKEN.startsWith("pk.")) {
-      try {
-        const batch = coords.slice(0, 100);
-        const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${batch.join(";")}?geometries=geojson&access_token=${CONFIG.MAPBOX_TOKEN}`;
-        const res = await fetch(url);
-        const json = await res.json();
-        if (json.matchings && json.matchings[0]?.geometry?.coordinates?.length) {
-          snapped = json.matchings[0].geometry.coordinates;
-        } else {
-          console.warn("No se pudo ajustar la ruta. Se usará trazo original.");
-        }
-      } catch (err) {
-        console.warn("Error al usar Mapbox Matching:", err.message);
-      }
-    }
-
-    const inicio = data[0];
-    const fin = data[data.length - 1];
-    const coordsStr = snapped.map(c => `${c[0]},${c[1]},0`).join(" ");
-
-    const desc = `
-      <b>Brigada:</b> ${brigada}<br>
-      <b>Técnico:</b> ${inicio.tecnico || "-"}<br>
-      <b>Puntos:</b> ${data.length}<br>
-      <b>Inicio:</b> ${new Date(inicio.timestamp).toLocaleString()}<br>
-      <b>Fin:</b> ${new Date(fin.timestamp).toLocaleString()}
-    `;
-
-    const kml = `<?xml version="1.0" encoding="UTF-8"?>
-      <kml xmlns="http://www.opengis.net/kml/2.2">
-      <Document>
-        <name>Recorrido ${brigada}</name>
-        <description><![CDATA[${desc}]]></description>
-        <Style id="ruta">
-          <LineStyle><color>ff007bff</color><width>4</width></LineStyle>
-        </Style>
-        <Placemark>
-          <name>Ruta ${brigada}</name>
-          <styleUrl>#ruta</styleUrl>
-          <LineString><coordinates>${coordsStr}</coordinates></LineString>
-        </Placemark>
-      </Document></kml>`;
-
-    const zip = new JSZip();
-    zip.file("doc.kml", kml);
-    const blob = await zip.generateAsync({ type: "blob" });
-
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `RUTA_${brigada}_${fecha}.kmz`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
-
-    setStatus("Conectado", "green");
-  } catch (err) {
-    console.error("Error al generar KMZ:", err);
-    setStatus("Error", "gray");
-    alert("❌ Ocurrió un error al generar el KMZ: " + err.message);
-  }
-}
-// ==== Eventos y selección dinámica de brigada ====
-
-const openBtn = document.getElementById("openKmzModal");
-const modal = document.getElementById("kmzModal");
-const cancelBtn = document.getElementById("cancelKmz");
-const brigadaSelect = document.getElementById("brigadaSelect");
-const fechaSelect = document.getElementById("fechaSelect");
-const searchInput = document.createElement("input");
-
-// --- Campo de búsqueda dentro del modal ---
-searchInput.type = "text";
-searchInput.placeholder = "🔍 Buscar brigada...";
-searchInput.style.width = "100%";
-searchInput.style.marginBottom = "8px";
-searchInput.style.padding = "6px 10px";
-searchInput.style.borderRadius = "6px";
-searchInput.style.border = "1px solid #1e3a5c";
-searchInput.style.background = "#0b1a2b";
-searchInput.style.color = "#fff";
-
-// Insertamos el buscador arriba del select
-brigadaSelect.parentElement.insertBefore(searchInput, brigadaSelect);
-
-// Crear notificación tipo "toast"
 function showToast(text, color = "#00c851") {
   const toast = document.createElement("div");
   toast.textContent = text;
-  toast.style.position = "fixed";
-  toast.style.bottom = "25px";
-  toast.style.right = "25px";
-  toast.style.background = color;
-  toast.style.color = "#fff";
-  toast.style.padding = "10px 18px";
-  toast.style.borderRadius = "8px";
-  toast.style.fontWeight = "600";
-  toast.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
-  toast.style.opacity = "0";
-  toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
-  toast.style.zIndex = "9999";
-  toast.style.transform = "translateY(20px)";
+  Object.assign(toast.style, {
+    position: "fixed",
+    bottom: "25px",
+    right: "25px",
+    background: color,
+    color: "#fff",
+    padding: "10px 18px",
+    borderRadius: "8px",
+    fontWeight: "600",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+    opacity: "0",
+    transition: "opacity 0.3s ease, transform 0.3s ease",
+    zIndex: "9999",
+    transform: "translateY(20px)",
+  });
   document.body.appendChild(toast);
-
   requestAnimationFrame(() => {
     toast.style.opacity = "1";
     toast.style.transform = "translateY(0)";
   });
-
   setTimeout(() => {
     toast.style.opacity = "0";
     toast.style.transform = "translateY(20px)";
@@ -362,94 +61,179 @@ function showToast(text, color = "#00c851") {
   }, 3000);
 }
 
-// --- Abrir modal y cargar brigadas ---
-openBtn.addEventListener("click", async () => {
-  modal.classList.remove("hidden");
-  brigadaSelect.innerHTML = "";
-
+// ==================== LISTA DE BRIGADAS ====================
+async function loadBrigadasList() {
   setStatus("Cargando brigadas...", "gray");
+  try {
+    const { data, error } = await supa
+      .from("ubicaciones_brigadas")
+      .select("brigada")
+      .not("brigada", "is", null);
 
-  // Traer todas las brigadas registradas en Supabase
+    if (error) throw error;
+
+    const únicas = [...new Set(data.map((r) => r.brigada.trim()))].sort();
+    ui.brigadaSelect.innerHTML = `<option value="">-- Selecciona una brigada --</option>`;
+    únicas.forEach((b) => {
+      const opt = document.createElement("option");
+      opt.value = b;
+      opt.textContent = b;
+      ui.brigadaSelect.appendChild(opt);
+    });
+
+    setStatus("Conectado", "green");
+  } catch (err) {
+    console.error("Error al cargar brigadas:", err);
+    setStatus("Error", "gray");
+  }
+}
+loadBrigadasList();
+
+// ==================== MOSTRAR BRIGADAS ACTIVAS ====================
+async function fetchBrigadas() {
   const { data, error } = await supa
     .from("ubicaciones_brigadas")
-    .select("brigada")
-    .order("brigada", { ascending: true });
+    .select("usuario_id, tecnico, brigada, latitud, longitud, zona, timestamp")
+    .gte("timestamp", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .order("timestamp", { ascending: false });
 
-  if (error) {
-    alert("Error al cargar brigadas.");
-    console.error(error);
-    setStatus("Conectado", "green");
-    return;
+  if (error) return console.error(error);
+
+  const grouped = new Map();
+  for (const r of data) {
+    if (!grouped.has(r.brigada)) grouped.set(r.brigada, r);
   }
 
-  // Filtramos únicas
-  const únicas = [...new Set(data.map((r) => r.brigada))].filter(Boolean);
-
-  únicas.forEach((b) => {
-    const opt = document.createElement("option");
-    opt.value = b;
-    opt.textContent = b;
-    brigadaSelect.appendChild(opt);
+  ui.userList.innerHTML = "";
+  grouped.forEach((r) => {
+    const mins = Math.round((Date.now() - new Date(r.timestamp)) / 60000);
+    const color = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
+    const div = document.createElement("div");
+    div.className = `brigada-item ${color}`;
+    div.textContent = `${r.brigada} — ${r.tecnico}`;
+    ui.userList.appendChild(div);
   });
-
-  fechaSelect.valueAsDate = new Date();
-  setStatus("Conectado", "green");
-
-  // --- Activar filtrado ---
-  searchInput.addEventListener("input", () => {
-    const filtro = searchInput.value.toLowerCase();
-    for (const opt of brigadaSelect.options) {
-      const visible = opt.textContent.toLowerCase().includes(filtro);
-      opt.style.display = visible ? "block" : "none";
-    }
-  });
-});
-
-// --- Cerrar modal ---
-cancelBtn.addEventListener("click", () => {
-  modal.classList.add("hidden");
-});
-
-// --- Generar KMZ ---
-ui.generateKmz.addEventListener("click", async () => {
-  const brigada = brigadaSelect.value;
-  const fecha = fechaSelect.value;
-
-  if (!brigada || !fecha) {
-    alert("⚠️ Selecciona una brigada y fecha antes de generar el KMZ.");
-    return;
-  }
-
-  modal.classList.add("hidden");
-  setStatus("Generando KMZ...", "gray");
-
-  // Mostrar loading temporal
-  const loading = document.createElement("div");
-  loading.textContent = "⏳ Generando recorrido...";
-  loading.style.position = "fixed";
-  loading.style.bottom = "20px";
-  loading.style.right = "20px";
-  loading.style.padding = "10px 16px";
-  loading.style.background = "rgba(0,0,0,0.7)";
-  loading.style.color = "#fff";
-  loading.style.borderRadius = "8px";
-  loading.style.fontSize = "14px";
-  loading.style.zIndex = "9999";
-  document.body.appendChild(loading);
-
-  try {
-    await exportKMZ(brigada, fecha);
-    showToast("✅ KMZ generado con éxito");
-  } catch (err) {
-    console.error("Error en exportKMZ:", err);
-    showToast("❌ Error al generar KMZ", "#ff4444");
-  } finally {
-    document.body.removeChild(loading);
-    setStatus("Conectado", "green");
-  }
-});
-
-// ==== Inicio ====
+}
 fetchBrigadas();
-subscribeRealtime();
-setStatus("Cargando...", "gray");
+
+// ==================== EXPORTAR KMZ (RECORRIDO COMPLETO DEL DÍA) ====================
+ui.exportBtn.addEventListener("click", async () => {
+  const brigada = ui.brigadaSelect.value;
+  const fecha = ui.fechaSelect.value;
+  if (!brigada || !fecha) {
+    alert("Selecciona una brigada y una fecha para generar el KMZ.");
+    return;
+  }
+  await exportKMZ(brigada, fecha);
+});
+
+async function exportKMZ(brigada, fecha) {
+  try {
+    setStatus("Generando KMZ...", "gray");
+
+    const start = new Date(`${fecha}T00:00:00`);
+    const end = new Date(`${fecha}T23:59:59`);
+
+    // 1️⃣ Traer TODAS las coordenadas del día de esa brigada
+    const { data, error } = await supa
+      .from("ubicaciones_brigadas")
+      .select("latitud,longitud,timestamp,tecnico,brigada")
+      .gte("timestamp", start.toISOString())
+      .lte("timestamp", end.toISOString())
+      .ilike("brigada", `%${brigada}%`)
+      .order("timestamp", { ascending: true });
+
+    if (error) throw error;
+    if (!data || data.length < 2) {
+      alert("⚠️ No hay suficientes datos para generar el recorrido del día.");
+      setStatus("Conectado", "green");
+      return;
+    }
+
+    // 2️⃣ Limpiar y preparar coordenadas
+    const coords = data
+      .map((r) => [r.longitud, r.latitud])
+      .filter((c) => c[0] && c[1]);
+
+    console.log(`Procesando ${coords.length} coordenadas del día completo`);
+
+    // 3️⃣ Snap a carretera (Mapbox Matching) en lotes de 100
+    async function snapBatch(batch) {
+      const coordsStr = batch.map(([lng, lat]) => `${lng},${lat}`).join(";");
+      const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coordsStr}?geometries=geojson&tidy=true&access_token=${CONFIG.MAPBOX_TOKEN}`;
+      try {
+        const res = await fetch(url);
+        const json = await res.json();
+        const path = json.matchings?.[0]?.geometry?.coordinates || batch;
+        return path;
+      } catch (err) {
+        console.warn("Error Mapbox Matching:", err.message);
+        return batch;
+      }
+    }
+
+    const batchSize = 100;
+    let snappedAll = [];
+    for (let i = 0; i < coords.length; i += batchSize) {
+      const batch = coords.slice(i, i + batchSize);
+      const snapped = await snapBatch(batch);
+      snappedAll.push(...snapped);
+      await new Promise((res) => setTimeout(res, 150));
+    }
+
+    const unique = snappedAll.filter(
+      (c, i, a) => i === 0 || (c[0] !== a[i - 1][0] && c[1] !== a[i - 1][1])
+    );
+
+    // 4️⃣ Crear descripción
+    const tecnico = data[0].tecnico || "-";
+    const inicio = new Date(data[0].timestamp).toLocaleString();
+    const fin = new Date(data[data.length - 1].timestamp).toLocaleString();
+
+    const desc = `
+      <b>Brigada:</b> ${brigada}<br>
+      <b>Técnico:</b> ${tecnico}<br>
+      <b>Total puntos:</b> ${data.length}<br>
+      <b>Inicio jornada:</b> ${inicio}<br>
+      <b>Fin jornada:</b> ${fin}
+    `;
+
+    // 5️⃣ Generar KML
+    const coordsStr = unique.map((c) => `${c[0]},${c[1]},0`).join(" ");
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+      <kml xmlns="http://www.opengis.net/kml/2.2">
+        <Document>
+          <name>Recorrido ${brigada}</name>
+          <description><![CDATA[${desc}]]></description>
+          <Style id="linea">
+            <LineStyle><color>ff007bff</color><width>4</width></LineStyle>
+          </Style>
+          <Placemark>
+            <name>Ruta ${brigada}</name>
+            <styleUrl>#linea</styleUrl>
+            <LineString><coordinates>${coordsStr}</coordinates></LineString>
+          </Placemark>
+        </Document>
+      </kml>`;
+
+    // 6️⃣ Crear y descargar KMZ
+    const zip = new JSZip();
+    zip.file("doc.kml", kml);
+    const blob = await zip.generateAsync({ type: "blob" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `RECORRIDO_${brigada}_${fecha}.kmz`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+
+    showToast(`✅ KMZ generado con recorrido completo (${data.length} puntos)`);
+    setStatus("Conectado", "green");
+
+  } catch (err) {
+    console.error("Error al generar KMZ:", err);
+    showToast("❌ Error al generar KMZ", "#ff4444");
+    setStatus("Error", "gray");
+  }
+}
