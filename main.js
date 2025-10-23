@@ -33,7 +33,7 @@ const state = {
 function initMap() {
   state.map = new mapboxgl.Map({
     container: "map",
-    style: "mapbox://styles/mapbox/dark-v11", // mantiene diseño oscuro pro
+    style: "mapbox://styles/mapbox/streets-v12", // mapa colorido pro
     center: [-77.0428, -12.0464], // Lima
     zoom: 12
   });
@@ -132,11 +132,15 @@ function placeMarker(r, id, color) {
   el.style.backgroundSize = "contain";
 
   const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-    <b>${r.tecnico || "Sin nombre"}</b><br>
-    <small>Brigada: ${r.brigada || "-"}</small><br>
-    <small>Zona: ${r.zona || "-"}</small><br>
-    <small>Hora: ${new Date(r.timestamp).toLocaleTimeString()}</small>
-  `);
+  <div style="font-family: 'Inter', sans-serif; background: rgba(0, 51, 102, 0.9);
+              color: white; padding: 8px 10px; border-radius: 8px; min-width: 150px;">
+    <b style="font-size:14px; color:#00bfff;">${r.tecnico || "Sin nombre"}</b><br>
+    <span style="font-size:13px;">🚧 Brigada: <b>${r.brigada || "-"}</b></span><br>
+    <span style="font-size:13px;">📍 Zona: <b>${r.zona || "-"}</b></span><br>
+    <span style="font-size:12px; opacity:0.8;">🕒 ${new Date(r.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+  </div>
+`);
+
 
   const marker = new mapboxgl.Marker(el).setLngLat([r.longitud, r.latitud]).setPopup(popup).addTo(state.map);
   state.markers[id] = marker;
