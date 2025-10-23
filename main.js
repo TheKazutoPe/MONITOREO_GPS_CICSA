@@ -1,6 +1,6 @@
 // =======================================================
 //  MONITOREO GPS - CICSA 2025
-//  Versión FINAL: Animación + KMZ con rutas pulidas (Mapbox Matching API)
+//  Versión FINAL: Animación + KMZ con rutas pulidas + notificaciones visuales
 // =======================================================
 
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
@@ -219,74 +219,136 @@ async function getSnappedCoords(coords) {
   return json.matchings?.[0]?.geometry?.coordinates || coords;
 }
 
-// ==== Exportar KMZ ====
+// ==== Exportar KMZ corregido ====
 async function exportKMZ(brigada, fecha) {
-  setStatus("Generando KMZ...", "gray");
+  try {
+    setStatus("Generando KMZ...", "gray");
 
-  const start = new Date(fecha);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 1);
+    const start = new Date(fecha);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
 
-  const { data, error } = await supa
-    .from("ubicaciones_brigadas")
-    .select("latitud,longitud,timestamp,tecnico,brigada")
-    .gte("timestamp", start.toISOString())
-    .lt("timestamp", end.toISOString())
-    .ilike("brigada", `%${brigada}%`)
-    .order("timestamp", { ascending: true });
+    const { data, error } = await supa
+      .from("ubicaciones_brigadas")
+      .select("latitud,longitud,timestamp,tecnico,brigada")
+      .gte("timestamp", start.toISOString())
+      .lt("timestamp", end.toISOString())
+      .ilike("brigada", `%${brigada}%`)
+      .order("timestamp", { ascending: true });
 
-  if (error || !data.length) return alert("⚠️ No hay datos.");
+    if (error) throw error;
+    if (!data || data.length < 2) {
+      alert("⚠️ No hay suficientes datos para generar el KMZ.");
+      setStatus("Conectado", "green");
+      return;
+    }
 
-  const coords = data.map(r => [r.longitud, r.latitud]);
-  const snapped = await getSnappedCoords(coords);
+    const coords = data.map(r => [r.longitud, r.latitud]).filter(c => c[0] && c[1]);
+    let snapped = coords;
 
-  const inicio = data[0];
-  const fin = data[data.length - 1];
-  const coordsStr = snapped.map(c => `${c[0]},${c[1]},0`).join(" ");
+    if (CONFIG.MAPBOX_TOKEN.startsWith("pk.")) {
+      try {
+        const batch = coords.slice(0, 100);
+        const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${batch.join(";")}?geometries=geojson&access_token=${CONFIG.MAPBOX_TOKEN}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.matchings && json.matchings[0]?.geometry?.coordinates?.length) {
+          snapped = json.matchings[0].geometry.coordinates;
+        } else {
+          console.warn("No se pudo ajustar la ruta. Se usará trazo original.");
+        }
+      } catch (err) {
+        console.warn("Error al usar Mapbox Matching:", err.message);
+      }
+    }
 
-  const desc = `
-    <b>Brigada:</b> ${brigada}<br>
-    <b>Técnico:</b> ${inicio.tecnico}<br>
-    <b>Puntos:</b> ${data.length}<br>
-    <b>Inicio:</b> ${new Date(inicio.timestamp).toLocaleString()}<br>
-    <b>Fin:</b> ${new Date(fin.timestamp).toLocaleString()}
-  `;
+    const inicio = data[0];
+    const fin = data[data.length - 1];
+    const coordsStr = snapped.map(c => `${c[0]},${c[1]},0`).join(" ");
 
-  const kml = `<?xml version="1.0" encoding="UTF-8"?>
-    <kml xmlns="http://www.opengis.net/kml/2.2">
-    <Document>
-      <name>Recorrido ${brigada}</name>
-      <description><![CDATA[${desc}]]></description>
-      <Style id="ruta">
-        <LineStyle><color>ff007bff</color><width>4</width></LineStyle>
-      </Style>
-      <Placemark>
-        <name>Ruta ${brigada}</name>
-        <styleUrl>#ruta</styleUrl>
-        <LineString><coordinates>${coordsStr}</coordinates></LineString>
-      </Placemark>
-    </Document></kml>`;
+    const desc = `
+      <b>Brigada:</b> ${brigada}<br>
+      <b>Técnico:</b> ${inicio.tecnico || "-"}<br>
+      <b>Puntos:</b> ${data.length}<br>
+      <b>Inicio:</b> ${new Date(inicio.timestamp).toLocaleString()}<br>
+      <b>Fin:</b> ${new Date(fin.timestamp).toLocaleString()}
+    `;
 
-  const zip = new JSZip();
-  zip.file("doc.kml", kml);
-  const blob = await zip.generateAsync({ type: "blob" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `RUTA_${brigada}_${fecha}.kmz`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+      <kml xmlns="http://www.opengis.net/kml/2.2">
+      <Document>
+        <name>Recorrido ${brigada}</name>
+        <description><![CDATA[${desc}]]></description>
+        <Style id="ruta">
+          <LineStyle><color>ff007bff</color><width>4</width></LineStyle>
+        </Style>
+        <Placemark>
+          <name>Ruta ${brigada}</name>
+          <styleUrl>#ruta</styleUrl>
+          <LineString><coordinates>${coordsStr}</coordinates></LineString>
+        </Placemark>
+      </Document></kml>`;
 
-  setStatus("Conectado", "green");
-  alert("✅ KMZ generado con ruta pulida correctamente");
+    const zip = new JSZip();
+    zip.file("doc.kml", kml);
+    const blob = await zip.generateAsync({ type: "blob" });
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `RUTA_${brigada}_${fecha}.kmz`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+
+    setStatus("Conectado", "green");
+  } catch (err) {
+    console.error("Error al generar KMZ:", err);
+    setStatus("Error", "gray");
+    alert("❌ Ocurrió un error al generar el KMZ: " + err.message);
+  }
 }
 
 // ==== Eventos ====
+
 const openBtn = document.getElementById("openKmzModal");
 const modal = document.getElementById("kmzModal");
 const cancelBtn = document.getElementById("cancelKmz");
 const brigadaSelect = document.getElementById("brigadaSelect");
 const fechaSelect = document.getElementById("fechaSelect");
 
+// Toast visual
+function showToast(text, color = "#00c851") {
+  const toast = document.createElement("div");
+  toast.textContent = text;
+  toast.style.position = "fixed";
+  toast.style.bottom = "25px";
+  toast.style.right = "25px";
+  toast.style.background = color;
+  toast.style.color = "#fff";
+  toast.style.padding = "10px 18px";
+  toast.style.borderRadius = "8px";
+  toast.style.fontWeight = "600";
+  toast.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
+  toast.style.opacity = "0";
+  toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+  toast.style.zIndex = "9999";
+  toast.style.transform = "translateY(20px)";
+  document.body.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateY(0)";
+  });
+
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(20px)";
+    setTimeout(() => document.body.removeChild(toast), 400);
+  }, 3000);
+}
+
+// Modal y exportación
 openBtn.addEventListener("click", () => {
   modal.classList.remove("hidden");
   brigadaSelect.innerHTML = "";
@@ -307,8 +369,33 @@ ui.generateKmz.addEventListener("click", async () => {
   const brigada = brigadaSelect.value;
   const fecha = fechaSelect.value;
   if (!brigada || !fecha) return alert("Selecciona brigada y fecha.");
+
   modal.classList.add("hidden");
-  await exportKMZ(brigada, fecha);
+  setStatus("Generando KMZ...", "gray");
+
+  const loading = document.createElement("div");
+  loading.textContent = "⏳ Generando recorrido...";
+  loading.style.position = "fixed";
+  loading.style.bottom = "20px";
+  loading.style.right = "20px";
+  loading.style.padding = "10px 16px";
+  loading.style.background = "rgba(0,0,0,0.7)";
+  loading.style.color = "#fff";
+  loading.style.borderRadius = "8px";
+  loading.style.fontSize = "14px";
+  loading.style.zIndex = "9999";
+  document.body.appendChild(loading);
+
+  try {
+    await exportKMZ(brigada, fecha);
+    showToast("✅ KMZ generado con éxito");
+  } catch (err) {
+    console.error("Error en exportKMZ:", err);
+    showToast("❌ Error al generar KMZ", "#ff4444");
+  } finally {
+    document.body.removeChild(loading);
+    setStatus("Conectado", "green");
+  }
 });
 
 // ==== Inicio ====
