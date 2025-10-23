@@ -1,4 +1,3 @@
-/* ===== Reset ===== */
 * {
   margin: 0;
   padding: 0;
@@ -7,8 +6,8 @@
 }
 
 body {
-  background: #0f0f10;
-  color: #f5f5f5;
+  background: #f4f8fb;
+  color: #222;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -19,10 +18,10 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #121316;
-  border-bottom: 2px solid #222;
-  padding: 8px 20px;
-  height: 56px;
+  background: #007bff;
+  color: #fff;
+  padding: 10px 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .header-left {
@@ -38,24 +37,22 @@ body {
 
 .header-left span {
   font-weight: 400;
-  color: #9da3b0;
+  opacity: 0.9;
 }
 
 .logo {
-  height: 28px;
+  height: 30px;
 }
 
 .status-badge {
   padding: 5px 12px;
   border-radius: 12px;
   font-size: 0.8rem;
-  font-weight: 500;
-  text-transform: uppercase;
+  font-weight: 600;
 }
-
-.status-badge.gray { background: #3a3a3a; color: #eee; }
-.status-badge.green { background: #3cb371; color: #fff; }
-.status-badge.yellow { background: #e6c200; color: #222; }
+.status-badge.gray { background: #9da3b0; }
+.status-badge.green { background: #4caf50; }
+.status-badge.yellow { background: #fbc02d; }
 
 /* ===== LAYOUT ===== */
 .main-container {
@@ -66,38 +63,33 @@ body {
 
 /* ===== SIDEBAR ===== */
 .sidebar {
-  width: 270px;
-  background: #17181a;
-  border-right: 1px solid #222;
+  width: 280px;
+  background: #ffffff;
+  border-right: 2px solid #d9e3f0;
   display: flex;
   flex-direction: column;
-  padding: 14px;
-}
-
-.sidebar-header {
-  margin-bottom: 10px;
+  padding: 15px;
 }
 
 .sidebar-header h2 {
   font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: #f5f5f5;
+  font-weight: 700;
+  color: #007bff;
 }
 
 .filter-box {
   display: flex;
   gap: 6px;
+  margin-top: 8px;
 }
 
 .filter-box input {
   flex: 1;
-  border: none;
-  background: #232427;
+  border: 1px solid #c8d7eb;
+  background: #f8fbff;
   padding: 6px 8px;
   border-radius: 6px;
-  color: #ddd;
-  font-size: 0.85rem;
+  color: #333;
 }
 
 .filter-box button {
@@ -107,29 +99,25 @@ body {
   color: #fff;
   padding: 6px 10px;
   cursor: pointer;
-  transition: background 0.2s ease;
 }
-.filter-box button:hover { background: #0065d6; }
 
 /* ===== LISTA DE BRIGADAS ===== */
 .brigada-list {
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: thin;
-  padding-right: 6px;
+  margin-top: 10px;
 }
 
 .brigada-item {
-  background: #1f2023;
-  border: 1px solid #2b2c2f;
-  border-radius: 10px;
+  background: #f1f7ff;
+  border: 1px solid #d3e0f3;
+  border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: transform 0.15s, background 0.2s;
+  transition: 0.2s;
 }
-.brigada-item:hover { background: #26272b; transform: scale(1.01); }
-.brigada-item.active { border: 1px solid #3b82f6; background: #21252b; }
+.brigada-item:hover { background: #e1efff; transform: scale(1.02); }
 
 .brigada-header {
   display: flex;
@@ -144,40 +132,21 @@ body {
   margin-right: 6px;
 }
 
-.brigada-info { flex: 1; }
-.brigada-info b { display: block; font-size: 0.9rem; color: #fff; }
-.brigada-sub { font-size: 0.8rem; color: #aaa; }
-.brigada-hora { font-size: 0.75rem; color: #8b949e; }
+.text-green .brigada-dot { background: #4caf50; }
+.text-yellow .brigada-dot { background: #ffc107; }
+.text-gray .brigada-dot { background: #9e9e9e; }
 
-.brigada-footer {
-  font-size: 0.8rem;
-  text-align: right;
-  margin-top: 4px;
-  font-weight: 600;
-}
-
-.text-green { color: #4ade80; }
-.text-yellow { color: #eab308; }
-.text-gray { color: #888; }
-
-.text-green .brigada-dot { background: #4ade80; }
-.text-yellow .brigada-dot { background: #eab308; }
-.text-gray .brigada-dot { background: #777; }
-
-/* ===== BOTÓN KMZ ===== */
 .export-btn {
   margin-top: 10px;
-  padding: 8px;
+  padding: 10px;
   font-size: 0.9rem;
   background: linear-gradient(90deg, #007bff, #00a6ff);
   border: none;
   color: #fff;
-  font-weight: 500;
+  font-weight: 600;
   border-radius: 8px;
   cursor: pointer;
-  transition: opacity 0.2s;
 }
-.export-btn:hover { opacity: 0.8; }
 
 /* ===== MAPA ===== */
 .map-container {
@@ -187,20 +156,56 @@ body {
 
 /* ===== FOOTER ===== */
 .footer {
-  background: #121316;
-  color: #777;
+  background: #007bff;
+  color: #fff;
   text-align: center;
-  padding: 5px;
-  font-size: 0.75rem;
-  border-top: 1px solid #222;
+  padding: 6px;
+  font-size: 0.8rem;
 }
 
-/* ===== ANIMACIÓN MARCADORES ===== */
-.marker-pulse {
-  animation: pulse 0.9s ease-out 1;
+/* ===== MODAL ===== */
+.modal.hidden { display: none; }
+.modal {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-@keyframes pulse {
-  0% { transform: scale(1); filter: brightness(1.2); }
-  50% { transform: scale(1.3); filter: brightness(1.6); }
-  100% { transform: scale(1); filter: brightness(1); }
+.modal-content {
+  background: #fff;
+  padding: 20px;
+  border-radius: 10px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-content h3 {
+  color: #007bff;
+  margin-bottom: 5px;
+}
+.modal-content select,
+.modal-content input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #c8d7eb;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.modal-actions button {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.modal-actions button.blue {
+  background: #007bff;
+  color: #fff;
 }
