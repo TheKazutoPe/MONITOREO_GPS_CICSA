@@ -308,16 +308,30 @@ async function exportKMZ(brigada, fecha) {
     alert("❌ Ocurrió un error al generar el KMZ: " + err.message);
   }
 }
-
-// ==== Eventos ====
+// ==== Eventos y selección dinámica de brigada ====
 
 const openBtn = document.getElementById("openKmzModal");
 const modal = document.getElementById("kmzModal");
 const cancelBtn = document.getElementById("cancelKmz");
 const brigadaSelect = document.getElementById("brigadaSelect");
 const fechaSelect = document.getElementById("fechaSelect");
+const searchInput = document.createElement("input");
 
-// Toast visual
+// --- Campo de búsqueda dentro del modal ---
+searchInput.type = "text";
+searchInput.placeholder = "🔍 Buscar brigada...";
+searchInput.style.width = "100%";
+searchInput.style.marginBottom = "8px";
+searchInput.style.padding = "6px 10px";
+searchInput.style.borderRadius = "6px";
+searchInput.style.border = "1px solid #1e3a5c";
+searchInput.style.background = "#0b1a2b";
+searchInput.style.color = "#fff";
+
+// Insertamos el buscador arriba del select
+brigadaSelect.parentElement.insertBefore(searchInput, brigadaSelect);
+
+// Crear notificación tipo "toast"
 function showToast(text, color = "#00c851") {
   const toast = document.createElement("div");
   toast.textContent = text;
@@ -348,31 +362,68 @@ function showToast(text, color = "#00c851") {
   }, 3000);
 }
 
-// Modal y exportación
-openBtn.addEventListener("click", () => {
+// --- Abrir modal y cargar brigadas ---
+openBtn.addEventListener("click", async () => {
   modal.classList.remove("hidden");
   brigadaSelect.innerHTML = "";
-  state.brigadas.forEach((r) => {
+
+  setStatus("Cargando brigadas...", "gray");
+
+  // Traer todas las brigadas registradas en Supabase
+  const { data, error } = await supa
+    .from("ubicaciones_brigadas")
+    .select("brigada")
+    .order("brigada", { ascending: true });
+
+  if (error) {
+    alert("Error al cargar brigadas.");
+    console.error(error);
+    setStatus("Conectado", "green");
+    return;
+  }
+
+  // Filtramos únicas
+  const únicas = [...new Set(data.map((r) => r.brigada))].filter(Boolean);
+
+  únicas.forEach((b) => {
     const opt = document.createElement("option");
-    opt.value = r.brigada;
-    opt.textContent = r.brigada;
+    opt.value = b;
+    opt.textContent = b;
     brigadaSelect.appendChild(opt);
   });
+
   fechaSelect.valueAsDate = new Date();
+  setStatus("Conectado", "green");
+
+  // --- Activar filtrado ---
+  searchInput.addEventListener("input", () => {
+    const filtro = searchInput.value.toLowerCase();
+    for (const opt of brigadaSelect.options) {
+      const visible = opt.textContent.toLowerCase().includes(filtro);
+      opt.style.display = visible ? "block" : "none";
+    }
+  });
 });
 
+// --- Cerrar modal ---
 cancelBtn.addEventListener("click", () => {
   modal.classList.add("hidden");
 });
 
+// --- Generar KMZ ---
 ui.generateKmz.addEventListener("click", async () => {
   const brigada = brigadaSelect.value;
   const fecha = fechaSelect.value;
-  if (!brigada || !fecha) return alert("Selecciona brigada y fecha.");
+
+  if (!brigada || !fecha) {
+    alert("⚠️ Selecciona una brigada y fecha antes de generar el KMZ.");
+    return;
+  }
 
   modal.classList.add("hidden");
   setStatus("Generando KMZ...", "gray");
 
+  // Mostrar loading temporal
   const loading = document.createElement("div");
   loading.textContent = "⏳ Generando recorrido...";
   loading.style.position = "fixed";
