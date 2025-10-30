@@ -6,16 +6,7 @@ window.CONFIG = {
 
   // Ruteo / Map-matching
   ROUTE_PROVIDER: "mapbox",                         // 'mapbox' | 'ors' | 'valhalla' | 'none'
-  MAPBOX_TOKEN:   "pk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZqaHo2MnAzNDJrcTJsdGh4ZTJrdSJ9.V58FW_wpDpQ1tguxoO0IqQ",               // <-- pega aquí tu token 'pk.' de Mapbox
+  MAPBOX_TOKEN:   "sk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZqaHo2MnAzNDJrcTJsdGh4ZTJrdSJ9.V58FW_wpDpQ1tguxoO0IqQ",               // <-- pega aquí tu token 'pk.' de Mapbox
   ORS_API_KEY:    "",                               // no se usa con Mapbox
   VALHALLA_URL:   ""                                // no se usa con Mapbox
- // Ajustes de exportación
-  KMZ: {
-    CHUNK_SIZE: 100,        // puntos por chunk para Map Matching
-    MIN_METERS: 20,         // decimado distancia mínimo entre puntos
-    MIN_SECONDS: 30,        // decimado tiempo mínimo entre puntos
-    PROFILE: "driving",     // driving | walking | cycling
-    RADIUS_METERS: 20       // tolerancia por punto
-  }
 };
-
