@@ -1,12 +1,12 @@
 // main.js
 
 // ================== CONFIGURACIONES GLOBALES ==================
-const GAP_MINUTES = 5;           // minutos de salto de tiempo
-const ROUTE_BRIDGE_M = 150;      // metros de salto de distancia
-const MAX_POINTS_PER_USER = 100; // para carga inicial
+const GAP_MINUTES = 5;
+const ROUTE_BRIDGE_M = 150;
+const MAX_POINTS_PER_USER = 100;
 const MAPBOX_DRIVING_PROFILE = "driving";
 
-// 🔹 leer config global que viene de config.js
+// leer config global
 const CONFIG = window.CONFIG || {};
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN || "";
 
@@ -17,29 +17,72 @@ const ui = {
   exportKmz: null,
   statusBar: null,
 };
-
 let map;
 let markerCluster;
-let markersByUser = new Map(); // usuario_id -> { marker, row }
-let supa;
+let markersByUser = new Map();
+let supa; // cliente supabase
 
 // ================== ARRANQUE ==================
 window.addEventListener("DOMContentLoaded", async () => {
-  // referenciar elementos
+  // cache de elementos
   ui.brigada = document.getElementById("brigadaFilter");
   ui.brigadaList = document.getElementById("brigadaList");
   ui.exportKmz = document.getElementById("exportKmz");
   ui.statusBar = document.getElementById("statusBar");
 
   initMap();
-  initSupabase();
   bindUI();
+
+  // 👇 aquí nos aseguramos de que supabase esté disponible
+  await ensureSupabaseLoaded();
+  initSupabase();
 
   await fetchInitialData();
   await subscribeRealtime();
 
   setStatus("Conectado", "green");
 });
+
+// ================== CARGA DINÁMICA DE SUPABASE ==================
+async function ensureSupabaseLoaded() {
+  // si ya está, salimos
+  if (window.supabase && typeof window.supabase.createClient === "function") {
+    return;
+  }
+
+  // si ya hay un script cargándose, espera
+  const existing = document.querySelector('script[data-supabase="1"]');
+  if (existing) {
+    await waitForSupabase(3000);
+    return;
+  }
+
+  // si no, lo creamos
+  const s = document.createElement("script");
+  s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.47.4/dist/umd/supabase.min.js";
+  s.crossOrigin = "anonymous";
+  s.defer = true;
+  s.dataset.supabase = "1";
+  document.head.appendChild(s);
+
+  await waitForSupabase(3000);
+}
+
+function waitForSupabase(timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    (function check() {
+      if (window.supabase && typeof window.supabase.createClient === "function") {
+        return resolve();
+      }
+      if (Date.now() - start > timeoutMs) {
+        console.error("❌ No se cargó la librería de Supabase UMD después de esperar.");
+        return resolve(); // seguimos, pero sin supabase
+      }
+      setTimeout(check, 100);
+    })();
+  });
+}
 
 // ================== SUPABASE ==================
 function initSupabase() {
@@ -112,7 +155,6 @@ async function fetchInitialData() {
   try {
     setStatus("Cargando datos iniciales...", "gray");
 
-    // hoy 00:00 → mañana 00:00
     const today = new Date();
     const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
@@ -131,7 +173,6 @@ async function fetchInitialData() {
 
     if (error) throw error;
 
-    // agrupar por usuario
     const grouped = new Map();
     for (const r of data) {
       const uid = String(r.usuario_id || "0");
@@ -140,9 +181,8 @@ async function fetchInitialData() {
       grouped.get(uid).push(r);
     }
 
-    // dibujar último punto
     for (const [uid, rows] of grouped.entries()) {
-      const latest = rows[0]; // ya están en descendente
+      const latest = rows[0];
       addOrUpdateMarker(latest);
     }
 
@@ -222,9 +262,9 @@ function getColorFromTimestamp(ts) {
   const now = Date.now();
   const t = new Date(ts).getTime();
   const diffMin = (now - t) / 60000;
-  if (diffMin <= 2) return "#30d158"; // verde
-  if (diffMin <= 5) return "#ffd60a"; // amarillo
-  return "#9e9e9e"; // gris
+  if (diffMin <= 2) return "#30d158";
+  if (diffMin <= 5) return "#ffd60a";
+  return "#9e9e9e";
 }
 
 // ================== LISTA LATERAL ==================
@@ -258,7 +298,6 @@ function renderListFromMarkers() {
       <div class="time">${fecha}</div>
     `;
 
-    // al hacer click: centro y lleno el filtro con esa brigada
     el.addEventListener("click", () => {
       ui.brigada.value = r.brigada || "";
       renderListFromMarkers();
@@ -294,7 +333,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // query a supabase con fecha y (opcional) brigada
     let query = supa
       .from("ubicaciones_brigadas")
       .select("*")
@@ -316,7 +354,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // agrupar por usuario
     const byUser = new Map();
     for (const r of data) {
       const uid = String(r.usuario_id || "0");
@@ -335,7 +372,6 @@ async function exportKMZFromState() {
     for (const [uid, rows] of byUser.entries()) {
       if (rows.length < 2) continue;
 
-      // ordenar por tiempo
       rows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
       const name = (rows[0].tecnico || rows[0].brigada || `Brigada ${uid}`).replace(/&/g, "&amp;");
@@ -359,14 +395,10 @@ async function exportKMZFromState() {
 
         let seg = [a, b];
 
-        // sólo ruteo cuando hay salto de tiempo/distancia
         if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M) {
           seg = await routeBetween(a, b);
-          if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M) {
-            await sleep(120);
-          }
+          await sleep(120);
         } else if (gap > 40) {
-          // aquí sí tiene sentido snapear
           seg = await snapSegmentToRoad(seg);
           await sleep(120);
         }
@@ -400,7 +432,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // descargar KMZ
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({ type: "blob" });
