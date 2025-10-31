@@ -1,7 +1,7 @@
-// ========================= Supabase client =========================
+// ====== Supabase client ======
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
-// ========================= UI refs =========================
+// ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -10,41 +10,31 @@ const ui = {
   userList: document.getElementById("userList"),
 };
 
-// ========================= Estado global =========================
+// ====== Estado ======
 const state = {
   map: null,
   baseLayers: {},
   cluster: null,
   users: new Map(),        // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> rows[]
+  pointsByUser: new Map(), // uid -> [rows]
 };
 
-// ========================= Constantes de KMZ / rutas =========================
+// ====== Constantes de export ======
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// precisión / limpieza
-const MAX_MM_POINTS = 50;          // máx puntos por request de map-matching
-const GAP_MINUTES = 20;            // si pasan más de 20 min -> nuevo tramo
-const GAP_HARD_METERS = 1500;      // huecos muy largos ya no los inventamos
-const CLEAN_MIN_METERS = 4;        // quitar puntos muy pegados
-const DENSIFY_STEP = 20;           // densificar entre puntos
-const MAX_DIST_RATIO = 0.35;       // validar que map-matching no se aleje mucho
-const ENDPOINT_TOL = 25;           // no mover puntas más de 25 m
-const PER_BLOCK_DELAY = 150;       // esperar entre llamadas
-const DIRECTIONS_HOP_METERS = 450; // si hay hueco largo, trocear en este largo
-const MAX_BRIDGE_DEVIATION = 80;   // si directions se aleja más de esto, descartar
+// modo preciso, pero ahora sí puenteamos con DIRECTIONS (no diagonales)
+const MAX_MM_POINTS = 50;         // bloques chicos para map-matching
+const GAP_MINUTES = 20;           // si pasan >20 min -> nuevo tramo
+const GAP_HARD_METERS = 1500;     // si el hueco es MUY grande (>1.5km) ya no intentamos
+const CLEAN_MIN_METERS = 4;       // limpiar puntitos pegados
+const DENSIFY_STEP = 20;          // densificar cada 20 m
+const MAX_DIST_RATIO = 0.35;      // validar map-matching
+const ENDPOINT_TOL = 25;          // no mover puntas >25 m
+const PER_BLOCK_DELAY = 150;      // delay entre requests
+const DIRECTIONS_HOP_METERS = 450;// si el hueco es largo, pedir varias direcciones
+const MAX_BRIDGE_DEVIATION = 80;  // si el bridge se aleja >80m del punto real, lo descartamos
 
-// candados contra rutas locas
-const BRIDGE_MAX_LENGTH_FACTOR = 1.8;  // si la ruta es 1.8x la recta -> no
-const BRIDGE_MAX_POINT_DEVIATION = 70; // si un punto del bridge se va >70m -> no
-
-// ANTI ARAÑA FUERTE
-const NOISY_STOP_RADIUS = 50;      // radio de puntos considerados "en la misma parada"
-const NOISY_STOP_MIN_POINTS = 5;   // con 5 puntos ya lo tomamos como parada ruidosa
-const NOISY_STOP_MAX_MIN = 20;     // si duró hasta 20 min seguimos colapsando
-const SPEEDY_JUMP_METERS = 35;     // saltos chicos pero bruscos que ignoramos
-
-// ========================= Íconos de brigadas =========================
+// ====== Íconos ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -57,7 +47,7 @@ function getIconFor(row) {
   return ICONS.gray;
 }
 
-// ========================= Helpers generales =========================
+// ====== Helpers ======
 function distMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -82,38 +72,7 @@ function chunk(arr,size){
   return out;
 }
 
-// distancia punto-recta para validar puentes
-function distPointToSegment(p, a, b) {
-  const A = {x: a.lng, y: a.lat};
-  const B = {x: b.lng, y: b.lat};
-  const P = {x: p.lng, y: p.lat};
-  const ABx = B.x - A.x;
-  const ABy = B.y - A.y;
-  const APx = P.x - A.x;
-  const APy = P.y - A.y;
-  const ab2 = ABx*ABx + ABy*ABy;
-  const t = ab2 === 0 ? 0 : (APx*ABx + APy*ABy)/ab2;
-  const clamped = Math.max(0, Math.min(1, t));
-  const proj = { x: A.x + ABx*clamped, y: A.y + ABy*clamped };
-  const dx = P.x - proj.x;
-  const dy = P.y - proj.y;
-  // grado -> metros
-  const meterPerDeg = 111320;
-  return Math.sqrt(dx*dx + dy*dy) * meterPerDeg;
-}
-
-// promedio de puntos (para colapsar parada)
-function averagePoint(arr){
-  let lat=0, lng=0;
-  for (const p of arr){ lat+=p.lat; lng+=p.lng; }
-  lat /= arr.length; lng /= arr.length;
-  return {
-    lat, lng,
-    timestamp: arr[Math.floor(arr.length/2)].timestamp
-  };
-}
-
-// ========================= densificar =========================
+// ====== densificar una secuencia ======
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -139,8 +98,8 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ========================= fallback recto =========================
-function straightInterpolate(a, b, step = 30) {
+// ====== para fallback: línea recta troceada ======
+function straightInterpolate(a, b, step = 40) {
   const d = distMeters(a, b);
   if (d <= step) return [a, b];
   const n = Math.ceil(d / step);
@@ -155,7 +114,7 @@ function straightInterpolate(a, b, step = 30) {
   return out;
 }
 
-// ========================= init mapa =========================
+// ====== Mapa ======
 function initMap(){
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
   state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
@@ -167,13 +126,13 @@ function initMap(){
 }
 initMap();
 
-// ========================= Status =========================
+// ====== Status ======
 function setStatus(text, kind){
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
 }
 
-// ========================= centrar en brigada =========================
+// ====== centrar en brigada ======
 function focusOnUser(uid) {
   const u = state.users.get(uid);
   if (!u || !u.marker) return;
@@ -182,7 +141,7 @@ function focusOnUser(uid) {
   u.marker.openPopup();
 }
 
-// ========================= Popup =========================
+// ====== Popup ======
 function buildPopup(r){
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
@@ -190,7 +149,7 @@ function buildPopup(r){
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${r.brigada || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
-// ========================= Lista lateral =========================
+// ====== Lista lateral ======
 function addOrUpdateUserInList(row){
   const uid = String(row.usuario_id || "0");
   let el = document.getElementById(`u-${uid}`);
@@ -235,7 +194,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ========================= Cargar últimas 24h =========================
+// ====== Cargar últimas 24h ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -279,11 +238,11 @@ async function fetchInitial(clear){
   setStatus("Conectado","green");
 }
 
-// ===================================================================
-// ========================= KMZ helpers =============================
-// ===================================================================
+// ============================================================================
+// ======================= KMZ: helpers =======================================
+// ============================================================================
 
-// 1) limpiar puntos muy pegados
+// quitar puntos pegados
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -297,38 +256,7 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   return out;
 }
 
-// 2) colapsar PARADA RUIDOSA (la “araña”)
-function collapseNoisyStops(points) {
-  if (!points.length) return points;
-  const out = [];
-  let bucket = [points[0]];
-  for (let i = 1; i < points.length; i++) {
-    const p = points[i];
-    const first = bucket[0];
-    const d = distMeters(first, p);
-    const dtMin = (new Date(p.timestamp) - new Date(first.timestamp)) / 60000;
-
-    if (d <= NOISY_STOP_RADIUS && dtMin <= NOISY_STOP_MAX_MIN) {
-      bucket.push(p);
-    } else {
-      if (bucket.length >= NOISY_STOP_MIN_POINTS) {
-        out.push(averagePoint(bucket));
-      } else {
-        out.push(...bucket);
-      }
-      bucket = [p];
-    }
-  }
-  // 👇 aquí estaba el error, ahora está bien
-  if (bucket.length >= NOISY_STOP_MIN_POINTS) {
-    out.push(averagePoint(bucket));
-  } else {
-    out.push(...bucket);
-  }
-  return out;
-}
-
-// 3) cortar por tiempo
+// cortar por tiempo/distancia
 function splitOnGaps(points, maxGapMin = GAP_MINUTES){
   const groups = [];
   let cur = [];
@@ -348,49 +276,35 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES){
   return groups;
 }
 
-// pedir directions con validaciones
+// pedir directions para UN TRAMO
 async function directionsBetween(a, b) {
-  if (!MAPBOX_TOKEN) return straightInterpolate(a, b, 30);
-
-  const dStraight = distMeters(a, b);
+  if (!MAPBOX_TOKEN) return straightInterpolate(a, b, 40);
   const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
   const r = await fetch(url);
-  if (!r.ok) return straightInterpolate(a, b, 30);
-
+  if (!r.ok) return straightInterpolate(a, b, 40);
   const j = await r.json();
   const coords = j.routes?.[0]?.geometry?.coordinates || [];
-  if (!coords.length) return straightInterpolate(a, b, 30);
+  if (!coords.length) return straightInterpolate(a, b, 40);
 
-  let routeLen = 0;
-  for (let i=0;i<coords.length-1;i++){
-    const p1 = {lat: coords[i][1], lng: coords[i][0]};
-    const p2 = {lat: coords[i+1][1], lng: coords[i+1][0]};
-    routeLen += distMeters(p1, p2);
+  // validar que el primer punto no se aleje loco
+  const first = {lat: coords[0][1], lng: coords[0][0]};
+  if (distMeters(a, first) > MAX_BRIDGE_DEVIATION) {
+    return straightInterpolate(a, b, 40);
   }
-  if (routeLen > BRIDGE_MAX_LENGTH_FACTOR * dStraight) {
-    return straightInterpolate(a, b, 30);
-  }
-
-  for (const [lng,lat] of coords) {
-    const p = {lat, lng};
-    const dv = distPointToSegment(p, a, b);
-    if (dv > BRIDGE_MAX_POINT_DEVIATION) {
-      return straightInterpolate(a, b, 30);
-    }
-  }
-
   return coords.map(([lng,lat])=>({lat,lng}));
 }
 
-// bridge troceado
+// puente inteligente (trocea en varios directions si es largo)
 async function smartBridge(a, b) {
   const d = distMeters(a, b);
   if (d > GAP_HARD_METERS) {
-    return straightInterpolate(a, b, 50);
+    // muy largo, no inventamos
+    return straightInterpolate(a, b, 60);
   }
   if (d <= DIRECTIONS_HOP_METERS) {
-    return await directionsBetween(a, b);
+    return directionsBetween(a, b);
   }
+  // dividir en hops
   const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
   const out = [a];
   let prev = a;
@@ -408,7 +322,7 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// map-matching seguro
+// map-matching seguro (con densificado)
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN) return null;
   if (seg.length < 2) return null;
@@ -416,6 +330,7 @@ async function mapMatchBlockSafe(seg){
 
   const dense = densifySegment(seg, DENSIFY_STEP);
 
+  // distancia cruda
   let rawDist = 0;
   for (let i=0;i<dense.length-1;i++){
     rawDist += distMeters(dense[i], dense[i+1]);
@@ -430,22 +345,24 @@ async function mapMatchBlockSafe(seg){
   if (!match || !match.geometry || !match.geometry.coordinates) return null;
   const matched = match.geometry.coordinates.map(([lng,lat])=>({lat,lng}));
 
-  let mmDist = 0;
+  // distancia matcheada
+  let mmDist=0;
   for (let i=0;i<matched.length-1;i++){
     mmDist += distMeters(matched[i], matched[i+1]);
   }
   const diff = Math.abs(mmDist - rawDist);
   if (diff / Math.max(rawDist,1) > MAX_DIST_RATIO) return null;
 
+  // validar puntas
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense[dense.length-1], matched[matched.length-1]) > ENDPOINT_TOL) return null;
 
   return matched;
 }
 
-// ===================================================================
-// ========================= EXPORTAR KMZ =============================
-// ===================================================================
+// ============================================================================
+// ============================= EXPORTAR KMZ =================================
+// ============================================================================
 async function exportKMZFromState(){
   let prevDisabled = false;
   try {
@@ -478,7 +395,6 @@ async function exportKMZFromState(){
       return;
     }
 
-    // agrupar por usuario
     const byUser = new Map();
     for (const r of data){
       const uid = String(r.usuario_id || "0");
@@ -496,57 +412,46 @@ async function exportKMZFromState(){
               `<name>${brig} - ${ymd}</name>`;
     let placemarks = 0;
 
-    for (const [uid, rawRows] of byUser.entries()){
-      if (rawRows.length < 2) continue;
-      const tecnicoName = (rawRows[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
+    for (const [uid, rows0] of byUser.entries()){
+      if (rows0.length < 2) continue;
+      const tecnicoName = (rows0[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
 
-      // 1) limpiar pegados
-      let rows = cleanClosePoints(rawRows, CLEAN_MIN_METERS);
-      // 2) colapsar parada ruidosa (esto mata la araña)
-      rows = collapseNoisyStops(rows);
-      // 3) partir en segmentos por tiempo
-      const segments = splitOnGaps(rows, GAP_MINUTES);
+      // 1) limpiar
+      const rows1 = cleanClosePoints(rows0, CLEAN_MIN_METERS);
+      // 2) cortar por tiempo
+      const segments = splitOnGaps(rows1, GAP_MINUTES);
 
       for (const seg of segments){
         if (seg.length < 2) continue;
 
+        // trocear en bloques
         const blocks = chunk(seg, MAX_MM_POINTS);
         let current = [];
 
         for (let i=0;i<blocks.length;i++){
           const block = blocks[i];
 
-          // quitar saltos bruscos estando casi parado
-          const filteredBlock = [];
-          for (let j=0;j<block.length;j++){
-            if (!filteredBlock.length) { filteredBlock.push(block[j]); continue; }
-            const prev = filteredBlock[filteredBlock.length-1];
-            const cur  = block[j];
-            const dt = (new Date(cur.timestamp) - new Date(prev.timestamp))/1000;
-            const dm = distMeters(prev, cur);
-            if (dt < 20 && dm > SPEEDY_JUMP_METERS) {
-              // ruido -> no lo meto
-              continue;
-            }
-            filteredBlock.push(cur);
-          }
-
-          let finalBlock = densifySegment(filteredBlock, DENSIFY_STEP);
+          // map-matching + densificado
+          let finalBlock = densifySegment(block, DENSIFY_STEP);
           try {
-            const mm = await mapMatchBlockSafe(filteredBlock);
+            const mm = await mapMatchBlockSafe(block);
             if (mm && mm.length >= 2) finalBlock = mm;
-          } catch(e){}
+          } catch(e){
+            // nos quedamos con el densificado
+          }
 
           if (!current.length){
             current.push(...finalBlock);
           } else {
+            // unir con ruta de pista, no diagonal
             const last = current[current.length-1];
             const first = finalBlock[0];
             const gap = distMeters(last, first);
 
-            if (gap < 5){
+            if (gap < 5) {
               current.push(...finalBlock.slice(1));
             } else {
+              // hacemos bridge por pista
               const bridge = await smartBridge(last, first);
               current.push(...bridge.slice(1));
               current.push(...finalBlock.slice(1));
@@ -603,6 +508,6 @@ async function exportKMZFromState(){
   }
 }
 
-// ========================= Arranque =========================
+// ====== Arranque ======
 setStatus("Cargando...","gray");
 fetchInitial(true);
