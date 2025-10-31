@@ -21,6 +21,10 @@ const state = {
 
 // ====== Const ======
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
+const MAX_MM_POINTS = 80;          // solo map-matcheo hasta 80 puntos
+const MAX_DIST_RATIO = 0.25;       // ±25% de diferencia de distancia
+const MAX_ENDPOINT_SHIFT = 15;     // no muevas inicio/fin más de 15 m
+const MAX_POINT_DEVIATION = 40;    // no te alejes más de 40 m del crudo
 const GAP_MINUTES = 5;
 
 // ====== Íconos ======
@@ -48,19 +52,24 @@ function distMeters(a, b) {
     Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(s1), Math.sqrt(1 - s1));
 }
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-function toYMD(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function toYMD(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const dd=String(d.getDate()).padStart(2,"0");
   return `${y}-${m}-${dd}`;
+}
+function chunk(arr,size){
+  const out=[];
+  for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
+  return out;
 }
 
 // ====== Mapa ======
-function initMap() {
-  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20 });
-  state.map = L.map("map", { center: [-12.0464, -77.0428], zoom: 12, layers: [state.baseLayers.osm] });
-  state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 16 });
+function initMap(){
+  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
+  state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
+  state.cluster = L.markerClusterGroup({disableClusteringAtZoom:16});
   state.map.addLayer(state.cluster);
 
   ui.apply.onclick = () => fetchInitial(true);
@@ -69,13 +78,13 @@ function initMap() {
 initMap();
 
 // ====== Status ======
-function setStatus(text, kind) {
+function setStatus(text,kind){
   ui.status.textContent = text;
-  ui.status.className = `status-badge ${kind || "gray"}`;
+  ui.status.className = `status-badge ${kind||"gray"}`;
 }
 
 // ====== Popup ======
-function buildPopup(r) {
+function buildPopup(r){
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
   const ts = new Date(r.timestamp).toLocaleString();
@@ -83,16 +92,15 @@ function buildPopup(r) {
 }
 
 // ====== Lista lateral ======
-function addOrUpdateUserInList(row) {
+function addOrUpdateUserInList(row){
   const uid = String(row.usuario_id || "0");
   let el = document.getElementById(`u-${uid}`);
 
-  const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
+  const mins = Math.round((Date.now()-new Date(row.timestamp))/60000);
   const brig = row.brigada || "-";
   const hora = new Date(row.timestamp).toLocaleTimeString();
-
-  const ledColor = mins <= 2 ? "#4ade80" : mins <= 5 ? "#eab308" : "#777";
-  const cls = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
+  const ledColor = mins<=2 ? "#4ade80" : mins<=5 ? "#eab308" : "#777";
+  const cls = mins<=2 ? "text-green" : mins<=5 ? "text-yellow" : "text-gray";
 
   const html = `
     <div class="brigada-header">
@@ -107,12 +115,12 @@ function addOrUpdateUserInList(row) {
     </div>
   `;
 
-  if (!el) {
+  if(!el){
     el = document.createElement("div");
     el.id = `u-${uid}`;
     el.className = `brigada-item ${cls}`;
     el.innerHTML = html;
-    el.onclick = () => {
+    el.onclick = ()=> {
       ui.brigada.value = brig;
       fetchInitial(true);
     };
@@ -120,35 +128,32 @@ function addOrUpdateUserInList(row) {
   } else {
     el.className = `brigada-item ${cls} marker-pulse`;
     el.innerHTML = html;
-    setTimeout(() => el.classList.remove("marker-pulse"), 600);
+    setTimeout(()=>el.classList.remove("marker-pulse"),600);
   }
 }
 
 // ====== Cargar últimas 24h ======
-async function fetchInitial(clear) {
-  setStatus("Cargando…", "gray");
-  if (clear) ui.userList.innerHTML = "";
+async function fetchInitial(clear){
+  setStatus("Cargando…","gray");
+  if(clear) ui.userList.innerHTML="";
 
-  const { data, error } = await supa
+  const {data,error} = await supa
     .from("ubicaciones_brigadas")
     .select("*")
-    .gte("timestamp", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-    .order("timestamp", { ascending: false });
+    .gte("timestamp", new Date(Date.now()-24*60*60*1000).toISOString())
+    .order("timestamp",{ascending:false});
 
-  if (error) {
-    setStatus("Error", "gray");
-    return;
-  }
+  if(error){ setStatus("Error","gray"); return; }
 
-  const brigFilter = (ui.brigada.value || "").trim().toLowerCase();
+  const brigFilter = (ui.brigada.value||"").trim().toLowerCase();
   const perUser = 100;
   const grouped = new Map();
 
-  for (const r of data) {
-    if (brigFilter && !(r.brigada || "").toLowerCase().includes(brigFilter)) continue;
+  for(const r of data){
+    if(brigFilter && !(r.brigada||"").toLowerCase().includes(brigFilter)) continue;
     const uid = String(r.usuario_id || "0");
-    if (!grouped.has(uid)) grouped.set(uid, []);
-    if (grouped.get(uid).length >= perUser) continue;
+    if(!grouped.has(uid)) grouped.set(uid,[]);
+    if(grouped.get(uid).length >= perUser) continue;
     grouped.get(uid).push(r);
   }
 
@@ -156,121 +161,158 @@ async function fetchInitial(clear) {
   state.cluster.clearLayers();
   state.users.clear();
 
-  grouped.forEach((rows, uid) => {
+  grouped.forEach((rows,uid)=>{
     const last = rows[0];
-    const marker = L.marker([last.latitud, last.longitud], { icon: getIconFor(last) }).bindPopup(buildPopup(last));
+    const marker = L.marker([last.latitud,last.longitud],{icon:getIconFor(last)}).bindPopup(buildPopup(last));
     state.cluster.addLayer(marker);
-
-    state.users.set(uid, { marker, lastRow: last });
-    state.pointsByUser.set(uid, rows);
-
+    state.users.set(uid,{marker,lastRow:last});
+    state.pointsByUser.set(uid,rows);
     addOrUpdateUserInList(last);
   });
 
-  setStatus("Conectado", "green");
+  setStatus("Conectado","green");
 }
 
-// ====== Exportar KMZ (por brigada + día) ======
-
-// partir en tramos si hay huecos grandes
-function splitOnGaps(points, maxGapMin = 20, maxGapMeters = 1200) {
-  const groups = [];
-  let cur = [];
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    if (!cur.length) { cur.push(p); continue; }
-    const prev = cur[cur.length - 1];
-    const dtMin = (new Date(p.timestamp) - new Date(prev.timestamp)) / 60000;
-    const dm = distMeters(prev, p);
-    if (dtMin > maxGapMin || dm > maxGapMeters) {
-      if (cur.length > 1) groups.push(cur);
-      cur = [p];
+// ====== Partir en tramos por huecos ======
+function splitOnGaps(points, maxGapMin=20, maxGapMeters=1200){
+  const groups=[];
+  let cur=[];
+  for(let i=0;i<points.length;i++){
+    const p=points[i];
+    if(!cur.length){ cur.push(p); continue; }
+    const prev=cur[cur.length-1];
+    const dtMin=(new Date(p.timestamp)-new Date(prev.timestamp))/60000;
+    const dm=distMeters(prev,p);
+    if(dtMin>maxGapMin || dm>maxGapMeters){
+      if(cur.length>1) groups.push(cur);
+      cur=[p];
     } else {
       cur.push(p);
     }
   }
-  if (cur.length > 1) groups.push(cur);
+  if(cur.length>1) groups.push(cur);
   return groups;
 }
 
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
+// ====== Mapbox seguro ======
+async function mapMatch_safeBlock(seg){
+  // seg: [{lat,lng,timestamp}, ...]
+  if(!MAPBOX_TOKEN) return null;
+  if(!seg || seg.length<2) return null;
+  if(seg.length > MAX_MM_POINTS) return null; // solo bloques chicos
 
-async function mapMatch100(seg) {
-  const coords = seg.map(p => `${p.lng},${p.lat}`).join(";");
+  // 1) distancia cruda
+  let rawDist=0;
+  for(let i=0;i<seg.length-1;i++){
+    rawDist += distMeters(seg[i], seg[i+1]);
+  }
+
+  // 2) pedir a mapbox
+  const coords = seg.map(p=>`${p.lng},${p.lat}`).join(";");
   const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&tidy=true&access_token=${MAPBOX_TOKEN}`;
   const r = await fetch(url);
-  if (!r.ok) throw new Error("mapbox fail");
+  if(!r.ok) return null;
   const j = await r.json();
   const match = j.matchings && j.matchings[0];
-  if (!match || !match.geometry || !match.geometry.coordinates) throw new Error("sin geometry");
-  return match.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+  if(!match || !match.geometry || !match.geometry.coordinates) return null;
+  const matched = match.geometry.coordinates.map(([lng,lat])=>({lat,lng}));
+
+  // 3) distancia matcheada
+  let matchDist=0;
+  for(let i=0;i<matched.length-1;i++){
+    matchDist += distMeters(matched[i],matched[i+1]);
+  }
+
+  // 4) validar distancia (±25%)
+  const diff = Math.abs(matchDist - rawDist);
+  const ratio = diff / Math.max(rawDist,1);
+  if(ratio > MAX_DIST_RATIO) {
+    return null;
+  }
+
+  // 5) validar que no movió el inicio/fin
+  const startShift = distMeters(seg[0], matched[0]);
+  const endShift   = distMeters(seg[seg.length-1], matched[matched.length-1]);
+  if(startShift > MAX_ENDPOINT_SHIFT || endShift > MAX_ENDPOINT_SHIFT){
+    return null;
+  }
+
+  // 6) validar que no se fue lejos de forma brutal (pico)
+  //    tomamos 1 de cada 5 puntos crudos y vemos el más cercano del match
+  for(let i=0;i<seg.length;i+=5){
+    const p = seg[i];
+    let min = Infinity;
+    for(const m of matched){
+      const d = distMeters(p,m);
+      if(d < min) min = d;
+    }
+    if(min > MAX_POINT_DEVIATION){
+      // se alejó demasiado → no usamos
+      return null;
+    }
+  }
+
+  return matched;
 }
 
-function concatSegments(segments) {
-  const out = [];
-  for (const seg of segments) {
-    if (!seg || !seg.length) continue;
-    if (!out.length) out.push(...seg);
+// ====== Unir bloques sin repetir ======
+function concatSegments(segments){
+  const out=[];
+  for(const seg of segments){
+    if(!seg || !seg.length) continue;
+    if(!out.length) out.push(...seg);
     else {
-      const last = out[out.length - 1];
+      const last = out[out.length-1];
       const first = seg[0];
       const d = distMeters(last, first);
-      if (d < 2) out.push(...seg.slice(1));
+      if(d<2) out.push(...seg.slice(1));
       else out.push(...seg);
     }
   }
   return out;
 }
 
-async function exportKMZFromState() {
-  let prevDisabled = false;
-  try {
-    setStatus("Generando KMZ…", "gray");
-    if (ui?.exportKmz) { prevDisabled = ui.exportKmz.disabled; ui.exportKmz.disabled = true; }
+// ====== EXPORTAR KMZ ======
+async function exportKMZFromState(){
+  let prevDisabled=false;
+  try{
+    setStatus("Generando KMZ…","gray");
+    if(ui?.exportKmz){ prevDisabled=ui.exportKmz.disabled; ui.exportKmz.disabled=true; }
 
-    // brigada
-    const brig = (ui.brigada.value || "").trim();
-    if (!brig) {
-      alert("Escribe la brigada EXACTA para exportar su KMZ.");
-      return;
-    }
+    const brig = (ui.brigada.value||"").trim();
+    if(!brig){ alert("Escribe la brigada EXACTA para exportar su KMZ."); return; }
 
-    // fecha
     const dateInput = document.getElementById("kmzDate");
-    const chosen = (dateInput && dateInput.value) ? new Date(dateInput.value + "T00:00:00") : new Date();
+    const chosen = (dateInput && dateInput.value) ? new Date(dateInput.value+"T00:00:00") : new Date();
     const ymd = toYMD(chosen);
-    const next = new Date(chosen.getTime() + 24*60*60*1000);
+    const next = new Date(chosen.getTime()+24*60*60*1000);
     const ymdNext = toYMD(next);
 
-    // leer día completo usando timestamp_pe (tu columna Peru)
-    const { data, error } = await supa
+    // leemos por timestamp_pe (hora Lima)
+    const {data,error} = await supa
       .from("ubicaciones_brigadas")
       .select("latitud,longitud,timestamp,tecnico,usuario_id")
       .eq("brigada", brig)
       .gte("timestamp_pe", ymd)
       .lt("timestamp_pe", ymdNext)
-      .order("timestamp_pe", { ascending: true });
+      .order("timestamp_pe", {ascending:true});
 
-    if (error) throw new Error(error.message);
-    if (!data || data.length < 2) {
+    if(error) throw new Error(error.message);
+    if(!data || data.length<2){
       alert(`⚠️ No hay datos para "${brig}" en ${ymd}.`);
       return;
     }
 
     // agrupar por usuario_id
     const byUser = new Map();
-    for (const r of data) {
+    for(const r of data){
       const uid = String(r.usuario_id || "0");
-      if (!byUser.has(uid)) byUser.set(uid, []);
+      if(!byUser.has(uid)) byUser.set(uid, []);
       byUser.get(uid).push({
-        lat: r.latitud,
-        lng: r.longitud,
-        timestamp: r.timestamp,
-        tecnico: r.tecnico || `Tecnico ${uid}`
+        lat:r.latitud,
+        lng:r.longitud,
+        timestamp:r.timestamp,
+        tecnico:r.tecnico || `Tecnico ${uid}`
       });
     }
 
@@ -278,15 +320,15 @@ async function exportKMZFromState() {
     let kml = `<?xml version="1.0" encoding="UTF-8"?>` +
               `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
               `<name>${brig} - ${ymd}</name>`;
-    let placemarks = 0;
+    let placemarks=0;
 
-    for (const [uid, rows] of byUser.entries()) {
-      if (rows.length < 2) continue;
-      const tecnicoName = (rows[0].tecnico || `Tecnico ${uid}`).replace(/&/g, "&amp;");
+    for(const [uid,rows] of byUser.entries()){
+      if(rows.length<2) continue;
+      const tecnicoName = (rows[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
 
-      // si el día no tiene tantos puntos -> directo
-      if (rows.length <= 300 || !MAPBOX_TOKEN) {
-        const coords = rows.map(p => `${p.lng},${p.lat},0`).join(" ");
+      // si son pocos puntos: no nos complicamos
+      if(rows.length <= 300 || !MAPBOX_TOKEN){
+        const coords = rows.map(p=>`${p.lng},${p.lat},0`).join(" ");
         kml += `
           <Placemark>
             <name>${tecnicoName} (${brig})</name>
@@ -297,29 +339,33 @@ async function exportKMZFromState() {
         continue;
       }
 
-      // muchos puntos: cortar por huecos y procesar en bloques de 100
+      // muchos puntos: partir por huecos
       const segments = splitOnGaps(rows, 20, 1200);
-      for (const seg of segments) {
-        if (seg.length < 2) continue;
+      for(const seg of segments){
+        if(seg.length<2) continue;
 
-        const chunks = chunk(seg, 100);
-        const matchedChunks = [];
-
-        for (const ch of chunks) {
-          try {
-            const mm = await mapMatch100(ch);
-            matchedChunks.push(mm);
-            await sleep(120); // evitar rate limit
-          } catch (e) {
-            // si falla mapbox, usamos el chunk crudo
-            matchedChunks.push(ch.map(p => ({ lat: p.lat, lng: p.lng })));
+        // cada segmento lo corto en bloques de hasta MAX_MM_POINTS
+        const blocks = chunk(seg, MAX_MM_POINTS);
+        const finalBlocks = [];
+        for(const block of blocks){
+          try{
+            const mm = await mapMatch_safeBlock(block);
+            if(mm && mm.length>=2){
+              finalBlocks.push(mm);
+            } else {
+              // usamos crudo
+              finalBlocks.push(block.map(p=>({lat:p.lat,lng:p.lng})));
+            }
+            await sleep(110);
+          } catch(e){
+            finalBlocks.push(block.map(p=>({lat:p.lat,lng:p.lng})));
           }
         }
 
-        const finalSeg = concatSegments(matchedChunks);
-        if (finalSeg.length < 2) continue;
+        const finalSeg = concatSegments(finalBlocks);
+        if(finalSeg.length<2) continue;
 
-        const coords = finalSeg.map(p => `${p.lng},${p.lat},0`).join(" ");
+        const coords = finalSeg.map(p=>`${p.lng},${p.lat},0`).join(" ");
         kml += `
           <Placemark>
             <name>${tecnicoName} (${brig})</name>
@@ -332,16 +378,16 @@ async function exportKMZFromState() {
 
     kml += `</Document></kml>`;
 
-    if (!placemarks) throw new Error("No se generó ninguna traza válida.");
+    if(!placemarks) throw new Error("No se generó ninguna traza válida.");
 
     // descargar KMZ
-    const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g, "_");
+    const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g,"_");
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({
-      type: "blob",
-      compression: "DEFLATE",
-      compressionOptions: { level: 1 }
+      type:"blob",
+      compression:"DEFLATE",
+      compressionOptions:{level:1}
     });
 
     const a = document.createElement("a");
@@ -351,15 +397,15 @@ async function exportKMZFromState() {
     URL.revokeObjectURL(a.href);
 
     alert(`✅ KMZ listo para "${brig}" (${placemarks} tramo(s))`);
-  } catch (e) {
+  } catch(e){
     console.error(e);
     alert("❌ No se pudo generar el KMZ: " + e.message);
   } finally {
-    setStatus("Conectado", "green");
-    if (ui?.exportKmz) ui.exportKmz.disabled = prevDisabled;
+    setStatus("Conectado","green");
+    if(ui?.exportKmz) ui.exportKmz.disabled = prevDisabled;
   }
 }
 
-// ====== arranque ======
-setStatus("Cargando...", "gray");
+// ====== Arranque ======
+setStatus("Cargando...","gray");
 fetchInitial(true);
