@@ -261,75 +261,111 @@ function addOrUpdateUserInList(row) {
 }
 
 // ====== Exportar KMZ (corregido y optimizado) ======
+// ====== Exportar KMZ por brigada y por día (mínimo cambio) ======
 async function exportKMZFromState() {
   try {
     setStatus("Generando KMZ...", "gray");
     ui.exportKmz.disabled = true;
 
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    // 1) Brigada obligatoria (exacta)
     const brig = (ui.brigada.value || "").trim();
+    if (!brig) {
+      alert("Escribe el nombre EXACTO de la brigada en el buscador para exportar su KMZ.");
+      return;
+    }
 
+    // 2) Rango de fecha (hoy por defecto, o la elegida en #kmzDate)
+    const dateInput = document.getElementById("kmzDate");
+    const chosen = (dateInput && dateInput.value) ? new Date(dateInput.value + "T00:00:00") : new Date();
+    const start = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate());
+    const end   = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate() + 1);
+
+    // 3) Consulta Supabase solo para esa brigada y ese día
     const { data, error } = await supa
       .from("ubicaciones_brigadas")
       .select("*")
+      .eq("brigada", brig) // <-- fuerza solo esa brigada
       .gte("timestamp", start.toISOString())
       .lt("timestamp", end.toISOString())
       .order("timestamp", { ascending: true });
 
     if (error) throw new Error("Error en consulta Supabase");
-    if (!data || data.length === 0) { alert("⚠️ No hay datos disponibles para exportar."); return; }
+    if (!data || data.length === 0) {
+      alert(`⚠️ No hay datos para la brigada "${brig}" en ${start.toISOString().slice(0,10)}.`);
+      return;
+    }
 
+    // 4) Agrupar por usuario_id (por si esa brigada tuvo 2 equipos con mismo nombre)
     const byUser = new Map();
     for (const r of data) {
-      if (brig && (r.brigada || "").toLowerCase().indexOf(brig.toLowerCase()) === -1) continue;
       const uid = String(r.usuario_id || "0");
       if (!byUser.has(uid)) byUser.set(uid, []);
       byUser.get(uid).push(r);
     }
 
-    let kml = `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Rutas ${start.toISOString().slice(0,10)}</name>`;
+    // 5) Generar KML con ruteo y map-matching (tal como ya usas con Mapbox)
+    let kml = `<?xml version="1.0" encoding="UTF-8"?>` +
+              `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
+              `<name>${brig} - ${start.toISOString().slice(0,10)}</name>`;
+
     let totalProcessed = 0;
 
     for (const [uid, rows] of byUser.entries()) {
       if (rows.length < 2) continue;
-      const name = (rows[0].tecnico || `Brigada ${uid}`).replace(/&/g, "&amp;");
+
+      const tecnicoName = (rows[0].tecnico || `Tecnico ${uid}`).replace(/&/g, "&amp;");
       let full = [];
 
+      // Ensamblar segmentos con Route + Snap (tu misma lógica)
       for (let i = 0; i < rows.length - 1; i++) {
         const a = { lat: rows[i].latitud, lng: rows[i].longitud, timestamp: rows[i].timestamp };
         const b = { lat: rows[i + 1].latitud, lng: rows[i + 1].longitud, timestamp: rows[i + 1].timestamp };
-        const dt = (new Date(b.timestamp) - new Date(a.timestamp)) / 60000;
-        const gap = distMeters(a, b);
-        let seg = [a, b];
 
-        if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M) seg = await routeBetween(a, b);
-        const snap = await snapSegmentToRoad(seg);
-        full = await mergeOrBridgeCoords(full, snap);
-        await sleep(150); // evitar bloqueo Mapbox
+        const dtMin = (new Date(b.timestamp) - new Date(a.timestamp)) / 60000;
+        const gapM  = distMeters(a, b);
+
+        let seg = [a, b];
+        if (dtMin > GAP_MINUTES || gapM > ROUTE_BRIDGE_M) {
+          seg = await routeBetween(a, b);     // puentea tramos faltantes
+        }
+        const snapped = await snapSegmentToRoad(seg); // corrige a vía real
+        full = await mergeOrBridgeCoords(full, snapped);
+        await sleep(150); // evita rate-limit de Mapbox
       }
 
       if (full.length < 2) continue;
-      const coords = full.map(s => `${s.lng},${s.lat},0`).join(" ");
-      kml += `<Placemark><name>${name}</name><Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style><LineString><coordinates>${coords}</coordinates></LineString></Placemark>`;
+
+      const coords = full.map(p => `${p.lng},${p.lat},0`).join(" ");
+      kml += `
+        <Placemark>
+          <name>${tecnicoName} (${brig})</name>
+          <Style>
+            <LineStyle><color>ff00a6ff</color><width>4</width></LineStyle>
+          </Style>
+          <LineString><coordinates>${coords}</coordinates></LineString>
+        </Placemark>`;
       totalProcessed++;
     }
 
     kml += `</Document></kml>`;
 
-    if (totalProcessed === 0) throw new Error("No se generó ninguna ruta válida.");
+    if (totalProcessed === 0) {
+      throw new Error("No se generó ninguna ruta válida para esa brigada en ese día.");
+    }
 
+    // 6) Descargar KMZ con nombre por brigada y fecha
+    const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g, "_");
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({ type: "blob" });
+
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `monitoreo_${start.toISOString().slice(0,10)}.kmz`;
+    a.download = `recorrido_${safeBrig}_${start.toISOString().slice(0,10)}.kmz`;
     a.click();
     URL.revokeObjectURL(a.href);
 
-    alert(`✅ Archivo KMZ generado correctamente (${totalProcessed} brigadas).`);
+    alert(`✅ KMZ generado para "${brig}" (${totalProcessed} traza(s))`);
   } catch (err) {
     console.error("Error al exportar KMZ:", err);
     alert("❌ No se pudo generar el KMZ:\n" + err.message);
