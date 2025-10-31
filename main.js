@@ -1,7 +1,7 @@
-// ====== Supabase client ======
+// ========================= Supabase client =========================
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
-// ====== UI refs ======
+// ========================= UI refs =========================
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -10,38 +10,41 @@ const ui = {
   userList: document.getElementById("userList"),
 };
 
-// ====== Estado ======
+// ========================= Estado global =========================
 const state = {
   map: null,
   baseLayers: {},
   cluster: null,
-  users: new Map(),
-  pointsByUser: new Map(),
+  users: new Map(),        // uid -> { marker, lastRow }
+  pointsByUser: new Map(), // uid -> rows[]
 };
 
-// ====== Constantes modo preciso ======
+// ========================= Constantes de KMZ / rutas =========================
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-const MAX_MM_POINTS = 50;
-const GAP_MINUTES = 20;
-const GAP_HARD_METERS = 1500;
-const CLEAN_MIN_METERS = 4;
-const DENSIFY_STEP = 20;
-const MAX_DIST_RATIO = 0.35;
-const ENDPOINT_TOL = 25;
-const PER_BLOCK_DELAY = 150;
-const DIRECTIONS_HOP_METERS = 450;
-const MAX_BRIDGE_DEVIATION = 80;
-const BRIDGE_MAX_LENGTH_FACTOR = 1.8;
-const BRIDGE_MAX_POINT_DEVIATION = 70;
+// precisión / limpieza
+const MAX_MM_POINTS = 50;          // máx puntos por request de map-matching
+const GAP_MINUTES = 20;            // si pasan más de 20 min -> nuevo tramo
+const GAP_HARD_METERS = 1500;      // huecos muy largos ya no los inventamos
+const CLEAN_MIN_METERS = 4;        // quitar puntos muy pegados
+const DENSIFY_STEP = 20;           // densificar entre puntos
+const MAX_DIST_RATIO = 0.35;       // validar que map-matching no se aleje mucho
+const ENDPOINT_TOL = 25;           // no mover puntas más de 25 m
+const PER_BLOCK_DELAY = 150;       // esperar entre llamadas
+const DIRECTIONS_HOP_METERS = 450; // si hay hueco largo, trocear en este largo
+const MAX_BRIDGE_DEVIATION = 80;   // si directions se aleja más de esto, descartar
 
-// 👇 ANTI-ARAÑA
-const STOP_COLLAPSE_RADIUS = 6;    // si los puntos están a <6m → es la misma parada
-const STOP_COLLAPSE_MAX_MIN = 10;  // si dura menos de 10 min seguimos colapsando
-const STOP_MAX_RADIUS = 15;        // si se fue a 15m alrededor, recortamos al centro
-const SPEEDY_JUMP_METERS = 35;     // si salta 35m en pocos segundos estando “parado”, lo ignoramos
+// candados contra rutas locas
+const BRIDGE_MAX_LENGTH_FACTOR = 1.8;  // si la ruta es 1.8x la recta -> no
+const BRIDGE_MAX_POINT_DEVIATION = 70; // si un punto del bridge se va >70m -> no
 
-// ====== Íconos ======
+// ANTI ARAÑA FUERTE
+const NOISY_STOP_RADIUS = 50;      // radio de puntos considerados "en la misma parada"
+const NOISY_STOP_MIN_POINTS = 5;   // con 5 puntos ya lo tomamos como parada ruidosa
+const NOISY_STOP_MAX_MIN = 20;     // si duró hasta 20 min seguimos colapsando
+const SPEEDY_JUMP_METERS = 35;     // saltos chicos pero bruscos que ignoramos
+
+// ========================= Íconos de brigadas =========================
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -54,7 +57,7 @@ function getIconFor(row) {
   return ICONS.gray;
 }
 
-// ====== Helpers ======
+// ========================= Helpers generales =========================
 function distMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -78,20 +81,8 @@ function chunk(arr,size){
   for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
   return out;
 }
-function straightInterpolate(a, b, step = 30) {
-  const d = distMeters(a, b);
-  if (d <= step) return [a, b];
-  const n = Math.ceil(d / step);
-  const out = [];
-  for (let i=0;i<=n;i++){
-    const t = i/n;
-    out.push({
-      lat: a.lat + (b.lat - a.lat)*t,
-      lng: a.lng + (b.lng - a.lng)*t
-    });
-  }
-  return out;
-}
+
+// distancia punto-recta para validar puentes
 function distPointToSegment(p, a, b) {
   const A = {x: a.lng, y: a.lat};
   const B = {x: b.lng, y: b.lat};
@@ -106,11 +97,23 @@ function distPointToSegment(p, a, b) {
   const proj = { x: A.x + ABx*clamped, y: A.y + ABy*clamped };
   const dx = P.x - proj.x;
   const dy = P.y - proj.y;
+  // grado -> metros
   const meterPerDeg = 111320;
   return Math.sqrt(dx*dx + dy*dy) * meterPerDeg;
 }
 
-// ====== densificar ======
+// promedio de puntos (para colapsar parada)
+function averagePoint(arr){
+  let lat=0, lng=0;
+  for (const p of arr){ lat+=p.lat; lng+=p.lng; }
+  lat /= arr.length; lng /= arr.length;
+  return {
+    lat, lng,
+    timestamp: arr[Math.floor(arr.length/2)].timestamp
+  };
+}
+
+// ========================= densificar =========================
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -136,7 +139,23 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ====== Mapa ======
+// ========================= fallback recto =========================
+function straightInterpolate(a, b, step = 30) {
+  const d = distMeters(a, b);
+  if (d <= step) return [a, b];
+  const n = Math.ceil(d / step);
+  const out = [];
+  for (let i=0;i<=n;i++){
+    const t = i/n;
+    out.push({
+      lat: a.lat + (b.lat - a.lat)*t,
+      lng: a.lng + (b.lng - a.lng)*t
+    });
+  }
+  return out;
+}
+
+// ========================= init mapa =========================
 function initMap(){
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
   state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
@@ -148,13 +167,13 @@ function initMap(){
 }
 initMap();
 
-// ====== Status ======
+// ========================= Status =========================
 function setStatus(text, kind){
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
 }
 
-// ====== centrar en brigada ======
+// ========================= centrar en brigada =========================
 function focusOnUser(uid) {
   const u = state.users.get(uid);
   if (!u || !u.marker) return;
@@ -163,7 +182,7 @@ function focusOnUser(uid) {
   u.marker.openPopup();
 }
 
-// ====== Popup ======
+// ========================= Popup =========================
 function buildPopup(r){
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
@@ -171,7 +190,7 @@ function buildPopup(r){
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${r.brigada || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
-// ====== Lista lateral ======
+// ========================= Lista lateral =========================
 function addOrUpdateUserInList(row){
   const uid = String(row.usuario_id || "0");
   let el = document.getElementById(`u-${uid}`);
@@ -216,7 +235,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ====== Cargar últimas 24h ======
+// ========================= Cargar últimas 24h =========================
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -260,11 +279,11 @@ async function fetchInitial(clear){
   setStatus("Conectado","green");
 }
 
-// ============================================================================
-// ====== KMZ helpers =========================================================
-// ============================================================================
+// ===================================================================
+// ========================= KMZ helpers =============================
+// ===================================================================
 
-// 1) limpiar puntos pegados
+// 1) limpiar puntos muy pegados
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -278,50 +297,35 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   return out;
 }
 
-// 2) colapsar paradas (para evitar la araña)
-function collapseStops(points) {
+// 2) colapsar PARADA RUIDOSA (la “araña”)
+function collapseNoisyStops(points) {
   if (!points.length) return points;
   const out = [];
   let bucket = [points[0]];
-  for (let i=1;i<points.length;i++){
+  for (let i = 1; i < points.length; i++) {
     const p = points[i];
-    const prev = bucket[bucket.length-1];
-    const d = distMeters(prev, p);
-    const dtMin = (new Date(p.timestamp) - new Date(bucket[0].timestamp))/60000;
+    const first = bucket[0];
+    const d = distMeters(first, p);
+    const dtMin = (new Date(p.timestamp) - new Date(first.timestamp)) / 60000;
 
-    // si sigue muy cerca y no ha pasado demasiado tiempo -> seguimos en la misma parada
-    if (d <= STOP_COLLAPSE_RADIUS && dtMin <= STOP_COLLAPSE_MAX_MIN) {
+    if (d <= NOISY_STOP_RADIUS && dtMin <= NOISY_STOP_MAX_MIN) {
       bucket.push(p);
     } else {
-      // cerrar bucket
-      if (bucket.length === 1) {
-        out.push(bucket[0]);
+      if (bucket.length >= NOISY_STOP_MIN_POINTS) {
+        out.push(averagePoint(bucket));
       } else {
-        // sacar un solo punto medio
-        const center = averagePoint(bucket);
-        out.push(center);
+        out.push(...bucket);
       }
       bucket = [p];
     }
   }
-  // cerrar último
-  if (bucket.length === 1) {
-    out.push(bucket[0]);
-  } else {
+  if (bucket.length >= NOISY_STOP_MIN_P
+OINTS) {
     out.push(averagePoint(bucket));
+  } else {
+    out.push(...bucket);
   }
   return out;
-}
-
-// promedio de un grupo
-function averagePoint(arr){
-  let lat=0, lng=0;
-  for (const p of arr){ lat+=p.lat; lng+=p.lng; }
-  lat /= arr.length; lng /= arr.length;
-  return {
-    lat, lng,
-    timestamp: arr[Math.floor(arr.length/2)].timestamp  // medio timestamp
-  };
 }
 
 // 3) cortar por tiempo
@@ -344,7 +348,7 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES){
   return groups;
 }
 
-// directions con validación anti-óvalo
+// pedir directions con validaciones
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return straightInterpolate(a, b, 30);
 
@@ -367,7 +371,6 @@ async function directionsBetween(a, b) {
     return straightInterpolate(a, b, 30);
   }
 
-  // validar desvío contra recta
   for (const [lng,lat] of coords) {
     const p = {lat, lng};
     const dv = distPointToSegment(p, a, b);
@@ -440,9 +443,9 @@ async function mapMatchBlockSafe(seg){
   return matched;
 }
 
-// ============================================================================
-// ============================= EXPORTAR KMZ =================================
-// ============================================================================
+// ===================================================================
+// ========================= EXPORTAR KMZ =============================
+// ===================================================================
 async function exportKMZFromState(){
   let prevDisabled = false;
   try {
@@ -497,11 +500,11 @@ async function exportKMZFromState(){
       if (rawRows.length < 2) continue;
       const tecnicoName = (rawRows[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
 
-      // 1) limpiamos pegados
+      // 1) limpiar pegados
       let rows = cleanClosePoints(rawRows, CLEAN_MIN_METERS);
-      // 2) colapsamos paradas
-      rows = collapseStops(rows);
-      // 3) partimos por tiempo
+      // 2) colapsar parada ruidosa (esto mata la araña)
+      rows = collapseNoisyStops(rows);
+      // 3) partir en segmentos por tiempo
       const segments = splitOnGaps(rows, GAP_MINUTES);
 
       for (const seg of segments){
@@ -513,7 +516,7 @@ async function exportKMZFromState(){
         for (let i=0;i<blocks.length;i++){
           const block = blocks[i];
 
-          // descartar ruidos: si dentro del bloque hay saltos locos muy seguidos
+          // quitar saltos bruscos estando casi parado
           const filteredBlock = [];
           for (let j=0;j<block.length;j++){
             if (!filteredBlock.length) { filteredBlock.push(block[j]); continue; }
@@ -522,7 +525,7 @@ async function exportKMZFromState(){
             const dt = (new Date(cur.timestamp) - new Date(prev.timestamp))/1000;
             const dm = distMeters(prev, cur);
             if (dt < 20 && dm > SPEEDY_JUMP_METERS) {
-              // ruido parado -> no lo meto
+              // ruido -> no lo meto
               continue;
             }
             filteredBlock.push(cur);
@@ -600,6 +603,6 @@ async function exportKMZFromState(){
   }
 }
 
-// ====== Arranque ======
+// ========================= Arranque =========================
 setStatus("Cargando...","gray");
 fetchInitial(true);
