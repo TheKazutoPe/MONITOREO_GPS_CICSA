@@ -1,10 +1,14 @@
 // main.js
 
 // ================== CONFIGURACIONES GLOBALES ==================
-const GAP_MINUTES = 5;           // hueco de tiempo que consideramos "salto"
-const ROUTE_BRIDGE_M = 150;      // hueco de distancia que consideramos "salto"
-const MAX_POINTS_PER_USER = 100; // para la carga inicial
-const MAPBOX_DRIVING_PROFILE = "driving"; // perfil de ruteo
+const GAP_MINUTES = 5;           // minutos de salto de tiempo
+const ROUTE_BRIDGE_M = 150;      // metros de salto de distancia
+const MAX_POINTS_PER_USER = 100; // para carga inicial
+const MAPBOX_DRIVING_PROFILE = "driving";
+
+// 🔹 leer config global que viene de config.js
+const CONFIG = window.CONFIG || {};
+const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN || "";
 
 // ================== ESTADO GLOBAL ==================
 const ui = {
@@ -13,13 +17,15 @@ const ui = {
   exportKmz: null,
   statusBar: null,
 };
+
 let map;
 let markerCluster;
-let markersByUser = new Map(); // usuario_id -> marker
+let markersByUser = new Map(); // usuario_id -> { marker, row }
 let supa;
 
 // ================== ARRANQUE ==================
 window.addEventListener("DOMContentLoaded", async () => {
+  // referenciar elementos
   ui.brigada = document.getElementById("brigadaFilter");
   ui.brigadaList = document.getElementById("brigadaList");
   ui.exportKmz = document.getElementById("exportKmz");
@@ -34,6 +40,24 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   setStatus("Conectado", "green");
 });
+
+// ================== SUPABASE ==================
+function initSupabase() {
+  const cfg = window.CONFIG || {};
+  const url = cfg.SUPABASE_URL;
+  const anon = cfg.SUPABASE_ANON_KEY;
+
+  if (!window.supabase) {
+    console.error("❌ No se cargó la librería de Supabase UMD.");
+    return;
+  }
+  if (!url || !anon) {
+    console.error("❌ Faltan SUPABASE_URL o SUPABASE_ANON_KEY en config.js");
+    return;
+  }
+
+  supa = window.supabase.createClient(url, anon);
+}
 
 // ================== MAPA ==================
 function initMap() {
@@ -50,14 +74,16 @@ function initMap() {
     attribution: "© Google",
   });
 
-  L.control.layers(
-    {
-      "OpenStreetMap": osm,
-      "Satélite": sat,
-    },
-    {},
-    { position: "topleft" }
-  ).addTo(map);
+  L.control
+    .layers(
+      {
+        "OpenStreetMap": osm,
+        "Satélite": sat,
+      },
+      {},
+      { position: "topleft" }
+    )
+    .addTo(map);
 
   markerCluster = L.markerClusterGroup({
     disableClusteringAtZoom: 16,
@@ -65,21 +91,20 @@ function initMap() {
   map.addLayer(markerCluster);
 }
 
-// ================== SUPABASE ==================
-function initSupabase() {
-  // viene de config.js
-  supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-}
-
 // ================== UI ==================
 function bindUI() {
-  document.getElementById("applyFilters").addEventListener("click", () => {
-    renderListFromMarkers();
-  });
+  const applyBtn = document.getElementById("applyFilters");
+  if (applyBtn) {
+    applyBtn.addEventListener("click", () => {
+      renderListFromMarkers();
+    });
+  }
 
-  ui.exportKmz.addEventListener("click", () => {
-    exportKMZFromState();
-  });
+  if (ui.exportKmz) {
+    ui.exportKmz.addEventListener("click", () => {
+      exportKMZFromState();
+    });
+  }
 }
 
 // ================== CARGA INICIAL ==================
@@ -92,16 +117,21 @@ async function fetchInitialData() {
     const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
+    if (!supa) {
+      console.warn("⚠️ Supabase no inicializado, no puedo hacer la carga inicial.");
+      return;
+    }
+
     const { data, error } = await supa
       .from("ubicaciones_brigadas")
       .select("*")
       .gte("timestamp", start.toISOString())
       .lt("timestamp", end.toISOString())
-      .order("timestamp", { ascending: false }); // los más recientes primero
+      .order("timestamp", { ascending: false });
 
     if (error) throw error;
 
-    // agrupar por usuario y tomar máximo N puntos para no reventar
+    // agrupar por usuario
     const grouped = new Map();
     for (const r of data) {
       const uid = String(r.usuario_id || "0");
@@ -110,10 +140,9 @@ async function fetchInitialData() {
       grouped.get(uid).push(r);
     }
 
-    // dibujar el último punto de cada usuario
+    // dibujar último punto
     for (const [uid, rows] of grouped.entries()) {
-      // están en orden descendente, el primero es el más reciente
-      const latest = rows[0];
+      const latest = rows[0]; // ya están en descendente
       addOrUpdateMarker(latest);
     }
 
@@ -126,6 +155,8 @@ async function fetchInitialData() {
 
 // ================== SUSCRIPCIÓN REALTIME ==================
 async function subscribeRealtime() {
+  if (!supa) return;
+
   supa
     .channel("ubicaciones_brigadas-changes")
     .on(
@@ -149,46 +180,32 @@ function addOrUpdateMarker(row) {
   const uid = String(row.usuario_id || "0");
   const lat = parseFloat(row.latitud);
   const lng = parseFloat(row.longitud);
-
   if (isNaN(lat) || isNaN(lng)) return;
 
-  const markerData = markersByUser.get(uid);
   const color = getColorFromTimestamp(row.timestamp);
-
   const icon = L.divIcon({
     className: "custom-marker",
     html: `<div class="dot" style="background:${color}"></div>`,
     iconSize: [16, 16],
   });
-
   const popupHtml = buildPopupHtml(row);
 
-  if (markerData) {
-    // actualizar
-    markerData.marker.setLatLng([lat, lng]);
-    markerData.marker.setIcon(icon);
-    markerData.marker.setPopupContent(popupHtml);
-    markersByUser.set(uid, {
-      ...markerData,
-      row,
-    });
+  const existing = markersByUser.get(uid);
+  if (existing) {
+    existing.marker.setLatLng([lat, lng]);
+    existing.marker.setIcon(icon);
+    existing.marker.setPopupContent(popupHtml);
+    markersByUser.set(uid, { marker: existing.marker, row });
   } else {
-    // crear
     const marker = L.marker([lat, lng], { icon });
     marker.bindPopup(popupHtml);
     markerCluster.addLayer(marker);
-
-    markersByUser.set(uid, {
-      marker,
-      row,
-    });
+    markersByUser.set(uid, { marker, row });
   }
 }
 
 function buildPopupHtml(r) {
-  const fecha = new Date(r.timestamp).toLocaleString("es-PE", {
-    hour12: false,
-  });
+  const fecha = new Date(r.timestamp).toLocaleString("es-PE", { hour12: false });
   return `
     <div>
       <b>${r.tecnico || r.usuario || "Sin nombre"}</b><br/>
@@ -201,7 +218,6 @@ function buildPopupHtml(r) {
   `;
 }
 
-// color según antigüedad
 function getColorFromTimestamp(ts) {
   const now = Date.now();
   const t = new Date(ts).getTime();
@@ -213,6 +229,8 @@ function getColorFromTimestamp(ts) {
 
 // ================== LISTA LATERAL ==================
 function renderListFromMarkers() {
+  if (!ui.brigadaList) return;
+
   const filter = (ui.brigada.value || "").toLowerCase();
   ui.brigadaList.innerHTML = "";
 
@@ -240,7 +258,7 @@ function renderListFromMarkers() {
       <div class="time">${fecha}</div>
     `;
 
-    // al hacer clic, centramos en el mapa y llenamos el filtro
+    // al hacer click: centro y lleno el filtro con esa brigada
     el.addEventListener("click", () => {
       ui.brigada.value = r.brigada || "";
       renderListFromMarkers();
@@ -257,11 +275,10 @@ async function exportKMZFromState() {
     setStatus("Generando KMZ...", "gray");
     ui.exportKmz.disabled = true;
 
-    // leer filtro de brigada y fecha
     const brig = (ui.brigada.value || "").trim();
     const dateInput = document.getElementById("kmzDate");
-    let baseDate;
 
+    let baseDate;
     if (dateInput && dateInput.value) {
       baseDate = new Date(dateInput.value + "T00:00:00");
     } else {
@@ -272,7 +289,12 @@ async function exportKMZFromState() {
     const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
     const end = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + 1);
 
-    // armar query
+    if (!supa) {
+      alert("❌ Supabase no está inicializado.");
+      return;
+    }
+
+    // query a supabase con fecha y (opcional) brigada
     let query = supa
       .from("ubicaciones_brigadas")
       .select("*")
@@ -289,8 +311,7 @@ async function exportKMZFromState() {
 
     if (!data || data.length === 0) {
       alert(
-        "⚠️ No hay datos para ese día" +
-          (brig ? ` y brigada "${brig}".` : ".")
+        "⚠️ No hay datos para ese día" + (brig ? ` y brigada "${brig}".` : ".")
       );
       return;
     }
@@ -318,6 +339,7 @@ async function exportKMZFromState() {
       rows.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
       const name = (rows[0].tecnico || rows[0].brigada || `Brigada ${uid}`).replace(/&/g, "&amp;");
+
       let full = [];
 
       for (let i = 0; i < rows.length - 1; i++) {
@@ -337,20 +359,19 @@ async function exportKMZFromState() {
 
         let seg = [a, b];
 
-        // solo llamamos a ruteo cuando hay salto
+        // sólo ruteo cuando hay salto de tiempo/distancia
         if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M) {
           seg = await routeBetween(a, b);
+          if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M) {
+            await sleep(120);
+          }
         } else if (gap > 40) {
           // aquí sí tiene sentido snapear
           seg = await snapSegmentToRoad(seg);
+          await sleep(120);
         }
 
         full = await mergeOrBridgeCoords(full, seg);
-
-        // solo dormimos si llamamos a mapbox (que fue en los dos casos de arriba)
-        if (dt > GAP_MINUTES || gap > ROUTE_BRIDGE_M || gap > 40) {
-          await sleep(120);
-        }
       }
 
       if (full.length < 2) continue;
@@ -379,7 +400,7 @@ async function exportKMZFromState() {
       return;
     }
 
-    // descargar KMZ (zip con doc.kml)
+    // descargar KMZ
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({ type: "blob" });
@@ -388,7 +409,6 @@ async function exportKMZFromState() {
 
     const safeBrig = brig ? brig.replace(/\s+/g, "_") : "todas";
     a.download = `kmz_${safeBrig}_${dayStr}.kmz`;
-
     a.click();
     URL.revokeObjectURL(a.href);
 
@@ -398,13 +418,16 @@ async function exportKMZFromState() {
     alert("❌ No se pudo generar el KMZ:\n" + err.message);
   } finally {
     setStatus("Conectado", "green");
-    ui.exportKmz.disabled = false;
+    if (ui.exportKmz) ui.exportKmz.disabled = false;
   }
 }
 
-// ================== FUNCIONES DE RUTEO / MAPBOX ==================
+// ================== FUNCIONES MAPBOX ==================
 async function routeBetween(a, b) {
-  // directions de mapbox
+  if (!MAPBOX_TOKEN) {
+    console.warn("⚠️ No hay MAPBOX_TOKEN, uso puntos crudos.");
+    return [a, b];
+  }
   const coords = `${a.lng},${a.lat};${b.lng},${b.lat}`;
   const url = `https://api.mapbox.com/directions/v5/mapbox/${MAPBOX_DRIVING_PROFILE}/${coords}?geometries=geojson&access_token=${MAPBOX_TOKEN}`;
   const res = await fetch(url);
@@ -419,7 +442,10 @@ async function routeBetween(a, b) {
 }
 
 async function snapSegmentToRoad(seg) {
-  // map-matching de mapbox
+  if (!MAPBOX_TOKEN) {
+    console.warn("⚠️ No hay MAPBOX_TOKEN, no puedo snapear.");
+    return seg;
+  }
   if (!seg || seg.length < 2) return seg;
   const coords = seg.map((p) => `${p.lng},${p.lat}`).join(";");
   const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&access_token=${MAPBOX_TOKEN}`;
@@ -436,13 +462,11 @@ async function snapSegmentToRoad(seg) {
 
 async function mergeOrBridgeCoords(full, seg) {
   if (!full.length) return seg.slice();
-  // evitar duplicar el primer punto
   const last = full[full.length - 1];
   const out = full.slice();
   for (let i = 0; i < seg.length; i++) {
     const p = seg[i];
     if (i === 0) {
-      // si es muy parecido al último, lo saltamos
       const d = distMeters(last, p);
       if (d < 3) continue;
     }
