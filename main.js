@@ -15,24 +15,31 @@ const state = {
   map: null,
   baseLayers: {},
   cluster: null,
-  users: new Map(),        // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> [rows]
+  users: new Map(),
+  pointsByUser: new Map(),
 };
 
-// ====== Constantes de export ======
+// ====== Constantes modo preciso ======
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// modo preciso, pero ahora sí puenteamos con DIRECTIONS (no diagonales)
-const MAX_MM_POINTS = 50;         // bloques chicos para map-matching
-const GAP_MINUTES = 20;           // si pasan >20 min -> nuevo tramo
-const GAP_HARD_METERS = 1500;     // si el hueco es MUY grande (>1.5km) ya no intentamos
-const CLEAN_MIN_METERS = 4;       // limpiar puntitos pegados
-const DENSIFY_STEP = 20;          // densificar cada 20 m
-const MAX_DIST_RATIO = 0.35;      // validar map-matching
-const ENDPOINT_TOL = 25;          // no mover puntas >25 m
-const PER_BLOCK_DELAY = 150;      // delay entre requests
-const DIRECTIONS_HOP_METERS = 450;// si el hueco es largo, pedir varias direcciones
-const MAX_BRIDGE_DEVIATION = 80;  // si el bridge se aleja >80m del punto real, lo descartamos
+const MAX_MM_POINTS = 50;
+const GAP_MINUTES = 20;
+const GAP_HARD_METERS = 1500;
+const CLEAN_MIN_METERS = 4;
+const DENSIFY_STEP = 20;
+const MAX_DIST_RATIO = 0.35;
+const ENDPOINT_TOL = 25;
+const PER_BLOCK_DELAY = 150;
+const DIRECTIONS_HOP_METERS = 450;
+const MAX_BRIDGE_DEVIATION = 80;
+const BRIDGE_MAX_LENGTH_FACTOR = 1.8;
+const BRIDGE_MAX_POINT_DEVIATION = 70;
+
+// 👇 ANTI-ARAÑA
+const STOP_COLLAPSE_RADIUS = 6;    // si los puntos están a <6m → es la misma parada
+const STOP_COLLAPSE_MAX_MIN = 10;  // si dura menos de 10 min seguimos colapsando
+const STOP_MAX_RADIUS = 15;        // si se fue a 15m alrededor, recortamos al centro
+const SPEEDY_JUMP_METERS = 35;     // si salta 35m en pocos segundos estando “parado”, lo ignoramos
 
 // ====== Íconos ======
 const ICONS = {
@@ -71,8 +78,39 @@ function chunk(arr,size){
   for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
   return out;
 }
+function straightInterpolate(a, b, step = 30) {
+  const d = distMeters(a, b);
+  if (d <= step) return [a, b];
+  const n = Math.ceil(d / step);
+  const out = [];
+  for (let i=0;i<=n;i++){
+    const t = i/n;
+    out.push({
+      lat: a.lat + (b.lat - a.lat)*t,
+      lng: a.lng + (b.lng - a.lng)*t
+    });
+  }
+  return out;
+}
+function distPointToSegment(p, a, b) {
+  const A = {x: a.lng, y: a.lat};
+  const B = {x: b.lng, y: b.lat};
+  const P = {x: p.lng, y: p.lat};
+  const ABx = B.x - A.x;
+  const ABy = B.y - A.y;
+  const APx = P.x - A.x;
+  const APy = P.y - A.y;
+  const ab2 = ABx*ABx + ABy*ABy;
+  const t = ab2 === 0 ? 0 : (APx*ABx + APy*ABy)/ab2;
+  const clamped = Math.max(0, Math.min(1, t));
+  const proj = { x: A.x + ABx*clamped, y: A.y + ABy*clamped };
+  const dx = P.x - proj.x;
+  const dy = P.y - proj.y;
+  const meterPerDeg = 111320;
+  return Math.sqrt(dx*dx + dy*dy) * meterPerDeg;
+}
 
-// ====== densificar una secuencia ======
+// ====== densificar ======
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -95,22 +133,6 @@ function densifySegment(points, step = DENSIFY_STEP) {
     }
   }
   out.push(points[points.length - 1]);
-  return out;
-}
-
-// ====== para fallback: línea recta troceada ======
-function straightInterpolate(a, b, step = 40) {
-  const d = distMeters(a, b);
-  if (d <= step) return [a, b];
-  const n = Math.ceil(d / step);
-  const out = [];
-  for (let i=0;i<=n;i++){
-    const t = i/n;
-    out.push({
-      lat: a.lat + (b.lat - a.lat)*t,
-      lng: a.lng + (b.lng - a.lng)*t
-    });
-  }
   return out;
 }
 
@@ -239,10 +261,10 @@ async function fetchInitial(clear){
 }
 
 // ============================================================================
-// ======================= KMZ: helpers =======================================
+// ====== KMZ helpers =========================================================
 // ============================================================================
 
-// quitar puntos pegados
+// 1) limpiar puntos pegados
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -256,7 +278,53 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   return out;
 }
 
-// cortar por tiempo/distancia
+// 2) colapsar paradas (para evitar la araña)
+function collapseStops(points) {
+  if (!points.length) return points;
+  const out = [];
+  let bucket = [points[0]];
+  for (let i=1;i<points.length;i++){
+    const p = points[i];
+    const prev = bucket[bucket.length-1];
+    const d = distMeters(prev, p);
+    const dtMin = (new Date(p.timestamp) - new Date(bucket[0].timestamp))/60000;
+
+    // si sigue muy cerca y no ha pasado demasiado tiempo -> seguimos en la misma parada
+    if (d <= STOP_COLLAPSE_RADIUS && dtMin <= STOP_COLLAPSE_MAX_MIN) {
+      bucket.push(p);
+    } else {
+      // cerrar bucket
+      if (bucket.length === 1) {
+        out.push(bucket[0]);
+      } else {
+        // sacar un solo punto medio
+        const center = averagePoint(bucket);
+        out.push(center);
+      }
+      bucket = [p];
+    }
+  }
+  // cerrar último
+  if (bucket.length === 1) {
+    out.push(bucket[0]);
+  } else {
+    out.push(averagePoint(bucket));
+  }
+  return out;
+}
+
+// promedio de un grupo
+function averagePoint(arr){
+  let lat=0, lng=0;
+  for (const p of arr){ lat+=p.lat; lng+=p.lng; }
+  lat /= arr.length; lng /= arr.length;
+  return {
+    lat, lng,
+    timestamp: arr[Math.floor(arr.length/2)].timestamp  // medio timestamp
+  };
+}
+
+// 3) cortar por tiempo
 function splitOnGaps(points, maxGapMin = GAP_MINUTES){
   const groups = [];
   let cur = [];
@@ -276,35 +344,50 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES){
   return groups;
 }
 
-// pedir directions para UN TRAMO
+// directions con validación anti-óvalo
 async function directionsBetween(a, b) {
-  if (!MAPBOX_TOKEN) return straightInterpolate(a, b, 40);
+  if (!MAPBOX_TOKEN) return straightInterpolate(a, b, 30);
+
+  const dStraight = distMeters(a, b);
   const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
   const r = await fetch(url);
-  if (!r.ok) return straightInterpolate(a, b, 40);
+  if (!r.ok) return straightInterpolate(a, b, 30);
+
   const j = await r.json();
   const coords = j.routes?.[0]?.geometry?.coordinates || [];
-  if (!coords.length) return straightInterpolate(a, b, 40);
+  if (!coords.length) return straightInterpolate(a, b, 30);
 
-  // validar que el primer punto no se aleje loco
-  const first = {lat: coords[0][1], lng: coords[0][0]};
-  if (distMeters(a, first) > MAX_BRIDGE_DEVIATION) {
-    return straightInterpolate(a, b, 40);
+  let routeLen = 0;
+  for (let i=0;i<coords.length-1;i++){
+    const p1 = {lat: coords[i][1], lng: coords[i][0]};
+    const p2 = {lat: coords[i+1][1], lng: coords[i+1][0]};
+    routeLen += distMeters(p1, p2);
   }
+  if (routeLen > BRIDGE_MAX_LENGTH_FACTOR * dStraight) {
+    return straightInterpolate(a, b, 30);
+  }
+
+  // validar desvío contra recta
+  for (const [lng,lat] of coords) {
+    const p = {lat, lng};
+    const dv = distPointToSegment(p, a, b);
+    if (dv > BRIDGE_MAX_POINT_DEVIATION) {
+      return straightInterpolate(a, b, 30);
+    }
+  }
+
   return coords.map(([lng,lat])=>({lat,lng}));
 }
 
-// puente inteligente (trocea en varios directions si es largo)
+// bridge troceado
 async function smartBridge(a, b) {
   const d = distMeters(a, b);
   if (d > GAP_HARD_METERS) {
-    // muy largo, no inventamos
-    return straightInterpolate(a, b, 60);
+    return straightInterpolate(a, b, 50);
   }
   if (d <= DIRECTIONS_HOP_METERS) {
-    return directionsBetween(a, b);
+    return await directionsBetween(a, b);
   }
-  // dividir en hops
   const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
   const out = [a];
   let prev = a;
@@ -322,7 +405,7 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// map-matching seguro (con densificado)
+// map-matching seguro
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN) return null;
   if (seg.length < 2) return null;
@@ -330,7 +413,6 @@ async function mapMatchBlockSafe(seg){
 
   const dense = densifySegment(seg, DENSIFY_STEP);
 
-  // distancia cruda
   let rawDist = 0;
   for (let i=0;i<dense.length-1;i++){
     rawDist += distMeters(dense[i], dense[i+1]);
@@ -345,15 +427,13 @@ async function mapMatchBlockSafe(seg){
   if (!match || !match.geometry || !match.geometry.coordinates) return null;
   const matched = match.geometry.coordinates.map(([lng,lat])=>({lat,lng}));
 
-  // distancia matcheada
-  let mmDist=0;
+  let mmDist = 0;
   for (let i=0;i<matched.length-1;i++){
     mmDist += distMeters(matched[i], matched[i+1]);
   }
   const diff = Math.abs(mmDist - rawDist);
   if (diff / Math.max(rawDist,1) > MAX_DIST_RATIO) return null;
 
-  // validar puntas
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense[dense.length-1], matched[matched.length-1]) > ENDPOINT_TOL) return null;
 
@@ -395,6 +475,7 @@ async function exportKMZFromState(){
       return;
     }
 
+    // agrupar por usuario
     const byUser = new Map();
     for (const r of data){
       const uid = String(r.usuario_id || "0");
@@ -412,46 +493,57 @@ async function exportKMZFromState(){
               `<name>${brig} - ${ymd}</name>`;
     let placemarks = 0;
 
-    for (const [uid, rows0] of byUser.entries()){
-      if (rows0.length < 2) continue;
-      const tecnicoName = (rows0[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
+    for (const [uid, rawRows] of byUser.entries()){
+      if (rawRows.length < 2) continue;
+      const tecnicoName = (rawRows[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
 
-      // 1) limpiar
-      const rows1 = cleanClosePoints(rows0, CLEAN_MIN_METERS);
-      // 2) cortar por tiempo
-      const segments = splitOnGaps(rows1, GAP_MINUTES);
+      // 1) limpiamos pegados
+      let rows = cleanClosePoints(rawRows, CLEAN_MIN_METERS);
+      // 2) colapsamos paradas
+      rows = collapseStops(rows);
+      // 3) partimos por tiempo
+      const segments = splitOnGaps(rows, GAP_MINUTES);
 
       for (const seg of segments){
         if (seg.length < 2) continue;
 
-        // trocear en bloques
         const blocks = chunk(seg, MAX_MM_POINTS);
         let current = [];
 
         for (let i=0;i<blocks.length;i++){
           const block = blocks[i];
 
-          // map-matching + densificado
-          let finalBlock = densifySegment(block, DENSIFY_STEP);
-          try {
-            const mm = await mapMatchBlockSafe(block);
-            if (mm && mm.length >= 2) finalBlock = mm;
-          } catch(e){
-            // nos quedamos con el densificado
+          // descartar ruidos: si dentro del bloque hay saltos locos muy seguidos
+          const filteredBlock = [];
+          for (let j=0;j<block.length;j++){
+            if (!filteredBlock.length) { filteredBlock.push(block[j]); continue; }
+            const prev = filteredBlock[filteredBlock.length-1];
+            const cur  = block[j];
+            const dt = (new Date(cur.timestamp) - new Date(prev.timestamp))/1000;
+            const dm = distMeters(prev, cur);
+            if (dt < 20 && dm > SPEEDY_JUMP_METERS) {
+              // ruido parado -> no lo meto
+              continue;
+            }
+            filteredBlock.push(cur);
           }
+
+          let finalBlock = densifySegment(filteredBlock, DENSIFY_STEP);
+          try {
+            const mm = await mapMatchBlockSafe(filteredBlock);
+            if (mm && mm.length >= 2) finalBlock = mm;
+          } catch(e){}
 
           if (!current.length){
             current.push(...finalBlock);
           } else {
-            // unir con ruta de pista, no diagonal
             const last = current[current.length-1];
             const first = finalBlock[0];
             const gap = distMeters(last, first);
 
-            if (gap < 5) {
+            if (gap < 5){
               current.push(...finalBlock.slice(1));
             } else {
-              // hacemos bridge por pista
               const bridge = await smartBridge(last, first);
               current.push(...bridge.slice(1));
               current.push(...finalBlock.slice(1));
