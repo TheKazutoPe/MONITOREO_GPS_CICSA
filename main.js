@@ -10,7 +10,7 @@ const ui = {
   userList: document.getElementById("userList"),
 };
 
-// ====== Estado global ======
+// ====== Estado ======
 const state = {
   map: null,
   baseLayers: {},
@@ -19,19 +19,20 @@ const state = {
   pointsByUser: new Map(), // uid -> [rows]
 };
 
-// ====== Constantes (modo preciso) ======
+// ====== Constantes de export ======
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// bajamos el tamaño del bloque para que mapbox “adivine” menos
-const MAX_MM_POINTS = 50;        // antes 90
-const GAP_MINUTES = 20;          // si pasan >20 min -> corte
-const GAP_METERS = 120;          // si salto >120 m -> corte
-const SMALL_BRIDGE_METERS = 80;  // solo puentear si el hueco es <= 80 m
-const CLEAN_MIN_METERS = 4;      // limpiar puntos pegados
-const DENSIFY_STEP = 20;         // insertar punto cada 20 m antes de mapbox
-const MAX_DIST_RATIO = 0.35;     // validación mapbox
-const ENDPOINT_TOL = 25;         // no mover puntas más de 25 m
-const PER_BLOCK_DELAY = 150;     // un poco más de tiempo entre requests
+// modo preciso, pero ahora sí puenteamos con DIRECTIONS (no diagonales)
+const MAX_MM_POINTS = 50;         // bloques chicos para map-matching
+const GAP_MINUTES = 20;           // si pasan >20 min -> nuevo tramo
+const GAP_HARD_METERS = 1500;     // si el hueco es MUY grande (>1.5km) ya no intentamos
+const CLEAN_MIN_METERS = 4;       // limpiar puntitos pegados
+const DENSIFY_STEP = 20;          // densificar cada 20 m
+const MAX_DIST_RATIO = 0.35;      // validar map-matching
+const ENDPOINT_TOL = 25;          // no mover puntas >25 m
+const PER_BLOCK_DELAY = 150;      // delay entre requests
+const DIRECTIONS_HOP_METERS = 450;// si el hueco es largo, pedir varias direcciones
+const MAX_BRIDGE_DEVIATION = 80;  // si el bridge se aleja >80m del punto real, lo descartamos
 
 // ====== Íconos ======
 const ICONS = {
@@ -67,11 +68,11 @@ function toYMD(d){
 }
 function chunk(arr,size){
   const out=[];
-  for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
+  for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
   return out;
 }
 
-// ====== densificar entre 2 puntos ======
+// ====== densificar una secuencia ======
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -97,6 +98,22 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
+// ====== para fallback: línea recta troceada ======
+function straightInterpolate(a, b, step = 40) {
+  const d = distMeters(a, b);
+  if (d <= step) return [a, b];
+  const n = Math.ceil(d / step);
+  const out = [];
+  for (let i=0;i<=n;i++){
+    const t = i/n;
+    out.push({
+      lat: a.lat + (b.lat - a.lat)*t,
+      lng: a.lng + (b.lng - a.lng)*t
+    });
+  }
+  return out;
+}
+
 // ====== Mapa ======
 function initMap(){
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
@@ -115,7 +132,7 @@ function setStatus(text, kind){
   ui.status.className = `status-badge ${kind || "gray"}`;
 }
 
-// ====== centrar en brigada desde la lista ======
+// ====== centrar en brigada ======
 function focusOnUser(uid) {
   const u = state.users.get(uid);
   if (!u || !u.marker) return;
@@ -177,7 +194,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ====== Cargar últimas 24h en el mapa ======
+// ====== Cargar últimas 24h ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -222,10 +239,10 @@ async function fetchInitial(clear){
 }
 
 // ============================================================================
-// ======================= KMZ: helpers precisos ==============================
+// ======================= KMZ: helpers =======================================
 // ============================================================================
 
-// 1) quitar puntos muy pegados
+// quitar puntos pegados
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -239,8 +256,8 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   return out;
 }
 
-// 2) partir por huecos (cortes reales)
-function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxGapMeters = GAP_METERS){
+// cortar por tiempo/distancia
+function splitOnGaps(points, maxGapMin = GAP_MINUTES){
   const groups = [];
   let cur = [];
   for (let i=0;i<points.length;i++){
@@ -248,8 +265,7 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxGapMeters = GAP_METERS)
     if (!cur.length){ cur.push(p); continue; }
     const prev = cur[cur.length-1];
     const dtMin = (new Date(p.timestamp) - new Date(prev.timestamp))/60000;
-    const dm    = distMeters(prev, p);
-    if (dtMin > maxGapMin || dm > maxGapMeters){
+    if (dtMin > maxGapMin){
       if (cur.length>1) groups.push(cur);
       cur = [p];
     } else {
@@ -260,29 +276,58 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxGapMeters = GAP_METERS)
   return groups;
 }
 
-// 3) pequeño puente si el hueco es MUY chico (≤80m)
-async function smallBridge(a, b){
-  const gap = distMeters(a, b);
-  if (gap <= 5) return [a, b];
-  if (gap > SMALL_BRIDGE_METERS) return [a, b]; // no puentear grande
-  if (!MAPBOX_TOKEN) return [a, b];             // sin token, recto cortito
-
+// pedir directions para UN TRAMO
+async function directionsBetween(a, b) {
+  if (!MAPBOX_TOKEN) return straightInterpolate(a, b, 40);
   const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
   const r = await fetch(url);
-  if (!r.ok) return [a, b];
+  if (!r.ok) return straightInterpolate(a, b, 40);
   const j = await r.json();
   const coords = j.routes?.[0]?.geometry?.coordinates || [];
-  if (!coords.length) return [a, b];
+  if (!coords.length) return straightInterpolate(a, b, 40);
+
+  // validar que el primer punto no se aleje loco
+  const first = {lat: coords[0][1], lng: coords[0][0]};
+  if (distMeters(a, first) > MAX_BRIDGE_DEVIATION) {
+    return straightInterpolate(a, b, 40);
+  }
   return coords.map(([lng,lat])=>({lat,lng}));
 }
 
-// 4) map-matching SEGURO (con densificado!)
+// puente inteligente (trocea en varios directions si es largo)
+async function smartBridge(a, b) {
+  const d = distMeters(a, b);
+  if (d > GAP_HARD_METERS) {
+    // muy largo, no inventamos
+    return straightInterpolate(a, b, 60);
+  }
+  if (d <= DIRECTIONS_HOP_METERS) {
+    return directionsBetween(a, b);
+  }
+  // dividir en hops
+  const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
+  const out = [a];
+  let prev = a;
+  for (let i=1;i<=hops;i++){
+    const t = i / hops;
+    const mid = {
+      lat: a.lat + (b.lat - a.lat)*t,
+      lng: a.lng + (b.lng - a.lng)*t
+    };
+    const seg = await directionsBetween(prev, mid);
+    out.push(...seg.slice(1));
+    prev = mid;
+    await sleep(80);
+  }
+  return out;
+}
+
+// map-matching seguro (con densificado)
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN) return null;
   if (seg.length < 2) return null;
   if (seg.length > MAX_MM_POINTS) return null;
 
-  // densificar antes de mandar a mapbox
   const dense = densifySegment(seg, DENSIFY_STEP);
 
   // distancia cruda
@@ -305,11 +350,10 @@ async function mapMatchBlockSafe(seg){
   for (let i=0;i<matched.length-1;i++){
     mmDist += distMeters(matched[i], matched[i+1]);
   }
-
   const diff = Math.abs(mmDist - rawDist);
   if (diff / Math.max(rawDist,1) > MAX_DIST_RATIO) return null;
 
-  // no mover puntas
+  // validar puntas
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense[dense.length-1], matched[matched.length-1]) > ENDPOINT_TOL) return null;
 
@@ -351,7 +395,6 @@ async function exportKMZFromState(){
       return;
     }
 
-    // agrupar por usuario_id
     const byUser = new Map();
     for (const r of data){
       const uid = String(r.usuario_id || "0");
@@ -373,84 +416,62 @@ async function exportKMZFromState(){
       if (rows0.length < 2) continue;
       const tecnicoName = (rows0[0].tecnico || `Tecnico ${uid}`).replace(/&/g,"&amp;");
 
-      // 1) limpiar puntos pegados
+      // 1) limpiar
       const rows1 = cleanClosePoints(rows0, CLEAN_MIN_METERS);
-
-      // 2) partir por huecos
-      const segments = splitOnGaps(rows1, GAP_MINUTES, GAP_METERS);
+      // 2) cortar por tiempo
+      const segments = splitOnGaps(rows1, GAP_MINUTES);
 
       for (const seg of segments){
         if (seg.length < 2) continue;
 
-        // si es corto → intentar mapbox completo
-        if (seg.length <= MAX_MM_POINTS){
-          // densificar + mapbox
-          const mm = await mapMatchBlockSafe(seg);
-          const finalSeg = mm ? mm : densifySegment(seg, DENSIFY_STEP);
-          const coords = finalSeg.map(p=>`${p.lng},${p.lat},0`).join(" ");
-          kml += `
-            <Placemark>
-              <name>${tecnicoName} (${brig})</name>
-              <Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style>
-              <LineString><coordinates>${coords}</coordinates></LineString>
-            </Placemark>`;
-          placemarks++;
-          continue;
-        }
-
-        // si es largo → trocear y unir SOLO huecos chicos
+        // trocear en bloques
         const blocks = chunk(seg, MAX_MM_POINTS);
-        let currentLine = [];  // iremos metiendo los bloques aquí
+        let current = [];
 
         for (let i=0;i<blocks.length;i++){
           const block = blocks[i];
 
-          // densificar y mapbox
+          // map-matching + densificado
           let finalBlock = densifySegment(block, DENSIFY_STEP);
           try {
             const mm = await mapMatchBlockSafe(block);
-            if (mm && mm.length >= 2) {
-              finalBlock = mm;
-            }
+            if (mm && mm.length >= 2) finalBlock = mm;
           } catch(e){
             // nos quedamos con el densificado
           }
 
-          if (!currentLine.length){
-            currentLine.push(...finalBlock);
+          if (!current.length){
+            current.push(...finalBlock);
           } else {
-            const last = currentLine[currentLine.length-1];
+            // unir con ruta de pista, no diagonal
+            const last = current[current.length-1];
             const first = finalBlock[0];
             const gap = distMeters(last, first);
-            if (gap <= SMALL_BRIDGE_METERS){
-              // puente corto → lo pedimos
-              const bridge = await smallBridge(last, first);
-              currentLine.push(...bridge.slice(1));
-              currentLine.push(...finalBlock.slice(1));
+
+            if (gap < 5) {
+              current.push(...finalBlock.slice(1));
             } else {
-              // hueco grande → cerramos placemark y empezamos otro
-              const coords = currentLine.map(p=>`${p.lng},${p.lat},0`).join(" ");
-              kml += `
-                <Placemark>
-                  <name>${tecnicoName} (${brig})</name>
-                  <Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style>
-                  <LineString><coordinates>${coords}</coordinates></LineString>
-                </Placemark>`;
-              placemarks++;
-              currentLine = [...finalBlock];
+              // hacemos bridge por pista
+              const bridge = await smartBridge(last, first);
+              current.push(...bridge.slice(1));
+              current.push(...finalBlock.slice(1));
             }
           }
 
           await sleep(PER_BLOCK_DELAY);
         }
 
-        // cerrar el último de este segmento
-        if (currentLine.length > 1){
-          const coords = currentLine.map(p=>`${p.lng},${p.lat},0`).join(" ");
+        if (current.length > 1){
+          const coords = current.map(p=>`${p.lng},${p.lat},0`).join(" ");
           kml += `
             <Placemark>
               <name>${tecnicoName} (${brig})</name>
-              <Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style>
+              <Style>
+                <LineStyle>
+                  <color>ffFF0000</color>
+                  <width>4</width>
+                </LineStyle>
+              </Style>
               <LineString><coordinates>${coords}</coordinates></LineString>
             </Placemark>`;
           placemarks++;
@@ -462,7 +483,6 @@ async function exportKMZFromState(){
 
     if (!placemarks) throw new Error("No se generó ninguna traza válida.");
 
-    // descargar KMZ
     const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g,"_");
     const zip = new JSZip();
     zip.file("doc.kml", kml);
@@ -478,7 +498,7 @@ async function exportKMZFromState(){
     a.click();
     URL.revokeObjectURL(a.href);
 
-    alert(`✅ KMZ preciso listo para "${brig}" (${placemarks} tramo(s))`);
+    alert(`✅ KMZ listo para "${brig}" (${placemarks} tramo(s))`);
   } catch(e){
     console.error(e);
     alert("❌ No se pudo generar el KMZ: " + e.message);
