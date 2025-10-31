@@ -2,61 +2,79 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
+  <title>Monitoreo GPS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS - Brigadas</title>
 
-  <!-- CSS principal -->
+  <!-- Estilos propios -->
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Leaflet Core -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Leaflet MarkerCluster (para agrupar brigadas, requerido por main.js) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-
-  <!-- Librerías externas -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <!-- MarkerCluster -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
 </head>
-
 <body>
-  <header class="header">
-    <div class="header-left">
-      <!-- Asegúrate de que este archivo exista en /assets/logo_carso.png -->
-      <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
-      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
-    </div>
-    <div id="status" class="status-badge gray">CARGANDO...</div>
-  </header>
-
-  <div class="main-container">
+  <div class="app-container">
+    <!-- Lateral -->
     <aside class="sidebar">
-      <div class="sidebar-header">
-        <h2>Brigadas conectadas</h2>
-        <div class="filter-box">
-          <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
-          <button id="applyFilters">Aplicar</button>
-        </div>
+      <h1>Brigadas</h1>
+
+      <!-- filtro de brigada -->
+      <div class="filter-box">
+        <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
+        <button id="applyFilters">Aplicar</button>
       </div>
 
-      <div id="userList" class="brigada-list">
-        <!-- Brigadas cargadas dinámicamente -->
+      <!-- NUEVO: fecha para exportar KMZ -->
+      <div class="filter-box" style="margin-top:6px;">
+        <input id="kmzDate" type="date" />
       </div>
 
-      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
+      <!-- botón exportar -->
+      <button id="exportKmz" class="export-btn">📍 Exportar KMZ</button>
+
+      <!-- lista de brigadas -->
+      <div id="brigadaList" class="brigada-list"></div>
+
+      <!-- estado -->
+      <div id="statusBar" class="status-bar">Conectando...</div>
     </aside>
 
-    <main id="map" class="map-container"></main>
+    <!-- Contenido principal -->
+    <main class="main">
+      <div id="map" class="map"></div>
+    </main>
   </div>
 
-  <footer class="footer">
-    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
-  </footer>
+  <!-- Scripts -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
+  <!-- JSZip para generar KMZ (zip) -->
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <!-- Supabase -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2.47.4/dist/umd/supabase.min.js"></script>
+
+  <!-- tu config con claves -->
   <script src="config.js"></script>
+  <!-- tu lógica -->
   <script src="main.js"></script>
 </body>
 </html>
