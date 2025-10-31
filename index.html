@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Monitoreo GPS - Brigadas</title>
 
-  <!-- CSS principal -->
+  <!-- Hoja de estilos -->
   <link rel="stylesheet" href="styles.css" />
 
   <!-- Leaflet Core -->
@@ -20,7 +20,7 @@
   <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
-  <!-- JSZip para KMZ -->
+  <!-- JSZip para generar KMZ -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
 </head>
 
@@ -38,12 +38,12 @@
       <div class="sidebar-header">
         <h2>Brigadas conectadas</h2>
         <div class="filter-box">
-          <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
+          <input id="brigadaFilter" type="text" placeholder="Brigada 12.1" />
           <button id="applyFilters">Aplicar</button>
         </div>
       </div>
 
-      <!-- Fecha para exportar KMZ -->
+      <!-- Fecha para el KMZ -->
       <div class="filter-box" style="margin-top:6px;">
         <input id="kmzDate" type="date" />
       </div>
@@ -60,7 +60,7 @@
     <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
   </footer>
 
-  <!-- Orden: primero config, luego main -->
+  <!-- Orden correcto -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
