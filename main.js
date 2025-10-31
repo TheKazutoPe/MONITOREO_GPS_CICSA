@@ -68,7 +68,7 @@ function animateMarker(marker, from, to) {
   requestAnimationFrame(step);
 }
 
-// ====== Mapbox (para vista y puentes finos) ======
+// ====== Mapbox básico (solo para puentes si hace falta) ======
 async function routeBetween(a, b) {
   try {
     const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
@@ -81,31 +81,6 @@ async function routeBetween(a, b) {
     console.warn("routeBetween error:", err);
     return [a, b];
   }
-}
-async function snapSegmentToRoad(seg) {
-  if (seg.length < 2) return seg;
-  const coords = seg.map((p) => `${p.lng},${p.lat}`).join(";");
-  const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&tidy=true&radiuses=${seg.map(() => 40).join(";")}&access_token=${MAPBOX_TOKEN}`;
-  try {
-    const r = await fetch(url, { mode: "cors", cache: "no-cache" });
-    if (!r.ok) throw new Error(`Mapbox error: ${r.status}`);
-    const j = await r.json();
-    const c = j.matchings?.[0]?.geometry?.coordinates || [];
-    return c.map(([lng, lat]) => ({ lat, lng }));
-  } catch (err) {
-    console.warn("snapSegmentToRoad error:", err);
-    return seg;
-  }
-}
-async function mergeOrBridgeCoords(a, b) {
-  if (!a.length) return b;
-  const last = a[a.length - 1], first = b[0];
-  const gap = distMeters(last, first);
-  if (gap > ROUTE_BRIDGE_M) {
-    const bridge = await routeBetween(last, first);
-    return [...a, ...bridge, ...b];
-  }
-  return [...a, ...b];
 }
 
 // ====== Inicializar mapa ======
@@ -172,59 +147,67 @@ async function fetchInitial(clear) {
   setStatus("Conectado", "green");
 }
 
-// ====== Render lista lateral ======
+// ====== Render lista lateral (CON LED) ======
 function addOrUpdateUserInList(row) {
   const uid = String(row.usuario_id || "0");
   let el = document.getElementById(`u-${uid}`);
+
   const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
   const cls = mins <= 2 ? "text-green" : (mins <= 5 ? "text-yellow" : "text-gray");
   const hora = new Date(row.timestamp).toLocaleTimeString();
+  const brig = row.brigada || "-";
+
+  const ledColor =
+    mins <= 2 ? "#4ade80" :
+    mins <= 5 ? "#eab308" :
+    "#777";
+
+  const content = `
+    <div class="brigada-header">
+      <div style="display:flex;gap:6px;align-items:flex-start;">
+        <div class="brigada-dot" style="background:${ledColor};"></div>
+        <div class="brigada-info">
+          <b>${row.tecnico || "Sin nombre"}</b>
+          <div class="brigada-sub">${brig}</div>
+        </div>
+      </div>
+      <div class="brigada-hora">${hora}</div>
+    </div>
+  `;
 
   if (!el) {
     el = document.createElement("div");
     el.id = `u-${uid}`;
     el.className = `brigada-item ${cls}`;
-    el.innerHTML = `
-      <div class="brigada-header">
-        <div class="brigada-info">
-          <b>${row.tecnico || "Sin nombre"}</b>
-          <div class="brigada-sub">${row.brigada || "-"}</div>
-        </div>
-        <div class="brigada-hora">${hora}</div>
-      </div>
-    `;
+    el.innerHTML = content;
     el.onclick = () => {
-      // Al hacer clic, autocompleta el filtro (sin cambiar nada más)
-      ui.brigada.value = row.brigada || "";
+      ui.brigada.value = brig;
       fetchInitial(true);
     };
     ui.userList.appendChild(el);
   } else {
     el.className = `brigada-item ${cls} marker-pulse`;
-    el.querySelector(".brigada-sub").textContent = row.brigada || "-";
-    el.querySelector(".brigada-hora").textContent = hora;
+    el.innerHTML = content;
     setTimeout(() => el.classList.remove("marker-pulse"), 600);
   }
 }
 
 // ============================================================================
-// ====== Optimizaciones para exportar KMZ por brigada y día (rápido) ========
+// ====== Exportar KMZ por brigada y día (prioriza recorrido real) ============
 // ============================================================================
 
-// Distancia rápida (aprox) en metros
+// distancia rápida
 function distMetersFast(a, b) {
   const R = 6371000;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
   const dLon = (b.lng - a.lng) * Math.PI / 180;
-  const lat1 = a.lat * Math.PI / 180;
-  const lat2 = b.lat * Math.PI / 180;
-  const x = dLon * Math.cos((lat1 + lat2) / 2);
+  const x = dLon * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180);
   const y = dLat;
   return Math.sqrt(x * x + y * y) * R;
 }
 
-// Douglas-Peucker (epsilon en metros)
-function rdpSimplify(points, epsilonMeters = 22) {
+// simplificación ligera
+function rdpSimplify(points, epsilonMeters = 15) {
   if (!points || points.length <= 2) return points || [];
   function perpDist(p, a, b) {
     const ax = 0, ay = 0;
@@ -259,13 +242,8 @@ function rdpSimplify(points, epsilonMeters = 22) {
   return points.filter((_, i) => keep.has(i));
 }
 
-function chunkByPoints(arr, maxPts = 100) {
-  const res = [];
-  for (let i = 0; i < arr.length; i += maxPts) res.push(arr.slice(i, i + maxPts));
-  return res;
-}
-
-function splitOnGaps(points, maxGapMin = 12, maxGapMeters = 800) {
+// partir en tramos si hay huecos
+function splitOnGaps(points, maxGapMin = 15, maxGapMeters = 900) {
   const groups = [];
   let cur = [];
   for (let i = 0; i < points.length; i++) {
@@ -285,55 +263,42 @@ function splitOnGaps(points, maxGapMin = 12, maxGapMeters = 800) {
   return groups;
 }
 
-async function mapMatchChunk(chunk) {
-  const coords = chunk.map(p => `${p.lng},${p.lat}`).join(";");
+// map-matching SOLO si el tramo es razonable
+async function safeMapMatch(points) {
+  if (!MAPBOX_TOKEN || !points || points.length < 2) return null;
+  if (points.length > 100) return null; // no map-matching en tramos muy largos
+  const coords = points.map(p => `${p.lng},${p.lat}`).join(";");
   const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&tidy=true&access_token=${MAPBOX_TOKEN}`;
   const r = await fetch(url);
-  if (!r.ok) throw new Error("Mapbox map-matching error");
+  if (!r.ok) return null;
   const j = await r.json();
   const match = (j.matchings && j.matchings[0]) ? j.matchings[0] : null;
   const g = match ? match.geometry : null;
-  if (!g || !g.coordinates) throw new Error("Sin geometría en match");
+  if (!g || !g.coordinates) return null;
   return g.coordinates.map(([lng, lat]) => ({ lat, lng }));
 }
 
-// Concurrencia controlada
-async function runWithConcurrency(tasks, limit = 3) {
-  const results = new Array(tasks.length);
-  let i = 0;
-  async function worker() {
-    while (i < tasks.length) {
-      const idx = i++;
-      try { results[idx] = await tasks[idx](); }
-      catch (e) { results[idx] = e; }
-    }
-  }
-  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
-  await Promise.all(workers);
-  return results;
-}
-
-// ====== Exportar KMZ por brigada + día (rápido) ======
+// ====== Exportar ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
-    setStatus("Generando KMZ (rápido)…", "gray");
+    setStatus("Generando KMZ…", "gray");
     if (ui?.exportKmz) { prevDisabled = ui.exportKmz.disabled; ui.exportKmz.disabled = true; }
 
-    // 1) Brigada requerida
     const brig = (ui.brigada.value || "").trim();
-    if (!brig) { alert("Escribe el nombre EXACTO de la brigada para exportar su KMZ."); return; }
+    if (!brig) {
+      alert("Escribe la brigada EXACTA para exportar su KMZ.");
+      return;
+    }
 
-    // 2) Fecha (hoy por defecto)
     const dateInput = document.getElementById("kmzDate");
     const chosen = (dateInput && dateInput.value) ? new Date(dateInput.value + "T00:00:00") : new Date();
     const start = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate());
     const end   = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate() + 1);
 
-    // 3) Consulta ligera: solo columnas necesarias
     const { data, error } = await supa
       .from("ubicaciones_brigadas")
-      .select("latitud,longitud,timestamp,tecnico,usuario_id,brigada")
+      .select("latitud,longitud,timestamp,tecnico,usuario_id")
       .eq("brigada", brig)
       .gte("timestamp", start.toISOString())
       .lt("timestamp", end.toISOString())
@@ -341,64 +306,73 @@ async function exportKMZFromState() {
 
     if (error) throw new Error("Error al leer Supabase");
     if (!data || data.length < 2) {
-      alert(`⚠️ Sin datos suficientes para "${brig}" en ${start.toISOString().slice(0,10)}.`);
+      alert(`⚠️ Sin datos para "${brig}" en ${start.toISOString().slice(0,10)}.`);
       return;
     }
 
-    // 4) Agrupar por usuario_id (si hay más de un equipo con la misma brigada)
-    const groupsByUser = new Map();
+    // agrupar por usuario_id
+    const byUser = new Map();
     for (const r of data) {
       const uid = String(r.usuario_id || "0");
-      if (!groupsByUser.has(uid)) groupsByUser.set(uid, []);
-      groupsByUser.get(uid).push({
-        lat: r.latitud, lng: r.longitud, timestamp: r.timestamp,
+      if (!byUser.has(uid)) byUser.set(uid, []);
+      byUser.get(uid).push({
+        lat: r.latitud,
+        lng: r.longitud,
+        timestamp: r.timestamp,
         tecnico: r.tecnico || `Tecnico ${uid}`
       });
     }
 
-    // 5) Construir KML
     let kml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
       `<name>${brig} - ${start.toISOString().slice(0,10)}</name>`;
+
     let placemarks = 0;
 
-    for (const [uid, rows] of groupsByUser.entries()) {
+    // por cada usuario (teléfono) de esa brigada
+    for (const [uid, rows] of byUser.entries()) {
       if (rows.length < 2) continue;
-      const segments = splitOnGaps(rows, 12, 800);
-      if (!segments.length) continue;
 
-      const tecnicoName = (rows[0].tecnico || `Tecnico ${uid}`).replace(/&/g, "&amp;");
-
-      for (const seg of segments) {
-        const simplified = rdpSimplify(seg, 22);
-        if (simplified.length < 2) continue;
-
-        const chunks = chunkByPoints(simplified, 100);
-        const tasks = chunks.map(chunk => async () => {
-          try { return await mapMatchChunk(chunk); }
-          catch { return chunk.map(p => ({ lat: p.lat, lng: p.lng })); }
-        });
-        const results = await runWithConcurrency(tasks, 3);
-
-        const matched = [];
-        for (const r of results) {
-          if (r instanceof Error) continue;
-          if (matched.length && r.length) {
-            const last = matched[matched.length - 1];
-            const first = r[0];
-            if (distMetersFast(last, first) < 2) matched.push(...r.slice(1));
-            else matched.push(...r);
-          } else {
-            matched.push(...r);
-          }
-        }
-        if (matched.length < 2) continue;
-
-        const coords = matched.map(p => `${p.lng},${p.lat},0`).join(" ");
+      // si son pocos puntos → no tocamos nada
+      if (rows.length <= 400) {
+        const coords = rows.map(p => `${p.lng},${p.lat},0`).join(" ");
+        const name = (rows[0].tecnico || `Tecnico ${uid}`).replace(/&/g, "&amp;");
         kml += `
           <Placemark>
-            <name>${tecnicoName} (${brig})</name>
+            <name>${name} (${brig})</name>
+            <Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style>
+            <LineString><coordinates>${coords}</coordinates></LineString>
+          </Placemark>`;
+        placemarks++;
+        continue;
+      }
+
+      // si son muchos → partimos en tramos naturales
+      const segments = splitOnGaps(rows, 15, 900);
+      const name = (rows[0].tecnico || `Tecnico ${uid}`).replace(/&/g, "&amp;");
+
+      for (const seg of segments) {
+        if (seg.length < 2) continue;
+
+        // intenta map-matching si el tramo es chiquito
+        let finalSeg = null;
+        if (seg.length <= 100) {
+          const matched = await safeMapMatch(seg);
+          if (matched && matched.length >= 2) {
+            finalSeg = matched;
+          }
+        }
+
+        // si no hubo match, usamos una simplificación MUY ligera
+        if (!finalSeg) {
+          finalSeg = seg.length > 600 ? rdpSimplify(seg, 15) : seg;
+        }
+
+        const coords = finalSeg.map(p => `${p.lng},${p.lat},0`).join(" ");
+        kml += `
+          <Placemark>
+            <name>${name} (${brig})</name>
             <Style><LineStyle><color>ff00a6ff</color><width>4</width></LineStyle></Style>
             <LineString><coordinates>${coords}</coordinates></LineString>
           </Placemark>`;
@@ -407,9 +381,9 @@ async function exportKMZFromState() {
     }
 
     kml += `</Document></kml>`;
+
     if (!placemarks) throw new Error("No se generó ninguna traza válida.");
 
-    // 6) Empaquetar KMZ con compresión baja (más rápido)
     const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g, "_");
     const zip = new JSZip();
     zip.file("doc.kml", kml);
