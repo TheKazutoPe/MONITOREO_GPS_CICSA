@@ -8,16 +8,16 @@
   <!-- CSS principal -->
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Leaflet Core (igual que antes) -->
+  <!-- Leaflet Core -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- MarkerCluster (igual que antes) -->
+  <!-- MarkerCluster -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
-  <!-- 🔴 SUPABASE: igual que tu versión que funcionaba -->
+  <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
   <!-- JSZip para KMZ -->
@@ -27,7 +27,6 @@
 <body>
   <header class="header">
     <div class="header-left">
-      <!-- si no tienes el logo, no pasa nada -->
       <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
       <h1>Monitoreo GPS <span>- Brigadas</span></h1>
     </div>
@@ -44,19 +43,16 @@
         </div>
       </div>
 
-      <!-- NUEVO: fecha para exportar KMZ -->
+      <!-- Fecha para exportar KMZ -->
       <div class="filter-box" style="margin-top:6px;">
         <input id="kmzDate" type="date" />
       </div>
 
-      <div id="userList" class="brigada-list">
-        <!-- Brigadas cargadas dinámicamente -->
-      </div>
+      <div id="userList" class="brigada-list"></div>
 
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
-    <!-- el mapa, como antes -->
     <main id="map" class="map-container"></main>
   </div>
 
@@ -64,7 +60,7 @@
     <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
   </footer>
 
-  <!-- 👇 EXACTAMENTE como antes: primero config, luego main -->
+  <!-- Orden: primero config, luego main -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
