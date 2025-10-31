@@ -2,39 +2,46 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Monitoreo GPS</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoreo GPS - Brigadas</title>
 
-  <!-- Estilos propios -->
+  <!-- CSS principal -->
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- Leaflet -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <!-- MarkerCluster -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-  />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-  />
-</head>
-<body>
-  <div class="app-container">
-    <!-- Lateral -->
-    <aside class="sidebar">
-      <h1>Brigadas</h1>
+  <!-- Leaflet Core (igual que antes) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-      <!-- filtro de brigada -->
-      <div class="filter-box">
-        <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
-        <button id="applyFilters">Aplicar</button>
+  <!-- MarkerCluster (igual que antes) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- 🔴 SUPABASE: igual que tu versión que funcionaba -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+  <!-- JSZip para KMZ -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+</head>
+
+<body>
+  <header class="header">
+    <div class="header-left">
+      <!-- si no tienes el logo, no pasa nada -->
+      <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
+      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
+    </div>
+    <div id="status" class="status-badge gray">CARGANDO...</div>
+  </header>
+
+  <div class="main-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Brigadas conectadas</h2>
+        <div class="filter-box">
+          <input id="brigadaFilter" type="text" placeholder="Buscar brigada..." />
+          <button id="applyFilters">Aplicar</button>
+        </div>
       </div>
 
       <!-- NUEVO: fecha para exportar KMZ -->
@@ -42,39 +49,23 @@
         <input id="kmzDate" type="date" />
       </div>
 
-      <!-- botón exportar -->
-      <button id="exportKmz" class="export-btn">📍 Exportar KMZ</button>
+      <div id="userList" class="brigada-list">
+        <!-- Brigadas cargadas dinámicamente -->
+      </div>
 
-      <!-- lista de brigadas -->
-      <div id="brigadaList" class="brigada-list"></div>
-
-      <!-- estado -->
-      <div id="statusBar" class="status-bar">Conectando...</div>
+      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
-    <!-- Contenido principal -->
-    <main class="main">
-      <div id="map" class="map"></div>
-    </main>
+    <!-- el mapa, como antes -->
+    <main id="map" class="map-container"></main>
   </div>
 
-  <!-- Scripts -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <footer class="footer">
+    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
+  </footer>
 
-  <!-- JSZip para generar KMZ (zip) -->
-  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-
-  <!-- Supabase -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2.47.4/dist/umd/supabase.min.js"></script>
-
-  <!-- tu config con claves -->
+  <!-- 👇 EXACTAMENTE como antes: primero config, luego main -->
   <script src="config.js"></script>
-  <!-- tu lógica -->
   <script src="main.js"></script>
 </body>
 </html>
