@@ -21,29 +21,30 @@ const state = {
   pointsByUser: new Map(), // uid -> [rows]
 };
 
-// ====== Ajustes de trazado / matching (solo estos cambian respecto a tu base) ======
-const CLEAN_MIN_METERS      = 6;      // suaviza “dientes”
-const DENSIFY_STEP          = 15;     // curvatura real
-const MAX_MM_POINTS         = 60;     // tamaño de bloque crudo
-const MAX_MATCH_INPUT       = 98;     // límite duro para URL GET del Matching
-const MAX_DIST_RATIO        = 0.45;   // tolerancia matching vs crudo
-const ENDPOINT_TOL          = 35;     // tolerancia de puntas (m)
+// ====== Ajustes de trazado / matching ======
+const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
+const DENSIFY_STEP          = 10;    // curvatura urbana más real
+const MAX_MM_POINTS         = 40;    // tamaño de bloque crudo
+const MAX_MATCH_INPUT       = 90;    // límite duro para URL GET del Matching
+const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
+const ENDPOINT_TOL          = 25;    // tolerancia de puntas (m)
+const CONFIDENCE_MIN        = 0.70;  // confianza mínima Mapbox (0..1)
 
 // Gaps / “teleport” (evitar uniones falsas)
-const GAP_MINUTES           = 8;      // gap de tiempo → nuevo segmento
-const GAP_JUMP_METERS       = 800;    // salto espacial brusco → nuevo segmento
+const GAP_MINUTES           = 8;     // gap de tiempo → nuevo segmento
+const GAP_JUMP_METERS       = 800;   // salto espacial brusco → nuevo segmento
 
 // Puentes por carretera (Directions) con plausibilidad
-const BRIDGE_MAX_METERS     = 1200;   // tope de puente
-const DIRECTIONS_HOP_METERS = 450;    // hops cuando el puente es largo
-const MAX_BRIDGE_SPEED_KMH  = 90;     // si la unión implica >90 km/h = NO unir
-const MIN_BRIDGE_SPEED_KMH  = 2;      // si implica <2 km/h en gap corto = ruido
+const BRIDGE_MAX_METERS     = 800;   // tope de puente
+const DIRECTIONS_HOP_METERS = 300;   // hops cuando el puente es largo
+const MAX_BRIDGE_SPEED_KMH  = 70;    // si la unión implica >70 km/h = NO unir
+const MIN_BRIDGE_SPEED_KMH  = 3;     // si implica <3 km/h en gap corto = ruido
 const DIRECTIONS_PROFILE    = "driving"; // o "driving-traffic"
 
 // Ritmo de llamadas para no saturar API
 const PER_BLOCK_DELAY       = 150;
 
-// ====== Iconos/estética (igual que tu base) ======
+// ====== Iconos/estética (como tu base) ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -96,7 +97,8 @@ function densifySegment(points, step = DENSIFY_STEP) {
       out.push({
         lat: a.lat + (b.lat - a.lat) * t,
         lng: a.lng + (b.lng - a.lng) * t,
-        timestamp: a.timestamp
+        timestamp: a.timestamp,
+        acc: a.acc
       });
     }
   }
@@ -151,6 +153,13 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   return groups;
 }
 
+// ====== Radio adaptativo por punto (usa 'acc' si existe) ======
+function adaptiveRadius(p){
+  const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
+  const base = isFinite(acc) ? acc + 5 : 25; // leve holgura
+  return Math.max(10, Math.min(50, base));   // 10–50 m
+}
+
 // ====== Map Matching (timestamps + radiuses + downsample) ======
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN) return null;
@@ -167,9 +176,10 @@ async function mapMatchBlockSafe(seg){
   let rawDist = 0;
   for (let i=0;i<dense.length-1;i++) rawDist += distMeters(dense[i], dense[i+1]);
 
+  // parámetros con timestamps y radiuses ADAPTATIVOS
   const coords = dense.map(p=>`${p.lng},${p.lat}`).join(";");
   const tsArr  = dense.map(p=>Math.floor(new Date(p.timestamp).getTime()/1000)).join(";");
-  const radArr = dense.map(()=>25).join(";");
+  const radArr = dense.map(p=>adaptiveRadius(p)).join(";");
 
   const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}` +
               `?geometries=geojson&overview=full&tidy=true` +
@@ -188,7 +198,16 @@ async function mapMatchBlockSafe(seg){
 
   const j = await r.json().catch(()=> null);
   const m = j?.matchings?.[0];
-  if (!m?.geometry?.coordinates) return null;
+  // Confianza mínima + fallback partiendo el bloque
+  if (!m?.geometry?.coordinates || (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)) {
+    if (dense.length > 24) {
+      const mid = Math.floor(dense.length/2);
+      const left  = await mapMatchBlockSafe(dense.slice(0, mid));
+      const right = await mapMatchBlockSafe(dense.slice(mid-1));
+      if (left && right) return left.concat(right.slice(1));
+    }
+    return null;
+  }
 
   const matched = m.geometry.coordinates.map(([lng,lat])=>({lat,lng}));
 
@@ -199,9 +218,10 @@ async function mapMatchBlockSafe(seg){
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
 
-  // timestamps aproximados (KML no los usa, pero nos sirve si luego haces GPX)
+  // timestamps aproximados (opcional)
   for (let i=0;i<matched.length;i++){
     matched[i].timestamp = dense[Math.min(i, dense.length-1)].timestamp;
+    matched[i].acc = dense[Math.min(i, dense.length-1)].acc;
   }
   return matched;
 }
@@ -210,9 +230,8 @@ async function mapMatchBlockSafe(seg){
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
-  // distancia bruta y filtros rápidos
   const direct = distMeters(a, b);
-  if (direct > BRIDGE_MAX_METERS) return null; // puente demasiado largo
+  if (direct > BRIDGE_MAX_METERS) return null;
 
   const url =
     `https://api.mapbox.com/directions/v5/mapbox/${DIRECTIONS_PROFILE}/` +
@@ -227,19 +246,19 @@ async function directionsBetween(a, b) {
   const j = await r.json().catch(()=>null);
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
-  const meters = route?.distance ?? 0;   // en metros
-  const secs   = route?.duration ?? 0;   // en segundos
+  const meters = route?.distance ?? 0;   // m
+  const secs   = route?.duration ?? 0;   // s
   if (!coords.length || meters <= 0) return null;
 
-  // coherencia espacial al inicio
+  // coherencia espacial al inicio del puente
   const first = { lat: coords[0][1], lng: coords[0][0] };
-  if (distMeters(a, first) > 100) return null;
+  if (distMeters(a, first) > 80) return null;
 
   // coherencia temporal: ¿da el tiempo para recorrer esa distancia?
-  const dt = Math.max(1, (new Date(b.timestamp) - new Date(a.timestamp))/1000); // seg
-  const v_kmh_imp  = (meters/1000) / (dt/3600); // velocidad "impuesta" por tus puntos
+  const dt = Math.max(1, (new Date(b.timestamp) - new Date(a.timestamp))/1000);
+  const v_kmh_imp = (meters/1000) / (dt/3600);
   if (v_kmh_imp > MAX_BRIDGE_SPEED_KMH) return null;
-  if (v_kmh_imp < MIN_BRIDGE_SPEED_KMH && dt < 300) return null; // gap corto + casi parado
+  if (v_kmh_imp < MIN_BRIDGE_SPEED_KMH && dt < 300) return null;
 
   return coords.map(([lng,lat]) => ({ lat, lng, timestamp: a.timestamp }));
 }
@@ -250,7 +269,7 @@ async function smartBridge(a, b) {
   if (d > BRIDGE_MAX_METERS) return null;
 
   if (d <= DIRECTIONS_HOP_METERS) {
-    return await directionsBetween(a, b); // ya hace checks
+    return await directionsBetween(a, b);
   }
 
   const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
@@ -267,7 +286,7 @@ async function smartBridge(a, b) {
       ).toISOString()
     };
     const seg = await directionsBetween(prev, mid);
-    if (!seg) return null;           // si un hop no pasa validaciones, cancelamos el bridge
+    if (!seg) return null; // si un hop no pasa validaciones, NO unimos
     out.push(...seg.slice(1));
     prev = mid;
     await sleep(60);
@@ -403,7 +422,7 @@ async function exportKMZFromState(){
 
     const {data, error} = await supa
       .from("ubicaciones_brigadas")
-      .select("latitud,longitud,timestamp,tecnico,usuario_id,timestamp_pe,brigada")
+      .select("latitud,longitud,timestamp,tecnico,usuario_id,timestamp_pe,brigada,acc,spd")
       .eq("brigada", brig)
       .gte("timestamp_pe", ymd)
       .lt("timestamp_pe", ymdNext)
@@ -420,7 +439,9 @@ async function exportKMZFromState(){
       .map(r => ({
         lat: +r.latitud,
         lng: +r.longitud,
-        timestamp: r.timestamp_pe || r.timestamp,  // clave: usar hora local del día
+        timestamp: r.timestamp_pe || r.timestamp,  // usar hora local del día
+        acc: r.acc ?? null,
+        spd: r.spd ?? null
       }))
       .filter(p => isFinite(p.lat) && isFinite(p.lng) && p.timestamp)
       .sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -437,7 +458,7 @@ async function exportKMZFromState(){
     const segments = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
 
     // 3) procesar cada segmento con matching + unir con bridges plausibles
-    const renderedSegments = []; // array de segmentos finales (cada uno se vuelve Placemark)
+    const renderedSegments = []; // cada elemento será un Placemark
     for (const seg of segments){
       if (seg.length < 2) continue;
 
@@ -446,10 +467,13 @@ async function exportKMZFromState(){
       for (let i=0;i<blocks.length;i++){
         const block = blocks[i];
 
+        // default por si falla matching: densificado
         let finalBlock = densifySegment(block, DENSIFY_STEP);
+
+        // Map Matching pegado a pista (con timestamps + radiuses adaptativos)
         try {
           const mm = await mapMatchBlockSafe(block);
-          if (mm && mm.length >= 2) finalBlock = mm; // Matching pegado a pista
+          if (mm && mm.length >= 2) finalBlock = mm;
         } catch(_) {}
 
         if (!current.length){
