@@ -1,104 +1,80 @@
-// ================= main.js =================
+// ================= main.js (compatible con tu index + Leaflet) =================
 
-// Lee configuración global
+// Lee configuración global del config.js
 const {
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
   ROUTE_PROVIDER,
   MAPBOX_TOKEN
-} = window.CONFIG;
+} = window.CONFIG || {};
 
-// Nombres de tabla/columnas (ajusta si tus nombres difieren)
+// Constantes de tabla/columnas
 const TABLE_UBICACIONES = "ubicaciones_brigadas";
 const COL_LAT = "latitud";
 const COL_LNG = "longitud";
-const COL_TS  = "timestamp";     // ISO 8601 UTC
-const COL_TS_TZ = "timestamp_pe"; // fecha local (si la usas); si no, se usa COL_TS
+const COL_TS  = "timestamp";      // ISO 8601 UTC
+const COL_TS_TZ = "timestamp_pe"; // fecha local (si existe)
 const COL_BRG = "brigada";
 const COL_TEC = "tecnico";
 const COL_UID = "usuario_id";
-const COL_ACC = "acc";           // precisión (m) opcional
-const COL_SPD = "spd";           // velocidad (m/s) opcional
+const COL_ACC = "acc";            // opcional
+const COL_SPD = "spd";            // opcional
 
-// ====== Parámetros finos para trazado/matching ======
-const CLEAN_MIN_METERS      = 6;     // quita “dientes de sierra”
-const DENSIFY_STEP          = 15;    // curvatura suave
-const MAX_MM_POINTS         = 75;    // límite seguro por bloque Mapbox Matching
-const MAX_DIST_RATIO        = 0.45;  // tolerancia distancia cruda vs matched
-const ENDPOINT_TOL          = 35;    // tolerancia en puntas (m)
-const GAP_MINUTES           = 8;     // corte por hueco de tiempo
-const GAP_JUMP_METERS       = 800;   // corte por salto largo
-const BRIDGE_MAX_METERS     = 2000;  // máximo a “puentear” con Directions
+// Parámetros finos para trazado/matching
+const CLEAN_MIN_METERS      = 6;
+const DENSIFY_STEP          = 15;
+const MAX_MM_POINTS         = 75;
+const MAX_DIST_RATIO        = 0.45;
+const ENDPOINT_TOL          = 35;
+const GAP_MINUTES           = 8;
+const GAP_JUMP_METERS       = 800;
+const BRIDGE_MAX_METERS     = 2000;
 const DIRECTIONS_PROFILE    = "driving"; // o "driving-traffic"
 
-// ====== Supabase (ESM) ======
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
-const supa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Supabase: usa el global ya incluido en tu index.html
+// (En tu HTML cargas: <script src="https://unpkg.com/@supabase/supabase-js@2"></script>)
+const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ====== Mapbox GL ======
-if (!MAPBOX_TOKEN || !MAPBOX_TOKEN.startsWith("pk.")) {
-  console.warn("Mapbox token inválido en frontend. Usa un token público que empiece con 'pk.'");
-}
-mapboxgl.accessToken = MAPBOX_TOKEN;
-
-let map;
-const routeLayerId = "route-layer";
-const routeSourceId = "route-source";
+// ====== Leaflet map (tu index ya carga Leaflet) ======
+/* Tu index tiene:
+   <main id="map" class="map-container"></main>
+   <input id="brigadaFilter" ... />
+   <input id="kmzDate" type="date" />
+   <button id="exportKmzBtn">📍 Exportar KMZ</button>
+*/
+let map, routeLayer;
 
 window.addEventListener("DOMContentLoaded", () => {
   initMap();
-  const btn = document.getElementById("btnExportKMZ");
+
+  const btn = document.getElementById("exportKmzBtn");
   if (btn) btn.addEventListener("click", onExportKmzClick);
+
+  // badge de estado opcional
+  const st = document.getElementById("status");
+  if (st) st.textContent = "LISTO";
 });
 
 function initMap() {
-  map = new mapboxgl.Map({
-    container: "map",
-    style: "mapbox://styles/mapbox/streets-v12",
-    center: [-77.0428, -12.0464], // Lima
-    zoom: 11
-  });
-  map.addControl(new mapboxgl.NavigationControl(), "top-right");
+  // centro por defecto: Lima
+  map = L.map('map', { zoomControl: true }).setView([-12.0464, -77.0428], 11);
 
-  map.on("load", () => {
-    if (!map.getSource(routeSourceId)) {
-      map.addSource(routeSourceId, { type: "geojson", data: emptyLine() });
-    }
-    if (!map.getLayer(routeLayerId)) {
-      map.addLayer({
-        id: routeLayerId,
-        type: "line",
-        source: routeSourceId,
-        layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-width": 4, "line-color": "#ff1a1a" }
-      });
-    }
-  });
-}
+  // capa base (puedes cambiarla si deseas)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 20,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
 
-function emptyLine() {
-  return {
-    type: "FeatureCollection",
-    features: [{
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: [] },
-      properties: {}
-    }]
-  };
+  routeLayer = L.polyline([], { color: '#ff1a1a', weight: 4 }).addTo(map);
 }
 
 function drawOnMap(coords) {
-  if (!map || !map.isStyleLoaded()) return;
-  const gj = {
-    type: "FeatureCollection",
-    features: [{
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: coords.map(c => [c.lng, c.lat]) },
-      properties: {}
-    }]
-  };
-  const src = map.getSource(routeSourceId);
-  if (src) src.setData(gj);
+  if (!map || !routeLayer) return;
+  const latlngs = coords.map(c => [c.lat, c.lng]);
+  routeLayer.setLatLngs(latlngs);
+  if (latlngs.length) {
+    map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
+  }
 }
 
 // ====== Utilidades de distancia/tiempo ======
@@ -182,6 +158,7 @@ async function mapMatchBlockSafe(seg) {
 
   const dense = densifySegment(seg, DENSIFY_STEP);
 
+  // distancia cruda para validar
   let rawDist = 0;
   for (let i=0; i<dense.length-1; i++) rawDist += distMeters(dense[i], dense[i+1]);
 
@@ -201,6 +178,7 @@ async function mapMatchBlockSafe(seg) {
 
   const matched = m.geometry.coordinates.map(([lng,lat]) => ({ lat, lng }));
 
+  // comparar distancias para evitar “teleports”
   let mmDist = 0;
   for (let i=0; i<matched.length-1; i++) mmDist += distMeters(matched[i], matched[i+1]);
 
@@ -208,6 +186,7 @@ async function mapMatchBlockSafe(seg) {
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
 
+  // propaga/aproxima timestamps (KML no los usa, pero sirve para debugging)
   for (let i=0; i<matched.length; i++) {
     matched[i].timestamp = dense[Math.min(i, dense.length-1)].timestamp;
   }
@@ -218,6 +197,7 @@ async function mapMatchBlockSafe(seg) {
 async function directionsBridge(a, b) {
   if (ROUTE_PROVIDER !== "mapbox") return null;
   if (!MAPBOX_TOKEN || !MAPBOX_TOKEN.startsWith("pk.")) return null;
+
   const url = `https://api.mapbox.com/directions/v5/mapbox/${DIRECTIONS_PROFILE}/${a.lng},${a.lat};${b.lng},${b.lat}` +
               `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
   const r = await fetch(url);
@@ -231,7 +211,7 @@ async function directionsBridge(a, b) {
 // ====== Exportar KML/KMZ ======
 function buildKmlFromCoords(coords, { name, color, width }) {
   const hex = (color || "#FF0000").replace("#", "");
-  const abgr = `ff${hex.slice(4,6)}${hex.slice(2,4)}${hex.slice(0,2)}`; // ABGR para KML
+  const abgr = `ff${hex.slice(4,6)}${hex.slice(2,4)}${hex.slice(0,2)}`; // ABGR en KML
   const line = coords.map(c => `${c.lng},${c.lat},0`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -248,6 +228,7 @@ function buildKmlFromCoords(coords, { name, color, width }) {
 function escapeXml(s) { return (s||"").replace(/[<>&'"]/g, c => ({ "<":"&lt;","&":"&amp;",">":"&gt;","'":"&apos;",'"':"&quot;" }[c] )); }
 
 async function downloadKmz(kmlString, filename="ruta.kmz") {
+  // tu index ya carga JSZip (CDN). Si no está, cae a KML.
   if (!window.JSZip) {
     try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch(_){}
   }
@@ -270,16 +251,16 @@ async function downloadKmz(kmlString, filename="ruta.kmz") {
 
 // ====== Flujo principal: Export KMZ ======
 async function onExportKmzClick() {
-  const sel = document.getElementById("brigadaSelect");
+  const brigadaInput = document.getElementById("brigadaFilter");
   const dateInput = document.getElementById("kmzDate");
-  if (!sel || !dateInput) {
-    alert("Faltan #brigadaSelect y/o #kmzDate en tu HTML.");
+  if (!brigadaInput || !dateInput) {
+    alert("Faltan #brigadaFilter y/o #kmzDate en tu HTML.");
     return;
   }
-  const brigada = (sel.value || "").trim();
+  const brigada = (brigadaInput.value || "").trim();
   const ymd = dateInput.value; // YYYY-MM-DD
   if (!brigada || !ymd) {
-    alert("Elige brigada y fecha.");
+    alert("Escribe brigada y elige una fecha.");
     return;
   }
   try {
@@ -304,7 +285,7 @@ async function exportKMZFromState(brigada, ymd) {
   const minISO   = dayStart.toISOString();
   const maxISO   = dayEnd.toISOString();
 
-  // Consulta por fecha local si tienes COL_TS_TZ; si no, usa COL_TS ISO
+  // Usa fecha local si existe la columna COL_TS_TZ; sino, usa COL_TS ISO
   let query = supa.from(TABLE_UBICACIONES)
     .select(`${COL_LAT},${COL_LNG},${COL_TS},${COL_TEC},${COL_UID},${COL_ACC},${COL_SPD},${COL_TS_TZ}`)
     .eq(COL_BRG, brigada)
@@ -380,9 +361,7 @@ async function exportKMZFromState(brigada, ymd) {
 
     if (gap > 50 && gap <= BRIDGE_MAX_METERS) {
       const bridge = await directionsBridge(prevEnd, curStart);
-      if (bridge?.length) {
-        finalCoords.push(...bridge);
-      }
+      if (bridge?.length) finalCoords.push(...bridge);
     }
     finalCoords.push(...cur);
   }
@@ -394,5 +373,3 @@ async function exportKMZFromState(brigada, ymd) {
 
   return finalCoords;
 }
-
-export { exportKMZFromState }; // opcional si necesitas importar en otros módulos
