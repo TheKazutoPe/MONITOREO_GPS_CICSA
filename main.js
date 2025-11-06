@@ -28,6 +28,7 @@ const ui = {
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
+  toggleClean: document.getElementById("toggleCleanBtn"), // NUEVO
 };
 
 // ===== STATE =====
@@ -38,6 +39,8 @@ const state = {
   users: new Map(),        // uid -> { marker, lastRow }
   pointsByUser: new Map(), // uid -> [rows]
   cleanRouteLayer: null,
+  showClean: false,        // NUEVO: visibilidad del trazo limpio
+  cachedCleanLatlngs: null // NUEVO: última geometría consultada (array [lat,lng])
 };
 
 // ===== LIVE / BATCH =====
@@ -217,10 +220,10 @@ async function pushCleanChunkToRutasLimpias(brig, points){
   }
   console.log(`📤 rutas_limpias +${inserted} (brigada ${brig})`);
 
-  // repintar si el filtro coincide
+  // repintar SOLO si el usuario activó ver trazos
   try {
     const bf = (ui.brigada?.value || "").trim();
-    if (bf && bf.toLowerCase() === String(brig).toLowerCase()) {
+    if (state.showClean && bf && bf.toLowerCase() === String(brig).toLowerCase()) {
       await paintCleanRouteFromRutasLimpias(brig);
     }
   } catch(_) {}
@@ -383,6 +386,30 @@ function initMap(){
 
   ui.exportKmz?.addEventListener("click", () => exportKMZFromRutasLimpias());
 
+  // NUEVO: alternar visibilidad trazos limpios
+  if (ui.toggleClean){
+    ui.toggleClean.addEventListener("click", async () => {
+      state.showClean = !state.showClean;
+      ui.toggleClean.textContent = state.showClean ? "🙈 Ocultar trazos" : "👁 Ver trazos en mapa";
+
+      // si activamos y hay brigada filtrada → pintar
+      if (state.showClean) {
+        const brig=(ui.brigada?.value||"").trim();
+        if (brig) { await paintCleanRouteFromRutasLimpias(brig); }
+        // si ya teníamos geometría en caché y capa creada, la re-agregamos
+        if (state.cachedCleanLatlngs && !state.cleanRouteLayer) {
+          state.cleanRouteLayer = L.polyline(state.cachedCleanLatlngs, { weight: 4, opacity: 0.9 }).addTo(state.map);
+        }
+      } else {
+        // ocultar: quitar capa
+        if (state.cleanRouteLayer) {
+          try { state.map.removeLayer(state.cleanRouteLayer); } catch {}
+          state.cleanRouteLayer = null;
+        }
+      }
+    });
+  }
+
   // ==== REALTIME ====
   if (SEND_CLEAN) {
     console.log("🛰️ Preparando suscripción Realtime a public.ubicaciones_brigadas ...");
@@ -453,6 +480,7 @@ initMap();
 // ===== RUTA LIMPIA: PINTAR =====
 async function paintCleanRouteFromRutasLimpias(brig){
   try{
+    // limpiamos capa previa (si existiera)
     if (state.cleanRouteLayer){ state.map.removeLayer(state.cleanRouteLayer); state.cleanRouteLayer=null; }
 
     const dateInput=document.getElementById("kmzDate");
@@ -468,9 +496,14 @@ async function paintCleanRouteFromRutasLimpias(brig){
       .lt("timestamp", ymdNext)
       .order("timestamp", { ascending: true });
 
-    if (error || !data || data.length<2) return;
+    if (error || !data || data.length<2) { state.cachedCleanLatlngs = null; return; }
 
     const latlngs = data.map(p => [p.latitud, p.longitud]);
+
+    // NUEVO: guardamos siempre la geometría, pero solo pintamos si showClean
+    state.cachedCleanLatlngs = latlngs;
+    if (!state.showClean) return;
+
     state.cleanRouteLayer = L.polyline(latlngs, { weight: 4, opacity: 0.9 }).addTo(state.map);
     try { state.map.fitBounds(state.cleanRouteLayer.getBounds(), { padding: [20,20] }); } catch(_){}
   } catch(_) {}
