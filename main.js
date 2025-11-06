@@ -1,9 +1,9 @@
 // ============================== main.js ==============================
-// Usa CONFIG y supabase globales cargados en index.html
 const supa = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
+const STORAGE_BUCKET = "rutas_media"; // bucket para KMZ/PNG
 
-// ====== UI refs (mismos IDs que tu HTML) ======
+// ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -12,39 +12,36 @@ const ui = {
   userList: document.getElementById("userList"),
 };
 
-// ====== Estado del mapa/lista ======
+// ====== Estado ======
 const state = {
   map: null,
   baseLayers: {},
   cluster: null,
-  users: new Map(),        // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> [rows]
+  users: new Map(),
+  pointsByUser: new Map(),
 };
 
-// ====== Ajustes de trazado / matching ======
-const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
-const DENSIFY_STEP          = 10;    // curvatura urbana más real
-const MAX_MM_POINTS         = 40;    // tamaño de bloque crudo
-const MAX_MATCH_INPUT       = 90;    // límite duro para URL GET del Matching
-const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
-const ENDPOINT_TOL          = 25;    // tolerancia de puntas (m)
-const CONFIDENCE_MIN        = 0.70;  // confianza mínima Mapbox (0..1)
+// ====== Ajustes trazado/matching ======
+const CLEAN_MIN_METERS      = 6;
+const DENSIFY_STEP          = 10;
+const MAX_MM_POINTS         = 40;
+const MAX_MATCH_INPUT       = 90;
+const MAX_DIST_RATIO        = 0.35;
+const ENDPOINT_TOL          = 25;
+const CONFIDENCE_MIN        = 0.70;
 
-// Gaps / “teleport” (evitar uniones falsas)
-const GAP_MINUTES           = 8;     // gap de tiempo → nuevo segmento
-const GAP_JUMP_METERS       = 800;   // salto espacial brusco → nuevo segmento
+const GAP_MINUTES           = 8;
+const GAP_JUMP_METERS       = 800;
 
-// Puentes por carretera (Directions) con plausibilidad
-const BRIDGE_MAX_METERS     = 800;   // tope de puente
-const DIRECTIONS_HOP_METERS = 300;   // hops cuando el puente es largo
-const MAX_BRIDGE_SPEED_KMH  = 70;    // si la unión implica >70 km/h = NO unir
-const MIN_BRIDGE_SPEED_KMH  = 3;     // si implica <3 km/h en gap corto = ruido
-const DIRECTIONS_PROFILE    = "driving"; // o "driving-traffic"
+const BRIDGE_MAX_METERS     = 800;
+const DIRECTIONS_HOP_METERS = 300;
+const MAX_BRIDGE_SPEED_KMH  = 70;
+const MIN_BRIDGE_SPEED_KMH  = 3;
+const DIRECTIONS_PROFILE    = "driving";
 
-// Ritmo de llamadas para no saturar API
 const PER_BLOCK_DELAY       = 150;
 
-// ====== Iconos/estética (como tu base) ======
+// ====== Iconos ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -57,7 +54,7 @@ function getIconFor(row) {
   return ICONS.gray;
 }
 
-// ====== Helpers generales ======
+// ====== Helpers ======
 function distMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -81,14 +78,23 @@ function chunk(arr,size){
   for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
   return out;
 }
+function bboxOfLngLatCoords(coords) {
+  let minLon=Infinity, minLat=Infinity, maxLon=-Infinity, maxLat=-Infinity;
+  for (const [lon,lat] of coords) {
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  return [minLon, minLat, maxLon, maxLat];
+}
 
-// ====== densificar una secuencia ======
+// ====== Densificar / downsample ======
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
   for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
+    const a = points[i], b = points[i + 1];
     const d = distMeters(a, b);
     if (d <= step) { out.push(a); continue; }
     const n = Math.ceil(d / step);
@@ -105,8 +111,6 @@ function densifySegment(points, step = DENSIFY_STEP) {
   out.push(points[points.length - 1]);
   return out;
 }
-
-// ====== limitar puntos (evita URL enorme del Matching) ======
 function downsamplePoints(arr, maxN){
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
@@ -120,7 +124,7 @@ function downsamplePoints(arr, maxN){
   return out;
 }
 
-// ====== limpieza, cortes ======
+// ====== Limpieza y cortes ======
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -153,30 +157,25 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   return groups;
 }
 
-// ====== Radio adaptativo por punto (usa 'acc' si existe) ======
+// ====== Radio adaptativo ======
 function adaptiveRadius(p){
   const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
-  const base = isFinite(acc) ? acc + 5 : 25; // leve holgura
-  return Math.max(10, Math.min(50, base));   // 10–50 m
+  const base = isFinite(acc) ? acc + 5 : 25;
+  return Math.max(10, Math.min(50, base)); // 10–50 m
 }
 
-// ====== Map Matching (timestamps + radiuses + downsample) ======
+// ====== Map Matching ======
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
   if (seg.length > MAX_MM_POINTS) return null;
 
-  // densificar para curvatura real
   const dense0 = densifySegment(seg, DENSIFY_STEP);
+  const dense  = downsamplePoints(dense0, MAX_MATCH_INPUT);
 
-  // limitar puntos para no exceder URL GET
-  const dense = downsamplePoints(dense0, MAX_MATCH_INPUT);
-
-  // distancia cruda (validación)
   let rawDist = 0;
   for (let i=0;i<dense.length-1;i++) rawDist += distMeters(dense[i], dense[i+1]);
 
-  // parámetros con timestamps y radiuses ADAPTATIVOS
   const coords = dense.map(p=>`${p.lng},${p.lat}`).join(";");
   const tsArr  = dense.map(p=>Math.floor(new Date(p.timestamp).getTime()/1000)).join(";");
   const radArr = dense.map(p=>adaptiveRadius(p)).join(";");
@@ -190,15 +189,10 @@ async function mapMatchBlockSafe(seg){
   try{ r = await fetch(url, { method:"GET", mode:"cors" }); }
   catch(e){ console.warn("Matching fetch error:", e); return null; }
 
-  if (!r.ok){
-    const txt = await r.text().catch(()=> "");
-    console.warn("Matching status:", r.status, txt.slice(0,200));
-    return null;
-  }
+  if (!r.ok){ return null; }
 
   const j = await r.json().catch(()=> null);
   const m = j?.matchings?.[0];
-  // Confianza mínima + fallback partiendo el bloque
   if (!m?.geometry?.coordinates || (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)) {
     if (dense.length > 24) {
       const mid = Math.floor(dense.length/2);
@@ -210,26 +204,15 @@ async function mapMatchBlockSafe(seg){
   }
 
   const matched = m.geometry.coordinates.map(([lng,lat])=>({lat,lng}));
-
-  // validaciones anti-teleport
   let mmDist=0;
   for (let i=0;i<matched.length-1;i++) mmDist += distMeters(matched[i], matched[i+1]);
   if ((Math.abs(mmDist - rawDist) / Math.max(rawDist,1)) > MAX_DIST_RATIO) return null;
-  if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
-  if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
-
-  // timestamps aproximados (opcional)
-  for (let i=0;i<matched.length;i++){
-    matched[i].timestamp = dense[Math.min(i, dense.length-1)].timestamp;
-    matched[i].acc = dense[Math.min(i, dense.length-1)].acc;
-  }
   return matched;
 }
 
-// ====== Directions con plausibilidad (distancia / duración / velocidad) ======
+// ====== Directions plausibles ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
-
   const direct = distMeters(a, b);
   if (direct > BRIDGE_MAX_METERS) return null;
 
@@ -246,15 +229,10 @@ async function directionsBetween(a, b) {
   const j = await r.json().catch(()=>null);
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
-  const meters = route?.distance ?? 0;   // m
-  const secs   = route?.duration ?? 0;   // s
+  const meters = route?.distance ?? 0;
+  const secs   = route?.duration ?? 0;
   if (!coords.length || meters <= 0) return null;
 
-  // coherencia espacial al inicio del puente
-  const first = { lat: coords[0][1], lng: coords[0][0] };
-  if (distMeters(a, first) > 80) return null;
-
-  // coherencia temporal: ¿da el tiempo para recorrer esa distancia?
   const dt = Math.max(1, (new Date(b.timestamp) - new Date(a.timestamp))/1000);
   const v_kmh_imp = (meters/1000) / (dt/3600);
   if (v_kmh_imp > MAX_BRIDGE_SPEED_KMH) return null;
@@ -262,15 +240,10 @@ async function directionsBetween(a, b) {
 
   return coords.map(([lng,lat]) => ({ lat, lng, timestamp: a.timestamp }));
 }
-
-// ====== Bridge en varios “hops” y con cancelación si un tramo no es plausible ======
 async function smartBridge(a, b) {
   const d = distMeters(a, b);
   if (d > BRIDGE_MAX_METERS) return null;
-
-  if (d <= DIRECTIONS_HOP_METERS) {
-    return await directionsBetween(a, b);
-  }
+  if (d <= DIRECTIONS_HOP_METERS) return await directionsBetween(a, b);
 
   const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
   const out = [a];
@@ -286,7 +259,7 @@ async function smartBridge(a, b) {
       ).toISOString()
     };
     const seg = await directionsBetween(prev, mid);
-    if (!seg) return null; // si un hop no pasa validaciones, NO unimos
+    if (!seg) return null;
     out.push(...seg.slice(1));
     prev = mid;
     await sleep(60);
@@ -294,7 +267,7 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ====== Mapa / Lista (igual que tu base) ======
+// ====== Mapa / Lista ======
 function initMap(){
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
   state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
@@ -336,7 +309,7 @@ function addOrUpdateUserInList(row){
       <div style="display:flex;gap:6px;align-items:flex-start;">
         <div class="brigada-dot" style="background:${ledColor};"></div>
         <div class="brigada-info">
-          <b class="brig-name">${row.tecnico || "Sin nombre"}</b>
+          <b class="brig-name">${r.tecnico || "Sin nombre"}</b>
           <div class="brigada-sub">${brig}</div>
         </div>
       </div>
@@ -358,7 +331,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ====== Últimas 24h (igual que tenías) ======
+// ====== Últimas 24h ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -399,9 +372,101 @@ async function fetchInitial(clear){
   setStatus("Conectado","green");
 }
 
+// =========================== Persistencia rutas ===========================
+function toLineStringFromSegments(segments){
+  const coords = [];
+  for (const seg of segments){
+    for (const p of seg) coords.push([p.lng, p.lat]);
+  }
+  return { type: "LineString", coordinates: coords };
+}
+function totalDistanceKmFromLngLat(coords){
+  let d=0;
+  for (let i=1;i<coords.length;i++){
+    const a = { lat: coords[i-1][1], lng: coords[i-1][0] };
+    const b = { lat: coords[i][1],   lng: coords[i][0] };
+    d += distMeters(a,b);
+  }
+  return d/1000;
+}
+async function upsertRutaBrigada(fechaISO, brig, lineGeoJSON){
+  try {
+    const puntos = lineGeoJSON.coordinates.length;
+    const bbox   = bboxOfLngLatCoords(lineGeoJSON.coordinates);
+    const distKm = totalDistanceKmFromLngLat(lineGeoJSON.coordinates);
+    const { error } = await supa.rpc("upsert_ruta_brigada", {
+      p_fecha:   fechaISO,
+      p_brigada: brig,
+      p_line:    lineGeoJSON,
+      p_puntos:  puntos,
+      p_dist_km: distKm,
+      p_bbox:    bbox
+    });
+    if (error) console.warn("upsert_ruta_brigada error:", error);
+    return !error;
+  } catch(e){ console.warn(e); return false; }
+}
+async function uploadKMZToStorage(blob, fechaISO, brig){
+  try{
+    const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g,"_");
+    const path = `kmz/${fechaISO}/RUTA_${safeBrig}_${fechaISO}.kmz`;
+    const { error } = await supa.storage.from(STORAGE_BUCKET)
+      .upload(path, blob, { contentType: "application/vnd.google-earth.kmz", upsert: true });
+    if (error) console.warn("Storage upload error:", error);
+    return !error;
+  }catch(e){ console.warn(e); return false; }
+}
+
+// ======================= NUEVO: snapshot + upload PNG ======================
+async function renderSnapshotAndUpload(fechaISO, brig, segments){
+  return new Promise((resolve) => {
+    try{
+      if (!window.leafletImage){ console.warn("leaflet-image no cargado"); return resolve(false); }
+
+      // 1) Capa temporal con el trazo (no toca tu cluster ni marcadores)
+      const tempLayer = L.layerGroup();
+      const bounds = [];
+      for (const seg of segments){
+        const latlngs = seg.map(p => [p.lat, p.lng]);
+        if (latlngs.length > 1){
+          L.polyline(latlngs, { weight: 4, opacity: 0.95 }).addTo(tempLayer);
+          bounds.push(...latlngs);
+        }
+      }
+      tempLayer.addTo(state.map);
+
+      // 2) Enfocar a la ruta con padding
+      if (bounds.length >= 2){
+        state.map.fitBounds(bounds, { padding: [40,40] });
+      }
+
+      // 3) Esperar un poquito a que termine el render y sacar snapshot
+      setTimeout(() => {
+        leafletImage(state.map, async (err, canvas) => {
+          try{
+            if (err || !canvas) { console.warn(err); tempLayer.remove(); return resolve(false); }
+            canvas.toBlob(async (blob) => {
+              if (!blob) { tempLayer.remove(); return resolve(false); }
+              const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g,"_");
+              const path = `png/${fechaISO}/${safeBrig}.png`;
+              const { error } = await supa.storage.from(STORAGE_BUCKET)
+                .upload(path, blob, { contentType: "image/png", upsert: true });
+              if (error) console.warn("PNG upload error:", error);
+              tempLayer.remove();
+              resolve(!error);
+            }, "image/png");
+          } catch(e){
+            console.warn(e); tempLayer.remove(); resolve(false);
+          }
+        });
+      }, 400);
+    } catch(e){
+      console.warn(e); resolve(false);
+    }
+  });
+}
+
 // ============================= EXPORTAR KMZ =============================
-// Recorre TODO el día de la brigada (desde el PRIMER punto del día), en orden,
-// con matching a pista y puentes plausibles. Si no hay forma plausible, corta tramo.
 async function exportKMZFromState(){
   let prevDisabled = false;
   try {
@@ -434,12 +499,12 @@ async function exportKMZFromState(){
       return;
     }
 
-    // === DÍA COMPLETO EN ORDEN LOCAL ===
+    // Día completo en orden local
     const all = (data || [])
       .map(r => ({
         lat: +r.latitud,
         lng: +r.longitud,
-        timestamp: r.timestamp_pe || r.timestamp,  // usar hora local del día
+        timestamp: r.timestamp_pe || r.timestamp,
         acc: r.acc ?? null,
         spd: r.spd ?? null
       }))
@@ -451,26 +516,18 @@ async function exportKMZFromState(){
       return;
     }
 
-    // 1) limpiar puntitos pegados (conserva el primer punto del día)
+    // Procesar con tu pipeline (limpieza → cortes → matching → bridges)
     const rows1 = [all[0], ...cleanClosePoints(all.slice(1), CLEAN_MIN_METERS)];
+    const segmentsRaw = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
 
-    // 2) cortar por huecos/“saltos”
-    const segments = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
-
-    // 3) procesar cada segmento con matching + unir con bridges plausibles
-    const renderedSegments = []; // cada elemento será un Placemark
-    for (const seg of segments){
+    const renderedSegments = [];
+    for (const seg of segmentsRaw){
       if (seg.length < 2) continue;
-
       const blocks = chunk(seg, MAX_MM_POINTS);
       let current = [];
       for (let i=0;i<blocks.length;i++){
         const block = blocks[i];
-
-        // default por si falla matching: densificado
         let finalBlock = densifySegment(block, DENSIFY_STEP);
-
-        // Map Matching pegado a pista (con timestamps + radiuses adaptativos)
         try {
           const mm = await mapMatchBlockSafe(block);
           if (mm && mm.length >= 2) finalBlock = mm;
@@ -482,7 +539,6 @@ async function exportKMZFromState(){
           const last  = current[current.length-1];
           const first = finalBlock[0];
           const gapM  = distMeters(last, first);
-
           if (gapM > 5) {
             let appended = false;
             if (gapM <= BRIDGE_MAX_METERS) {
@@ -493,7 +549,6 @@ async function exportKMZFromState(){
               }
             }
             if (!appended) {
-              // no hay unión plausible -> cerramos tramo y comenzamos uno nuevo
               if (current.length > 1) renderedSegments.push(current);
               current = [...finalBlock];
               await sleep(PER_BLOCK_DELAY);
@@ -502,7 +557,6 @@ async function exportKMZFromState(){
           }
           current.push(...finalBlock.slice(1));
         }
-
         await sleep(PER_BLOCK_DELAY);
       }
       if (current.length > 1) renderedSegments.push(current);
@@ -513,12 +567,15 @@ async function exportKMZFromState(){
       return;
     }
 
-    // 4) Exportar KML/KMZ: un Placemark por tramo (sin diagonales)
+    // === Persistir LineString diario ===
+    const lineGeo = toLineStringFromSegments(renderedSegments);
+    await upsertRutaBrigada(ymd, brig, lineGeo);
+
+    // === KML/KMZ (descarga local + Storage) ===
     let kml = `<?xml version="1.0" encoding="UTF-8"?>` +
               `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
               `<name>${brig} - ${ymd}</name>` +
               `<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>`;
-
     for (const seg of renderedSegments) {
       const coordsStr = seg.map(p=>`${p.lng},${p.lat},0`).join(" ");
       kml += `
@@ -528,16 +585,16 @@ async function exportKMZFromState(){
           <LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>
         </Placemark>`;
     }
-
     kml += `</Document></kml>`;
 
-    // 5) Generar KMZ
     if (!window.JSZip) {
       try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch(_){}
     }
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:1}});
+
+    // Descarga local
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g,"_");
@@ -545,10 +602,16 @@ async function exportKMZFromState(){
     a.click();
     URL.revokeObjectURL(a.href);
 
-    alert(`✅ KMZ listo: ${brig} (${ymd}) — ${renderedSegments.length} tramo(s) plausibles`);
+    // Subir KMZ (sobrescribe)
+    await uploadKMZToStorage(blob, ymd, brig);
+
+    // === NUEVO: generar/sobrescribir PNG de la ruta del día ===
+    await renderSnapshotAndUpload(ymd, brig, renderedSegments);
+
+    alert(`✅ KMZ y PNG listos y guardados.\nBrigada: ${brig}\nFecha: ${ymd}\nTramos: ${renderedSegments.length}`);
   } catch(e){
     console.error(e);
-    alert("❌ No se pudo generar el KMZ: " + e.message);
+    alert("❌ No se pudo generar el KMZ/PNG: " + e.message);
   } finally {
     setStatus("Conectado","green");
     if (ui?.exportKmz) ui.exportKmz.disabled = prevDisabled;
