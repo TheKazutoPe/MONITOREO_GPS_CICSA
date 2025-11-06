@@ -38,21 +38,21 @@
       <div class="sidebar-header">
         <h2>Brigadas conectadas</h2>
         <div class="filter-box">
-          <input id="brigadaFilter" type="text" placeholder="Brigada 12.1" />
-          <button id="applyFilters">Aplicar</button>
+          <label for="brigadaFilter">Brigada</label>
+          <input id="brigadaFilter" type="text" placeholder="Ej: Brigada 12.1" />
+          <button id="applyFilters" class="apply-btn">Aplicar</button>
         </div>
-      </div>
-
-      <!-- Fecha para el KMZ -->
-      <div class="filter-box" style="margin-top:6px;">
-        <input id="kmzDate" type="date" />
+        <div class="filter-box">
+          <label for="kmzDate">Fecha KMZ</label>
+          <input id="kmzDate" type="date" />
+        </div>
       </div>
 
       <div id="userList" class="brigada-list"></div>
 
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
-      <!-- NUEVO: alternar visibilidad de trazo limpio -->
-      <button id="toggleCleanBtn" class="export-btn" style="margin-top:8px;">👁 Ver trazos en mapa</button>
+      <!-- 👇 NUEVO: botón para ver/ocultar trazo del día -->
+      <button id="toggleRoutesBtn" class="export-btn" style="margin-top:8px;">👣 Ver trazos</button>
     </aside>
 
     <main id="map" class="map-container"></main>
