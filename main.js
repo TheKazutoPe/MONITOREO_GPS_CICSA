@@ -1,5 +1,23 @@
-// ============================== main.js (reemplazo completo) ==============================
-// Requiere window.CONFIG y supabase ya cargados en index.html
+// ============================== main.js (reemplazo completo con debug) ==============================
+
+// ===== DEBUG BOOT =====
+window.addEventListener("error", (e) => {
+  console.error("💥 window.error:", e.message, e.filename, e.lineno, e.colno);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("💥 unhandledrejection:", e.reason);
+});
+console.log("%c[GPS] main.js cargado", "color:#0bf; font-weight:bold;");
+
+// Validar CONFIG
+if (!window.CONFIG) {
+  console.error("❌ CONFIG no está definido. Revisa que config.js se cargue antes de main.js");
+}
+console.log("[GPS] SEND_CLEAN_TO_SUPABASE =", window.CONFIG?.SEND_CLEAN_TO_SUPABASE);
+console.log("[GPS] SUPABASE_URL =", (window.CONFIG?.SUPABASE_URL || "").slice(0, 30) + "...");
+console.log("[GPS] MAPBOX_TOKEN len =", (window.CONFIG?.MAPBOX_TOKEN || "").length);
+
+// ==== Supabase/Mapbox ====
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
@@ -26,13 +44,13 @@ const state = {
 const live = {
   bufferByBrigada: new Map(),
   timerByBrigada: new Map(),
-  BATCH_INTERVAL_MS: 20000, // cada ~20s procesa el buffer
-  MIN_POINTS: 4,
+  BATCH_INTERVAL_MS: 15000, // cada ~15s procesa el buffer
+  MIN_POINTS: 2,            // baja a 2 para que procese aunque haya poca movilidad
 };
 
 // ====== Parámetros de trazado / matching ======
 const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
-const DENSify_STEP          = 10;    // curvatura urbana más real
+const DENSIFY_STEP          = 10;    // curvatura urbana más real
 const MAX_MM_POINTS         = 40;    // tamaño de bloque para matching
 const MAX_MATCH_INPUT       = 90;    // límite de puntos en la URL GET
 const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
@@ -44,13 +62,11 @@ const BRIDGE_MAX_METERS     = 800;   // tope para “puente” con Directions
 const DIRECTIONS_HOP_METERS = 300;   // hops si el puente es largo
 const MAX_BRIDGE_SPEED_KMH  = 70;    // >70 km/h → no unir
 const MIN_BRIDGE_SPEED_KMH  = 3;     // <3 km/h en gap corto → ruido
-const DIRECTIONS_PROFILE    = "driving";
-const PER_BLOCK_DELAY       = 150;
 
 // Ocultar automáticamente marcadores inactivos
 const HIDE_AFTER_MIN = 20;   // quita del mapa si no hay datos en > 20 min
 
-// ====== Iconos (como tenías) ======
+// ====== Iconos ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -72,7 +88,7 @@ function distMeters(a,b){
   const s1 = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
   return 2*R*Math.atan2(Math.sqrt(s1),Math.sqrt(1-s1));
 }
-function densifySegment(points, step=DENSify_STEP){
+function densifySegment(points, step=DENSIFY_STEP){
   if (!points || points.length<2) return points;
   const out=[];
   for (let i=0;i<points.length-1;i++){
@@ -119,8 +135,8 @@ function adaptiveRadius(p){
 // ====== Map Matching (Mapbox) ======
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN || !seg || seg.length<2 || seg.length>MAX_MM_POINTS) return null;
-  const dense0=densifySegment(seg,DENSify_STEP);
-  const dense=downsamplePoints(dense0,MAX_MATCH_INPUT);
+  const dense0=densifySegment(seg,DENSIFY_STEP);
+  const dense=downsamplePoints(dense0,90);
 
   let rawDist=0; for(let i=0;i<dense.length-1;i++) rawDist+=distMeters(dense[i],dense[i+1]);
 
@@ -159,31 +175,6 @@ async function mapMatchBlockSafe(seg){
     matched[i].acc=dense[Math.min(i,dense.length-1)].acc;
   }
   return matched;
-}
-
-// ====== Directions (puentes plausibles) – no se usa para guardar, pero útil si lo quieres en export/preview ======
-async function directionsBetween(a,b){
-  if (!MAPBOX_TOKEN) return null;
-  const direct=distMeters(a,b); if (direct>BRIDGE_MAX_METERS) return null;
-  const url=`https://api.mapbox.com/directions/v5/mapbox/${DIRECTIONS_PROFILE}/${a.lng},${a.lat};${b.lng},${b.lat}?geometries=geojson&overview=full&annotations=distance,duration&access_token=${MAPBOX_TOKEN}`;
-  let r; try{ r=await fetch(url);}catch{ return null; }
-  if (!r.ok) return null;
-
-  const j=await r.json().catch(()=> null);
-  const route=j?.routes?.[0];
-  const coords=route?.geometry?.coordinates||[];
-  const meters=route?.distance??0;
-  if (!coords.length || meters<=0) return null;
-
-  const first={lat:coords[0][1],lng:coords[0][0]};
-  if (distMeters(a,first)>80) return null;
-
-  const dt=Math.max(1,(new Date(b.timestamp)-new Date(a.timestamp))/1000);
-  const v=(meters/1000)/(dt/3600);
-  if (v>MAX_BRIDGE_SPEED_KMH) return null;
-  if (v<MIN_BRIDGE_SPEED_KMH && dt<300) return null;
-
-  return coords.map(([lng,lat])=>({lat,lng,timestamp:a.timestamp}));
 }
 
 // ====== Insert SOLO tail nuevo en public.rutas_limpias ======
@@ -249,15 +240,13 @@ async function processLiveBuffer(brig){
     const seg = segments.length ? segments.at(-1) : cleaned;
     if (!seg || seg.length < live.MIN_POINTS) return;
 
-    // matching o fallback
     let matched = await mapMatchBlockSafe(seg);
     if (!matched || matched.length < 2) {
       console.warn("⚠️ Matching falló; usando densify fallback");
-      matched = densifySegment(seg, DENSify_STEP);
+      matched = densifySegment(seg, DENSIFY_STEP);
     }
     console.debug("🧭 matched", brig, matched?.length||0);
 
-    // guardar tail nuevo en rutas_limpias
     await pushCleanChunkToRutasLimpias(brig, matched);
 
   } catch(e){
@@ -270,10 +259,21 @@ async function processLiveBuffer(brig){
   }
 }
 
-// ====== Mapa / Lista (tu flujo base) ======
+// ====== Mapa / Lista ======
+const ICONS_SET = {
+  green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
+  yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
+  gray:   L.icon({ iconUrl: "assets/carro-gray.png",   iconSize: [40, 24], iconAnchor: [20, 12] }),
+};
 function buildPopup(r){
   const acc=Math.round(r.acc||0), spd=(r.spd||0).toFixed(1), ts=new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico||"Sin nombre"}</b><br>Brigada: ${r.brigada||"-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
+}
+function getIconFor(row) {
+  const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
+  if (mins <= 2) return ICONS_SET.green;
+  if (mins <= 5) return ICONS_SET.yellow;
+  return ICONS_SET.gray;
 }
 function addOrUpdateUserInList(row){
   const uid=String(row.usuario_id||"0"); let el=document.getElementById(`u-${uid}`);
@@ -388,25 +388,25 @@ function initMap(){
   ui.apply.onclick = async () => {
     await fetchInitial(true);
     refreshAndPruneMarkers();
-    // opcional: pintar trazo limpio del día desde rutas_limpias
     const brig=(ui.brigada.value||"").trim();
     if (brig){ await paintCleanRouteFromRutasLimpias(brig); }
   };
 
-  // Exportar KMZ del día desde rutas_limpias
   ui.exportKmz.onclick = () => exportKMZFromRutasLimpias();
 
-  // Realtime → buffer por brigada → procesador cada 20s
   if (CONFIG.SEND_CLEAN_TO_SUPABASE) {
+    console.log("🛰️ Preparando suscripción Realtime a public.ubicaciones_brigadas ...");
+
     const chan = supa
       .channel("rt-ubicaciones-send-clean")
       .on("postgres_changes",
         { event:"INSERT", schema:"public", table:"ubicaciones_brigadas" },
         async (payload)=>{
+          console.log("📥 INSERT ubicaciones_brigadas (payload)",
+            payload?.new?.brigada, payload?.new?.latitud, payload?.new?.longitud);
           try{
             const r=payload?.new;
             const brig=r?.brigada;
-            console.log("📥 INSERT ubicaciones_brigadas", brig, r?.timestamp_pe||r?.timestamp, r?.latitud, r?.longitud);
             if (!brig || !isFinite(r?.latitud) || !isFinite(r?.longitud)) return;
 
             const p={ lat:+r.latitud, lng:+r.longitud,
@@ -421,12 +421,14 @@ function initMap(){
               const t=setTimeout(()=>processLiveBuffer(brig), live.BATCH_INTERVAL_MS);
               live.timerByBrigada.set(brig, t);
             }
-          }catch(e){ console.warn("Realtime handler error:", e?.message||e); }
+          }catch(e){ console.error("Realtime handler error:", e); }
         }
       )
-      .subscribe((status)=> console.log("🔌 Realtime status:", status));
+      .subscribe((status)=> console.log("🔌 Realtime status:", status)); // CONNECTED/SUBSCRIBED/CLOSED
 
     window.addEventListener("beforeunload", ()=>{ try{ supa.removeChannel(chan); }catch(_){} });
+  } else {
+    console.warn("⚠️ SEND_CLEAN_TO_SUPABASE está FALSE. No enviaré rutas a rutas_limpias.");
   }
 
   setInterval(refreshAndPruneMarkers, 60 * 1000); // cada minuto
@@ -498,9 +500,7 @@ async function exportKMZFromRutasLimpias(){
               `<LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>` +
               `</Placemark></Document></kml>`;
 
-    if (!window.JSZip) {
-      try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch{}
-    }
+    if (!window.JSZip) { try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch{} }
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:1}});
@@ -519,6 +519,22 @@ async function exportKMZFromRutasLimpias(){
     if (ui?.exportKmz) ui.exportKmz.disabled=prev;
   }
 }
+
+// ====== Tester de RLS (opcional): ejecuta en consola __testInsertRutasLimpias() ======
+window.__testInsertRutasLimpias = async () => {
+  try {
+    const now = new Date().toISOString();
+    const { error } = await supa.from("rutas_limpias").insert([{
+      brigada: "TEST_DEBUG",
+      latitud: -12.05,
+      longitud: -77.05,
+      timestamp: now,
+      procesado: true
+    }]);
+    if (error) { console.error("❌ TEST insert rutas_limpias:", error.message); }
+    else { console.log("✅ TEST insert rutas_limpias OK", now); }
+  } catch (e) { console.error(e); }
+};
 
 // ====== Arranque ======
 setStatus("Cargando...","gray");
