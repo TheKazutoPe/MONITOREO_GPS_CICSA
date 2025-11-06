@@ -6,7 +6,7 @@ window.CONFIG = {
 
   // Ruteo / Map-matching
   ROUTE_PROVIDER: "mapbox",                         // 'mapbox' | 'ors' | 'valhalla' | 'none'
-  MAPBOX_TOKEN:   "pk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZqaHo2MnAzNDJrcTJsdGh4ZTJrdSJ9.V58FW_wpDpQ1tguxoO0IqQ",
+  MAPBOX_TOKEN:   "pk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21obno1Y2w1MDYycTJrcHlkNTNuZXJrcSJ9.7lEAzilA062rSzZPdh7YEA",
   ORS_API_KEY:    "",
   VALHALLA_URL:   ""
 };
