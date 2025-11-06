@@ -32,7 +32,7 @@ const live = {
 
 // ====== Parámetros de trazado / matching ======
 const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
-const DENSIFY_STEP          = 10;    // curvatura urbana más real
+const DENSify_STEP          = 10;    // curvatura urbana más real
 const MAX_MM_POINTS         = 40;    // tamaño de bloque para matching
 const MAX_MATCH_INPUT       = 90;    // límite de puntos en la URL GET
 const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
@@ -46,6 +46,9 @@ const MAX_BRIDGE_SPEED_KMH  = 70;    // >70 km/h → no unir
 const MIN_BRIDGE_SPEED_KMH  = 3;     // <3 km/h en gap corto → ruido
 const DIRECTIONS_PROFILE    = "driving";
 const PER_BLOCK_DELAY       = 150;
+
+// Ocultar automáticamente marcadores inactivos
+const HIDE_AFTER_MIN = 20;   // quita del mapa si no hay datos en > 20 min
 
 // ====== Iconos (como tenías) ======
 const ICONS = {
@@ -69,7 +72,7 @@ function distMeters(a,b){
   const s1 = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
   return 2*R*Math.atan2(Math.sqrt(s1),Math.sqrt(1-s1));
 }
-function densifySegment(points, step=DENSIFY_STEP){
+function densifySegment(points, step=DENSify_STEP){
   if (!points || points.length<2) return points;
   const out=[];
   for (let i=0;i<points.length-1;i++){
@@ -116,7 +119,7 @@ function adaptiveRadius(p){
 // ====== Map Matching (Mapbox) ======
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN || !seg || seg.length<2 || seg.length>MAX_MM_POINTS) return null;
-  const dense0=densifySegment(seg,DENSIFY_STEP);
+  const dense0=densifySegment(seg,DENSify_STEP);
   const dense=downsamplePoints(dense0,MAX_MATCH_INPUT);
 
   let rawDist=0; for(let i=0;i<dense.length-1;i++) rawDist+=distMeters(dense[i],dense[i+1]);
@@ -125,7 +128,11 @@ async function mapMatchBlockSafe(seg){
   const tsArr=dense.map(p=>Math.floor(new Date(p.timestamp).getTime()/1000)).join(";");
   const radArr=dense.map(p=>adaptiveRadius(p)).join(";");
 
-  const url=`https://api.mapbox.com/matching/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&tidy=true&timestamps=${tsArr}&radiuses=${radArr}&access_token=${MAPBOX_TOKEN}`;
+  const url=`https://api.mapbox.com/matching/v5/mapbox/driving/${coords}` +
+            `?geometries=geojson&overview=full&tidy=true` +
+            `&timestamps=${tsArr}&radiuses=${radArr}` +
+            `&access_token=${MAPBOX_TOKEN}`;
+
   let r; try{ r=await fetch(url,{method:"GET",mode:"cors"}); } catch(e){ console.warn("❌ Matching fetch error:",e); return null; }
   if (!r.ok){ const txt=await r.text().catch(()=> ""); console.warn("❌ Matching status:",r.status,txt.slice(0,200)); return null; }
 
@@ -154,7 +161,7 @@ async function mapMatchBlockSafe(seg){
   return matched;
 }
 
-// ====== Directions (puentes plausibles) ======
+// ====== Directions (puentes plausibles) – no se usa para guardar, pero útil si lo quieres en export/preview ======
 async function directionsBetween(a,b){
   if (!MAPBOX_TOKEN) return null;
   const direct=distMeters(a,b); if (direct>BRIDGE_MAX_METERS) return null;
@@ -177,22 +184,6 @@ async function directionsBetween(a,b){
   if (v<MIN_BRIDGE_SPEED_KMH && dt<300) return null;
 
   return coords.map(([lng,lat])=>({lat,lng,timestamp:a.timestamp}));
-}
-async function smartBridge(a,b){
-  const d=distMeters(a,b); if (d>BRIDGE_MAX_METERS) return null;
-  if (d<=DIRECTIONS_HOP_METERS) return await directionsBetween(a,b);
-
-  const hops=Math.ceil(d/DIRECTIONS_HOP_METERS);
-  const out=[a]; let prev=a;
-  for (let i=1;i<=hops;i++){
-    const t=i/hops;
-    const mid={ lat:a.lat+(b.lat-a.lat)*t, lng:a.lng+(b.lng-a.lng)*t,
-      timestamp:new Date(new Date(a.timestamp).getTime()+(new Date(b.timestamp)-new Date(a.timestamp))*t).toISOString() };
-    const seg=await directionsBetween(prev,mid); if (!seg) return null;
-    out.push(...seg.slice(1));
-    prev=mid; await sleep(60);
-  }
-  return out;
 }
 
 // ====== Insert SOLO tail nuevo en public.rutas_limpias ======
@@ -244,16 +235,16 @@ async function pushCleanChunkToRutasLimpias(brig, points){
   console.log(`📤 rutas_limpias +${inserted} (brigada ${brig})`);
 }
 
-// ====== Procesar buffer: limpiar, segmentar, matching, guardar tail ======
+// ====== Procesar buffer: limpiar, segmentar, matching (o fallback), guardar tail ======
 async function processLiveBuffer(brig){
   try{
     const buf = live.bufferByBrigada.get(brig) || [];
     console.debug("🧹 procesa buffer", brig, buf.length);
     if (buf.length < live.MIN_POINTS) return;
 
-    // limpiar y cortar por gaps
     const cleaned = cleanClosePoints(buf, CLEAN_MIN_METERS);
     if (cleaned.length < live.MIN_POINTS) return;
+
     const segments = splitOnGaps(cleaned, GAP_MINUTES, GAP_JUMP_METERS);
     const seg = segments.length ? segments.at(-1) : cleaned;
     if (!seg || seg.length < live.MIN_POINTS) return;
@@ -262,7 +253,7 @@ async function processLiveBuffer(brig){
     let matched = await mapMatchBlockSafe(seg);
     if (!matched || matched.length < 2) {
       console.warn("⚠️ Matching falló; usando densify fallback");
-      matched = densifySegment(seg, DENSIFY_STEP);
+      matched = densifySegment(seg, DENSify_STEP);
     }
     console.debug("🧭 matched", brig, matched?.length||0);
 
@@ -316,6 +307,40 @@ function focusOnUser(uid){
   state.map.setView(u.marker.getLatLng(),17,{animate:true}); u.marker.openPopup();
 }
 
+// Poda/refresh de marcadores (quita autos grises viejos)
+function refreshAndPruneMarkers() {
+  const now = Date.now();
+  const brigFilter = (ui.brigada.value || "").trim().toLowerCase();
+
+  for (const [uid, u] of state.users.entries()) {
+    const row = u.lastRow;
+    if (!row) continue;
+
+    // ocultar si no coincide el filtro de brigada
+    const matchesFilter = !brigFilter || String(row.brigada || "").toLowerCase().includes(brigFilter);
+    if (!matchesFilter) {
+      try { state.cluster.removeLayer(u.marker); } catch {}
+      continue;
+    }
+
+    // refrescar icono
+    try { u.marker.setIcon(getIconFor(row)); } catch {}
+
+    // sacar del mapa si está viejo
+    const mins = Math.round((now - new Date(row.timestamp)) / 60000);
+    if (mins > HIDE_AFTER_MIN) {
+      try { state.cluster.removeLayer(u.marker); } catch {}
+      state.users.delete(uid);
+      const el = document.getElementById(`u-${uid}`);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    } else {
+      if (!state.cluster.hasLayer(u.marker)) {
+        try { state.cluster.addLayer(u.marker); } catch {}
+      }
+    }
+  }
+}
+
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML="";
@@ -351,6 +376,7 @@ async function fetchInitial(clear){
   });
 
   setStatus("Conectado","green");
+  refreshAndPruneMarkers();
 }
 
 function initMap(){
@@ -361,7 +387,8 @@ function initMap(){
 
   ui.apply.onclick = async () => {
     await fetchInitial(true);
-    // opcional: si quieres pintar el trazo limpio del día desde rutas_limpias:
+    refreshAndPruneMarkers();
+    // opcional: pintar trazo limpio del día desde rutas_limpias
     const brig=(ui.brigada.value||"").trim();
     if (brig){ await paintCleanRouteFromRutasLimpias(brig); }
   };
@@ -401,6 +428,8 @@ function initMap(){
 
     window.addEventListener("beforeunload", ()=>{ try{ supa.removeChannel(chan); }catch(_){} });
   }
+
+  setInterval(refreshAndPruneMarkers, 60 * 1000); // cada minuto
 }
 initMap();
 
