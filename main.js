@@ -223,19 +223,41 @@ function buildPopup(row){
     </div>`;
 }
 function addOrUpdateUserInList(last) {
-  const uid = last.telefono || last.usuario || last.tecnico || "?" ;
-  let el = document.querySelector(`[data-uid="${uid}"]`);
+  // uid base (mantenemos tu lógica)
+  const uidRaw = last.telefono || last.usuario || last.tecnico || "?";
+  const uid = String(uidRaw).trim();
+
+  // Etiqueta visual igual que antes
   const label = `${last.brigada || "?"} — ${last.usuario || last.tecnico || uid}`;
-  if (!el){
+
+  // Selector robusto: usa CSS.escape si existe; si no, recorre los hijos
+  let el = null;
+  if (window.CSS && typeof CSS.escape === "function") {
+    try {
+      el = ui.userList.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
+    } catch {
+      el = null;
+    }
+  }
+  if (!el) {
+    // Fallback universal sin selectores: buscar por dataset
+    const items = ui.userList.querySelectorAll("[data-uid]");
+    for (const it of items) {
+      if (String(it.dataset.uid) === uid) { el = it; break; }
+    }
+  }
+
+  if (!el) {
     el = document.createElement("div");
     el.className = "brigada-item";
-    el.dataset.uid = uid;
+    el.dataset.uid = uid;        // ← guardamos el valor exacto, sin escapar
     el.textContent = label;
     ui.userList.appendChild(el);
   } else {
     el.textContent = label;
   }
 }
+
 function setStatus(text, color="gray"){
   ui.status.textContent = text.toUpperCase();
   ui.status.className = `status-badge ${color}`;
