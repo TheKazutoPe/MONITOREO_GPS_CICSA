@@ -6,7 +6,7 @@ window.CONFIG = {
 
   // Ruteo / Map-matching
   ROUTE_PROVIDER: "mapbox",
-  MAPBOX_TOKEN: "pk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZqaHo2MnAzNDJrcTJsdGh4ZTJrdSJ9.V58FW_wpDpQ1tguxoO0IqQ",
+  MAPBOX_TOKEN: "pk.eyJ1IjoidGhla2F6dXRvcGUiLCJhIjoiY21oMmZrNnVvMnZvNzJscTRhdG82OGxodyJ9.RahZf0ZGEcT3y_MIIQV8mg",
 
   // 🔑 IMPORTANTE: habilita el envío del trazo limpio a 'public.rutas_limpias'
   SEND_CLEAN_TO_SUPABASE: true,
