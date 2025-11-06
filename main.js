@@ -1,4 +1,4 @@
-// ============================== main.js (reemplazo completo con debug) ==============================
+// ============================== main.js (completo) ==============================
 
 // ===== DEBUG BOOT =====
 window.addEventListener("error", (e) => {
@@ -9,19 +9,19 @@ window.addEventListener("unhandledrejection", (e) => {
 });
 console.log("%c[GPS] main.js cargado", "color:#0bf; font-weight:bold;");
 
-// Validar CONFIG
+// ===== CONFIG & CLIENTS =====
 if (!window.CONFIG) {
-  console.error("❌ CONFIG no está definido. Revisa que config.js se cargue antes de main.js");
+  console.error("❌ CONFIG no está definido. Asegura cargar config.js antes de main.js");
 }
-console.log("[GPS] SEND_CLEAN_TO_SUPABASE =", window.CONFIG?.SEND_CLEAN_TO_SUPABASE);
+const SEND_CLEAN = (window.CONFIG?.SEND_CLEAN_TO_SUPABASE ?? true) === true;
+console.log("[GPS] SEND_CLEAN_TO_SUPABASE =", SEND_CLEAN);
 console.log("[GPS] SUPABASE_URL =", (window.CONFIG?.SUPABASE_URL || "").slice(0, 30) + "...");
 console.log("[GPS] MAPBOX_TOKEN len =", (window.CONFIG?.MAPBOX_TOKEN || "").length);
 
-// ==== Supabase/Mapbox ====
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// ====== UI refs (IDs existentes en tu HTML) ======
+// ===== UI =====
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -30,43 +30,38 @@ const ui = {
   userList: document.getElementById("userList"),
 };
 
-// ====== Estado del mapa/lista ======
+// ===== STATE =====
 const state = {
   map: null,
   baseLayers: {},
   cluster: null,
   users: new Map(),        // uid -> { marker, lastRow }
   pointsByUser: new Map(), // uid -> [rows]
-  cleanRouteLayer: null,   // dibujo del trazo limpio del día (opcional)
+  cleanRouteLayer: null,
 };
 
-// ====== Live pipeline (buffer por brigada y timers) ======
+// ===== LIVE / BATCH =====
 const live = {
   bufferByBrigada: new Map(),
   timerByBrigada: new Map(),
-  BATCH_INTERVAL_MS: 15000, // cada ~15s procesa el buffer
-  MIN_POINTS: 2,            // baja a 2 para que procese aunque haya poca movilidad
+  BATCH_INTERVAL_MS: 10000, // 10 s
+  MIN_POINTS: 2,
+  MAX_BUFFER: 80,
 };
 
-// ====== Parámetros de trazado / matching ======
-const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
-const DENSIFY_STEP          = 10;    // curvatura urbana más real
-const MAX_MM_POINTS         = 40;    // tamaño de bloque para matching
-const MAX_MATCH_INPUT       = 90;    // límite de puntos en la URL GET
-const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
-const ENDPOINT_TOL          = 25;    // tolerancia en puntas (m)
-const CONFIDENCE_MIN        = 0.70;  // confianza mínima Mapbox (0..1)
-const GAP_MINUTES           = 8;     // gap de tiempo → nuevo segmento
-const GAP_JUMP_METERS       = 800;   // salto espacial brusco → nuevo segmento
-const BRIDGE_MAX_METERS     = 800;   // tope para “puente” con Directions
-const DIRECTIONS_HOP_METERS = 300;   // hops si el puente es largo
-const MAX_BRIDGE_SPEED_KMH  = 70;    // >70 km/h → no unir
-const MIN_BRIDGE_SPEED_KMH  = 3;     // <3 km/h en gap corto → ruido
+// ===== RUTA / MATCHING PARAMS =====
+const CLEAN_MIN_METERS      = 6;
+const DENSIFY_STEP          = 10;
+const MAX_MM_POINTS         = 40;
+const MAX_MATCH_INPUT       = 90;
+const MAX_DIST_RATIO        = 0.35;
+const ENDPOINT_TOL          = 25;
+const CONFIDENCE_MIN        = 0.70;
+const GAP_MINUTES           = 8;
+const GAP_JUMP_METERS       = 800;
+const HIDE_AFTER_MIN        = 20;
 
-// Ocultar automáticamente marcadores inactivos
-const HIDE_AFTER_MIN = 20;   // quita del mapa si no hay datos en > 20 min
-
-// ====== Iconos ======
+// ===== ICONOS =====
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -79,9 +74,8 @@ function getIconFor(row) {
   return ICONS.gray;
 }
 
-// ====== Helpers ======
-function setStatus(text, kind){ ui.status.textContent=text; ui.status.className=`status-badge ${kind||"gray"}`; }
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+// ===== HELPERS =====
+function setStatus(text, kind){ if(ui.status){ ui.status.textContent=text; ui.status.className=`status-badge ${kind||"gray"}`; } }
 function toYMD(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; }
 function distMeters(a,b){
   const R=6371000, dLat=((b.lat-a.lat)*Math.PI)/180, dLng=((b.lng-a.lng)*Math.PI)/180;
@@ -132,11 +126,11 @@ function adaptiveRadius(p){
   return Math.max(10,Math.min(50,base));
 }
 
-// ====== Map Matching (Mapbox) ======
+// ===== MATCHING =====
 async function mapMatchBlockSafe(seg){
   if (!MAPBOX_TOKEN || !seg || seg.length<2 || seg.length>MAX_MM_POINTS) return null;
   const dense0=densifySegment(seg,DENSIFY_STEP);
-  const dense=downsamplePoints(dense0,90);
+  const dense=downsamplePoints(dense0,MAX_MATCH_INPUT);
 
   let rawDist=0; for(let i=0;i<dense.length-1;i++) rawDist+=distMeters(dense[i],dense[i+1]);
 
@@ -177,11 +171,11 @@ async function mapMatchBlockSafe(seg){
   return matched;
 }
 
-// ====== Insert SOLO tail nuevo en public.rutas_limpias ======
+// ===== DB: INSERT TAIL EN rutas_limpias =====
 async function pushCleanChunkToRutasLimpias(brig, points){
   if (!points || points.length < 1) return;
 
-  // 1) último punto guardado (para cortar duplicados)
+  // último punto guardado para cortar duplicado
   const { data: lastRows, error: lastErr } = await supa
     .from("rutas_limpias")
     .select("latitud,longitud,timestamp")
@@ -203,7 +197,6 @@ async function pushCleanChunkToRutasLimpias(brig, points){
     return;
   }
 
-  // 2) filas a insertar
   const rows = tail.map(p => ({
     brigada: brig,
     latitud: p.lat,
@@ -215,7 +208,6 @@ async function pushCleanChunkToRutasLimpias(brig, points){
     procesado: true
   }));
 
-  // 3) insert por lotes
   let inserted = 0;
   for (let i=0; i<rows.length; i+=1000){
     const chunk = rows.slice(i, i+1000);
@@ -224,9 +216,17 @@ async function pushCleanChunkToRutasLimpias(brig, points){
     inserted += chunk.length;
   }
   console.log(`📤 rutas_limpias +${inserted} (brigada ${brig})`);
+
+  // repintar si el filtro coincide
+  try {
+    const bf = (ui.brigada?.value || "").trim();
+    if (bf && bf.toLowerCase() === String(brig).toLowerCase()) {
+      await paintCleanRouteFromRutasLimpias(brig);
+    }
+  } catch(_) {}
 }
 
-// ====== Procesar buffer: limpiar, segmentar, matching (o fallback), guardar tail ======
+// ===== PROCESS BUFFER =====
 async function processLiveBuffer(brig){
   try{
     const buf = live.bufferByBrigada.get(brig) || [];
@@ -252,28 +252,20 @@ async function processLiveBuffer(brig){
   } catch(e){
     console.warn("processLiveBuffer error:", e?.message || e);
   } finally {
-    live.timerByBrigada.delete(brig);
-    // conserva historial corto para continuidad
-    const buf2 = live.bufferByBrigada.get(brig) || [];
-    live.bufferByBrigada.set(brig, buf2.slice(-30));
+    // conserva historial corto
+    const keep = (live.bufferByBrigada.get(brig) || []).slice(-30);
+    live.bufferByBrigada.set(brig, keep);
+    if (live.timerByBrigada.has(brig)) {
+      clearTimeout(live.timerByBrigada.get(brig));
+      live.timerByBrigada.delete(brig);
+    }
   }
 }
 
-// ====== Mapa / Lista ======
-const ICONS_SET = {
-  green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
-  yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
-  gray:   L.icon({ iconUrl: "assets/carro-gray.png",   iconSize: [40, 24], iconAnchor: [20, 12] }),
-};
+// ===== LISTA / MARKERS =====
 function buildPopup(r){
   const acc=Math.round(r.acc||0), spd=(r.spd||0).toFixed(1), ts=new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico||"Sin nombre"}</b><br>Brigada: ${r.brigada||"-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
-}
-function getIconFor(row) {
-  const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
-  if (mins <= 2) return ICONS_SET.green;
-  if (mins <= 5) return ICONS_SET.yellow;
-  return ICONS_SET.gray;
 }
 function addOrUpdateUserInList(row){
   const uid=String(row.usuario_id||"0"); let el=document.getElementById(`u-${uid}`);
@@ -306,27 +298,22 @@ function focusOnUser(uid){
   const u=state.users.get(uid); if (!u || !u.marker) return;
   state.map.setView(u.marker.getLatLng(),17,{animate:true}); u.marker.openPopup();
 }
-
-// Poda/refresh de marcadores (quita autos grises viejos)
 function refreshAndPruneMarkers() {
   const now = Date.now();
-  const brigFilter = (ui.brigada.value || "").trim().toLowerCase();
+  const brigFilter = (ui.brigada?.value || "").trim().toLowerCase();
 
   for (const [uid, u] of state.users.entries()) {
     const row = u.lastRow;
     if (!row) continue;
 
-    // ocultar si no coincide el filtro de brigada
     const matchesFilter = !brigFilter || String(row.brigada || "").toLowerCase().includes(brigFilter);
     if (!matchesFilter) {
       try { state.cluster.removeLayer(u.marker); } catch {}
       continue;
     }
 
-    // refrescar icono
     try { u.marker.setIcon(getIconFor(row)); } catch {}
 
-    // sacar del mapa si está viejo
     const mins = Math.round((now - new Date(row.timestamp)) / 60000);
     if (mins > HIDE_AFTER_MIN) {
       try { state.cluster.removeLayer(u.marker); } catch {}
@@ -341,9 +328,10 @@ function refreshAndPruneMarkers() {
   }
 }
 
+// ===== FETCH INICIAL =====
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
-  if (clear) ui.userList.innerHTML="";
+  if (clear && ui.userList) ui.userList.innerHTML="";
 
   const {data,error}=await supa
     .from("ubicaciones_brigadas")
@@ -353,7 +341,7 @@ async function fetchInitial(clear){
 
   if (error){ console.error("❌ fetch ubicaciones:",error.message); setStatus("Error","gray"); return; }
 
-  const brigFilter=(ui.brigada.value||"").trim().toLowerCase();
+  const brigFilter=(ui.brigada?.value||"").trim().toLowerCase();
   const grouped=new Map(); const perUser=100;
 
   for (const r of data){
@@ -379,22 +367,24 @@ async function fetchInitial(clear){
   refreshAndPruneMarkers();
 }
 
+// ===== MAP INIT =====
 function initMap(){
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
   state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
   state.cluster = L.markerClusterGroup({disableClusteringAtZoom:16});
   state.map.addLayer(state.cluster);
 
-  ui.apply.onclick = async () => {
+  ui.apply?.addEventListener("click", async () => {
     await fetchInitial(true);
     refreshAndPruneMarkers();
-    const brig=(ui.brigada.value||"").trim();
+    const brig=(ui.brigada?.value||"").trim();
     if (brig){ await paintCleanRouteFromRutasLimpias(brig); }
-  };
+  });
 
-  ui.exportKmz.onclick = () => exportKMZFromRutasLimpias();
+  ui.exportKmz?.addEventListener("click", () => exportKMZFromRutasLimpias());
 
-  if (CONFIG.SEND_CLEAN_TO_SUPABASE) {
+  // ==== REALTIME ====
+  if (SEND_CLEAN) {
     console.log("🛰️ Preparando suscripción Realtime a public.ubicaciones_brigadas ...");
 
     const chan = supa
@@ -404,38 +394,63 @@ function initMap(){
         async (payload)=>{
           console.log("📥 INSERT ubicaciones_brigadas (payload)",
             payload?.new?.brigada, payload?.new?.latitud, payload?.new?.longitud);
-          try{
-            const r=payload?.new;
-            const brig=r?.brigada;
-            if (!brig || !isFinite(r?.latitud) || !isFinite(r?.longitud)) return;
 
-            const p={ lat:+r.latitud, lng:+r.longitud,
+          try {
+            const r = payload?.new;
+            const brig = r?.brigada;
+            if (!brig) { console.warn("⏭️ sin brigada → no se bufferiza"); return; }
+            if (!isFinite(r?.latitud) || !isFinite(r?.longitud)) return;
+
+            const p = {
+              lat: +r.latitud, lng: +r.longitud,
               timestamp: r.timestamp_pe || r.timestamp || new Date().toISOString(),
-              acc: r.acc ?? null, spd: r.spd ?? null };
+              acc: r.acc ?? null, spd: r.spd ?? null
+            };
 
-            const buf=live.bufferByBrigada.get(brig)||[];
+            // bufferizar
+            const buf = live.bufferByBrigada.get(brig) || [];
             buf.push(p);
+            if (buf.length > live.MAX_BUFFER) buf.splice(0, buf.length - live.MAX_BUFFER);
             live.bufferByBrigada.set(brig, buf);
 
-            if (!live.timerByBrigada.has(brig)) {
-              const t=setTimeout(()=>processLiveBuffer(brig), live.BATCH_INTERVAL_MS);
-              live.timerByBrigada.set(brig, t);
+            // flush inmediato si hay suficientes
+            if (buf.length >= live.MIN_POINTS) {
+              if (live.timerByBrigada.has(brig)) {
+                clearTimeout(live.timerByBrigada.get(brig));
+                live.timerByBrigada.delete(brig);
+              }
+              console.log(`⏩ flush inmediato (${buf.length} pts) → ${brig}`);
+              setTimeout(() => processLiveBuffer(brig), 0);
             }
-          }catch(e){ console.error("Realtime handler error:", e); }
+
+            // flush cada 10 puntos
+            if (buf.length % 10 === 0) {
+              console.log(`⏩ flush por múltiplos de 10 (${buf.length}) → ${brig}`);
+              setTimeout(() => processLiveBuffer(brig), 0);
+            }
+
+            // timer de seguridad
+            const t = setTimeout(() => {
+              console.log(`⏳ flush por timer (${brig})`);
+              processLiveBuffer(brig);
+            }, live.BATCH_INTERVAL_MS);
+            live.timerByBrigada.set(brig, t);
+
+          } catch (e) { console.error("Realtime handler error:", e); }
         }
       )
-      .subscribe((status)=> console.log("🔌 Realtime status:", status)); // CONNECTED/SUBSCRIBED/CLOSED
+      .subscribe((status)=> console.log("🔌 Realtime status:", status));
 
     window.addEventListener("beforeunload", ()=>{ try{ supa.removeChannel(chan); }catch(_){} });
   } else {
     console.warn("⚠️ SEND_CLEAN_TO_SUPABASE está FALSE. No enviaré rutas a rutas_limpias.");
   }
 
-  setInterval(refreshAndPruneMarkers, 60 * 1000); // cada minuto
+  setInterval(refreshAndPruneMarkers, 60 * 1000);
 }
 initMap();
 
-// ====== Pintar trazo limpio del día desde rutas_limpias (opcional) ======
+// ===== RUTA LIMPIA: PINTAR =====
 async function paintCleanRouteFromRutasLimpias(brig){
   try{
     if (state.cleanRouteLayer){ state.map.removeLayer(state.cleanRouteLayer); state.cleanRouteLayer=null; }
@@ -461,14 +476,14 @@ async function paintCleanRouteFromRutasLimpias(brig){
   } catch(_) {}
 }
 
-// ====== Exportar KMZ del día desde rutas_limpias ======
+// ===== KMZ EXPORT =====
 async function exportKMZFromRutasLimpias(){
   let prev=false;
   try{
     setStatus("Generando KMZ…","gray");
     if (ui?.exportKmz){ prev=ui.exportKmz.disabled; ui.exportKmz.disabled=true; }
 
-    const brig=(ui.brigada.value||"").trim();
+    const brig=(ui.brigada?.value||"").trim();
     if (!brig){ alert("Escribe la brigada EXACTA para exportar su KMZ."); return; }
 
     const dateInput=document.getElementById("kmzDate");
@@ -492,16 +507,18 @@ async function exportKMZFromRutasLimpias(){
 
     const coordsStr = data.map(p => `${p.longitud},${p.latitud},0`).join(" ");
 
-    let kml = `<?xml version="1.0" encoding="UTF-8"?>` +
-              `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
-              `<name>${brig} - ${ymd}</name>` +
-              `<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>` +
-              `<Placemark><name>${brig} (${ymd})</name><styleUrl>#routeStyle</styleUrl>` +
-              `<LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>` +
-              `</Placemark></Document></kml>`;
-
-    if (!window.JSZip) { try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch{} }
+    if (!window.JSZip) {
+      try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch{}
+    }
     const zip = new JSZip();
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+  <name>${brig} - ${ymd}</name>
+  <Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>
+  <Placemark><name>${brig} (${ymd})</name><styleUrl>#routeStyle</styleUrl>
+    <LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>
+  </Placemark>
+</Document></kml>`;
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:1}});
     const a = document.createElement("a");
@@ -520,22 +537,13 @@ async function exportKMZFromRutasLimpias(){
   }
 }
 
-// ====== Tester de RLS (opcional): ejecuta en consola __testInsertRutasLimpias() ======
-window.__testInsertRutasLimpias = async () => {
-  try {
-    const now = new Date().toISOString();
-    const { error } = await supa.from("rutas_limpias").insert([{
-      brigada: "TEST_DEBUG",
-      latitud: -12.05,
-      longitud: -77.05,
-      timestamp: now,
-      procesado: true
-    }]);
-    if (error) { console.error("❌ TEST insert rutas_limpias:", error.message); }
-    else { console.log("✅ TEST insert rutas_limpias OK", now); }
-  } catch (e) { console.error(e); }
+// ===== TESTER: forzar flush manual =====
+window.flushClean = (brig) => {
+  if (!brig) return console.warn("Uso: flushClean('Brigada 12.1')");
+  console.log(`🧪 flush manual → ${brig}`);
+  processLiveBuffer(brig);
 };
 
-// ====== Arranque ======
+// ===== ARRANQUE =====
 setStatus("Cargando...","gray");
 (async()=>{ await fetchInitial(true); })();
