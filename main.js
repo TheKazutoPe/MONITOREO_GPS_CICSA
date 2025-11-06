@@ -41,6 +41,17 @@ const DIRECTIONS_PROFILE    = "driving";
 
 const PER_BLOCK_DELAY       = 150;
 
+// ====== NUEVO: control del trazo en vivo y guardado ======
+const SAVE_DEBOUNCE_MS = 30000; // guarda como máximo 1 vez cada 30s por brigada
+const LIVE_WINDOW_MIN  = 20;    // ventana de últimos minutos que se dibuja en vivo
+
+const live = {
+  layer: null,
+  polylines: new Map(),   // brigada -> L.Polyline
+  debouncers: new Map(),  // brigada -> timeoutId
+  lastSavedAt: new Map()  // brigada -> epoch ms del último upsert ok
+};
+
 // ====== Iconos ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -274,8 +285,12 @@ function initMap(){
   state.cluster = L.markerClusterGroup({disableClusteringAtZoom:16});
   state.map.addLayer(state.cluster);
 
-  ui.apply.onclick = () => fetchInitial(true);
+  // Cambiado: al aplicar filtro, recarga y dispara actualización viva/persistencia
+  ui.apply.onclick = () => { fetchInitial(true); triggerLiveUpdate(); };
   ui.exportKmz.onclick = () => exportKMZFromState();
+
+  // NUEVO: capa para trazo vivo
+  live.layer = L.layerGroup().addTo(state.map);
 }
 initMap();
 
@@ -335,8 +350,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-
-// ====== Últimas 24h ======
+// ====== Últimas 24h (para lista/markers) ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -422,13 +436,11 @@ async function uploadKMZToStorage(blob, fechaISO, brig){
   }catch(e){ console.warn(e); return false; }
 }
 
-// ======================= NUEVO: snapshot + upload PNG ======================
+// ======================= Snapshot + upload PNG (opcional) ==================
 async function renderSnapshotAndUpload(fechaISO, brig, segments){
   return new Promise((resolve) => {
     try{
       if (!window.leafletImage){ console.warn("leaflet-image no cargado"); return resolve(false); }
-
-      // 1) Capa temporal con el trazo (no toca tu cluster ni marcadores)
       const tempLayer = L.layerGroup();
       const bounds = [];
       for (const seg of segments){
@@ -439,13 +451,8 @@ async function renderSnapshotAndUpload(fechaISO, brig, segments){
         }
       }
       tempLayer.addTo(state.map);
+      if (bounds.length >= 2) state.map.fitBounds(bounds, { padding: [40,40] });
 
-      // 2) Enfocar a la ruta con padding
-      if (bounds.length >= 2){
-        state.map.fitBounds(bounds, { padding: [40,40] });
-      }
-
-      // 3) Esperar un poquito a que termine el render y sacar snapshot
       setTimeout(() => {
         leafletImage(state.map, async (err, canvas) => {
           try{
@@ -471,130 +478,211 @@ async function renderSnapshotAndUpload(fechaISO, brig, segments){
   });
 }
 
+// ======================= NUEVO: helpers de día (Lima) ======================
+function todayRangeLima(){
+  const now = new Date();
+  const ymd = toYMD(now);
+  const next = new Date(now.getTime() + 24*60*60*1000);
+  return { ymd, ymdNext: toYMD(next) };
+}
+
+// Puntos recientes (para trazo vivo)
+async function fetchRecentPoints(brig, minutes=LIVE_WINDOW_MIN){
+  const sinceIso = new Date(Date.now() - minutes*60*1000).toISOString();
+  const { data, error } = await supa
+    .from("ubicaciones_brigadas")
+    .select("latitud,longitud,timestamp,timestamp_pe,acc,spd")
+    .eq("brigada", brig)
+    .gte("timestamp", sinceIso) // por UTC
+    .order("timestamp",{ ascending: true });
+  if (error || !data) return [];
+  return data.map(r => ({
+    lat:+r.latitud, lng:+r.longitud,
+    timestamp: r.timestamp_pe || r.timestamp,
+    acc: r.acc ?? null, spd: r.spd ?? null
+  })).filter(p => isFinite(p.lat)&&isFinite(p.lng)&&p.timestamp);
+}
+
+// Puntos del día (para persistir ruta del día)
+async function fetchTodayPoints(brig){
+  const { ymd, ymdNext } = todayRangeLima();
+  const { data, error } = await supa
+    .from("ubicaciones_brigadas")
+    .select("latitud,longitud,timestamp,timestamp_pe,acc,spd")
+    .eq("brigada", brig)
+    .gte("timestamp_pe", ymd)
+    .lt("timestamp_pe", ymdNext)
+    .order("timestamp_pe", { ascending: true });
+  if (error || !data) return { ymd, points: [] };
+  const points = data.map(r => ({
+    lat:+r.latitud, lng:+r.longitud,
+    timestamp: r.timestamp_pe || r.timestamp,
+    acc: r.acc ?? null, spd: r.spd ?? null
+  })).filter(p => isFinite(p.lat)&&isFinite(p.lng)&&p.timestamp);
+  return { ymd, points };
+}
+
+// ======================= NUEVO: pipeline de segmentos ======================
+async function buildSegments(points){
+  if (!points || points.length < 2) return [];
+  const cleaned = [points[0], ...cleanClosePoints(points.slice(1), CLEAN_MIN_METERS)];
+  const rawSegs = splitOnGaps(cleaned, GAP_MINUTES, GAP_JUMP_METERS);
+
+  const rendered = [];
+  for (const seg of rawSegs){
+    if (seg.length < 2) continue;
+    const blocks = chunk(seg, MAX_MM_POINTS);
+    let current = [];
+    for (const block of blocks){
+      let finalBlock = densifySegment(block, DENSIFY_STEP);
+      try{
+        const mm = await mapMatchBlockSafe(block); // Mapbox matching
+        if (mm && mm.length >= 2) finalBlock = mm;
+      }catch(_){}
+      if (!current.length){
+        current.push(...finalBlock);
+      } else {
+        const last  = current[current.length-1];
+        const first = finalBlock[0];
+        const gapM  = distMeters(last, first);
+        if (gapM > 5){
+          let appended = false;
+          if (gapM <= BRIDGE_MAX_METERS){
+            const bridge = await smartBridge(last, first); // Mapbox directions
+            if (bridge?.length){ current.push(...bridge.slice(1)); appended = true; }
+          }
+          if (!appended){
+            if (current.length>1) rendered.push(current);
+            current = [...finalBlock];
+            continue;
+          }
+        }
+        current.push(...finalBlock.slice(1));
+      }
+      await sleep(60);
+    }
+    if (current.length > 1) rendered.push(current);
+  }
+  return rendered;
+}
+
+// ======================= NUEVO: pintar vivo y guardar día ==================
+function drawLivePolyline(brig, segments){
+  const latlngs = segments.flat().map(p => [p.lat, p.lng]);
+  const old = live.polylines.get(brig);
+  if (old){ live.layer.removeLayer(old); live.polylines.delete(brig); }
+  if (latlngs.length < 2) return;
+  const poly = L.polyline(latlngs, { weight: 4, opacity: 0.95 });
+  poly.addTo(live.layer);
+  live.polylines.set(brig, poly);
+}
+
+async function recomputeAndPersistDayRoute(brig){
+  // 1) día completo → guardar (UPSERT)
+  const { ymd, points } = await fetchTodayPoints(brig);
+  if (points.length < 2) return;
+  const segs = await buildSegments(points);
+  const line = toLineStringFromSegments(segs);
+  await upsertRutaBrigada(ymd, brig, line);
+  live.lastSavedAt.set(brig, Date.now());
+
+  // 2) tramo reciente → pintar vivo
+  const recent = await fetchRecentPoints(brig, LIVE_WINDOW_MIN);
+  const liveSegs = (recent.length>1) ? (await buildSegments(recent)) : segs;
+  drawLivePolyline(brig, liveSegs);
+}
+
+function scheduleSave(brig, delay = SAVE_DEBOUNCE_MS){
+  clearTimeout(live.debouncers.get(brig));
+  const t = setTimeout(() => recomputeAndPersistDayRoute(brig), delay);
+  live.debouncers.set(brig, t);
+}
+
+function currentBrigadaFilter(){
+  return (ui.brigada.value || "").trim();
+}
+function triggerLiveUpdate(){
+  const brig = currentBrigadaFilter();
+  if (brig) scheduleSave(brig, 0);
+}
+
+// ======================= NUEVO: suscripción realtime =======================
+supa.channel('realtime:ubicaciones_brigadas')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' },
+    (payload) => {
+      const brig = (payload.new?.brigada || "").trim();
+      const filter = currentBrigadaFilter();
+      // Si quieres guardar TODAS las brigadas, elimina el if.
+      if (!filter || brig.toLowerCase().includes(filter.toLowerCase())){
+        const last = live.lastSavedAt.get(brig) || 0;
+        const elapsed = Date.now() - last;
+        const delay = (elapsed < 10000) ? 12000 : SAVE_DEBOUNCE_MS;
+        scheduleSave(brig, delay);
+      }
+    }
+  ).subscribe();
+
 // ============================= EXPORTAR KMZ =============================
+// Ahora prioriza usar el trazo GUARDADO en rutas_brigadas_dia.
+// Si no existe, cae al cálculo “antiguo” y luego guarda y exporta.
 async function exportKMZFromState(){
-  let prevDisabled = false;
   try {
     setStatus("Generando KMZ…","gray");
-    if (ui?.exportKmz){ prevDisabled = ui.exportKmz.disabled; ui.exportKmz.disabled = true; }
+    if (ui?.exportKmz) ui.exportKmz.disabled = true;
 
     const brig = (ui.brigada.value || "").trim();
-    if (!brig){
-      alert("Escribe la brigada EXACTA para exportar su KMZ.");
-      return;
-    }
+    if (!brig){ alert("Escribe la brigada EXACTA para exportar su KMZ."); return; }
 
     const dateInput = document.getElementById("kmzDate");
     const chosen = (dateInput && dateInput.value) ? new Date(dateInput.value+"T00:00:00") : new Date();
     const ymd = toYMD(chosen);
-    const next = new Date(chosen.getTime() + 24*60*60*1000);
-    const ymdNext = toYMD(next);
 
-    const {data, error} = await supa
-      .from("ubicaciones_brigadas")
-      .select("latitud,longitud,timestamp,tecnico,usuario_id,timestamp_pe,brigada,acc,spd")
+    // 1) intentar leer lo guardado
+    let line = null;
+    const { data:row } = await supa
+      .from("rutas_brigadas_dia")
+      .select("line_geojson")
+      .eq("fecha", ymd)
       .eq("brigada", brig)
-      .gte("timestamp_pe", ymd)
-      .lt("timestamp_pe", ymdNext)
-      .order("timestamp_pe",{ascending:true});
+      .maybeSingle();
+    line = row?.line_geojson;
 
-    if (error) throw new Error(error.message);
-    if (!data || data.length < 2){
-      alert(`⚠️ No hay datos para "${brig}" en ${ymd}.`);
-      return;
+    // 2) si no hay en DB, computa (modo antiguo) y guarda
+    let renderedSegments = [];
+    if (!line){
+      const ymdNext = toYMD(new Date(chosen.getTime() + 86400000));
+      const {data, error} = await supa
+        .from("ubicaciones_brigadas")
+        .select("latitud,longitud,timestamp,tecnico,usuario_id,timestamp_pe,brigada,acc,spd")
+        .eq("brigada", brig)
+        .gte("timestamp_pe", ymd)
+        .lt("timestamp_pe", ymdNext)
+        .order("timestamp_pe",{ascending:true});
+      if (error || !data || data.length<2){ alert(`⚠️ No hay datos para "${brig}" en ${ymd}.`); return; }
+      const all = data.map(r=>({
+        lat:+r.latitud, lng:+r.longitud,
+        timestamp:r.timestamp_pe || r.timestamp,
+        acc:r.acc ?? null, spd:r.spd ?? null
+      })).filter(p=>isFinite(p.lat)&&isFinite(p.lng)&&p.timestamp);
+      renderedSegments = await buildSegments(all);
+      if (!renderedSegments.length){ alert("No se generó traza válida."); return; }
+      line = toLineStringFromSegments(renderedSegments);
+      await upsertRutaBrigada(ymd, brig, line);
     }
 
-    // Día completo en orden local
-    const all = (data || [])
-      .map(r => ({
-        lat: +r.latitud,
-        lng: +r.longitud,
-        timestamp: r.timestamp_pe || r.timestamp,
-        acc: r.acc ?? null,
-        spd: r.spd ?? null
-      }))
-      .filter(p => isFinite(p.lat) && isFinite(p.lng) && p.timestamp)
-      .sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+    // 3) KMZ desde el LineString (guardado o recién calculado)
+    const coords = line.coordinates || [];
+    if (coords.length < 2){ alert("Trazo insuficiente."); return; }
 
-    if (all.length < 2){
-      alert(`⚠️ No hay suficientes puntos para "${brig}" en ${ymd}.`);
-      return;
-    }
-
-    // Procesar con tu pipeline (limpieza → cortes → matching → bridges)
-    const rows1 = [all[0], ...cleanClosePoints(all.slice(1), CLEAN_MIN_METERS)];
-    const segmentsRaw = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
-
-    const renderedSegments = [];
-    for (const seg of segmentsRaw){
-      if (seg.length < 2) continue;
-      const blocks = chunk(seg, MAX_MM_POINTS);
-      let current = [];
-      for (let i=0;i<blocks.length;i++){
-        const block = blocks[i];
-        let finalBlock = densifySegment(block, DENSIFY_STEP);
-        try {
-          const mm = await mapMatchBlockSafe(block);
-          if (mm && mm.length >= 2) finalBlock = mm;
-        } catch(_) {}
-
-        if (!current.length){
-          current.push(...finalBlock);
-        } else {
-          const last  = current[current.length-1];
-          const first = finalBlock[0];
-          const gapM  = distMeters(last, first);
-          if (gapM > 5) {
-            let appended = false;
-            if (gapM <= BRIDGE_MAX_METERS) {
-              const bridge = await smartBridge(last, first);
-              if (bridge?.length) {
-                current.push(...bridge.slice(1));
-                appended = true;
-              }
-            }
-            if (!appended) {
-              if (current.length > 1) renderedSegments.push(current);
-              current = [...finalBlock];
-              await sleep(PER_BLOCK_DELAY);
-              continue;
-            }
-          }
-          current.push(...finalBlock.slice(1));
-        }
-        await sleep(PER_BLOCK_DELAY);
-      }
-      if (current.length > 1) renderedSegments.push(current);
-    }
-
-    if (!renderedSegments.length){
-      alert("No se generó traza válida.");
-      return;
-    }
-
-    // === Persistir LineString diario ===
-    const lineGeo = toLineStringFromSegments(renderedSegments);
-    await upsertRutaBrigada(ymd, brig, lineGeo);
-
-    // === KML/KMZ (descarga local + Storage) ===
     let kml = `<?xml version="1.0" encoding="UTF-8"?>` +
-              `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
-              `<name>${brig} - ${ymd}</name>` +
-              `<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>`;
-    for (const seg of renderedSegments) {
-      const coordsStr = seg.map(p=>`${p.lng},${p.lat},0`).join(" ");
-      kml += `
-        <Placemark>
-          <name>${brig} (${ymd})</name>
-          <styleUrl>#routeStyle</styleUrl>
-          <LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>
-        </Placemark>`;
-    }
-    kml += `</Document></kml>`;
+      `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
+      `<name>${brig} - ${ymd}</name>` +
+      `<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>` +
+      `<Placemark><name>${brig} (${ymd})</name><styleUrl>#routeStyle</styleUrl>` +
+      `<LineString><tessellate>1</tessellate><coordinates>${coords.map(([lng,lat])=>`${lng},${lat},0`).join(" ")}</coordinates></LineString>` +
+      `</Placemark></Document></kml>`;
 
-    if (!window.JSZip) {
-      try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch(_){}
-    }
+    if (!window.JSZip) { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); }
     const zip = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:1}});
@@ -607,19 +695,24 @@ async function exportKMZFromState(){
     a.click();
     URL.revokeObjectURL(a.href);
 
-    // Subir KMZ (sobrescribe)
-    await uploadKMZToStorage(blob, ymd, brig);
+    // Subir KMZ (sobrescribe) — opcional
+    // await uploadKMZToStorage(blob, ymd, brig);
 
-    // === NUEVO: generar/sobrescribir PNG de la ruta del día ===
-    await renderSnapshotAndUpload(ymd, brig, renderedSegments);
+    // PNG opcional desde el line guardado
+    if (!renderedSegments.length){
+      // dibujar temporalmente desde 'line' para el snapshot
+      const seg = line.coordinates.map(([lng,lat])=>({lat,lng}));
+      renderedSegments = [seg];
+    }
+    // await renderSnapshotAndUpload(ymd, brig, renderedSegments);
 
-    alert(`✅ KMZ y PNG listos y guardados.\nBrigada: ${brig}\nFecha: ${ymd}\nTramos: ${renderedSegments.length}`);
+    alert(`✅ KMZ generado.\nBrigada: ${brig}\nFecha: ${ymd}`);
   } catch(e){
     console.error(e);
-    alert("❌ No se pudo generar el KMZ/PNG: " + e.message);
+    alert("❌ No se pudo generar el KMZ: " + e.message);
   } finally {
     setStatus("Conectado","green");
-    if (ui?.exportKmz) ui.exportKmz.disabled = prevDisabled;
+    if (ui?.exportKmz) ui.exportKmz.disabled = false;
   }
 }
 
