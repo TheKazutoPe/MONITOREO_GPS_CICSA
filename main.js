@@ -296,26 +296,30 @@ function buildPopup(r){
   const ts = new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${r.brigada || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
+
 function addOrUpdateUserInList(row){
   const uid = String(row.usuario_id || "0");
   let el = document.getElementById(`u-${uid}`);
+
   const mins = Math.round((Date.now() - new Date(row.timestamp))/60000);
   const brig = row.brigada || "-";
   const hora = new Date(row.timestamp).toLocaleTimeString();
   const ledColor = mins <= 2 ? "#4ade80" : mins <= 5 ? "#eab308" : "#777";
   const cls = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
+
   const html = `
     <div class="brigada-header">
       <div style="display:flex;gap:6px;align-items:flex-start;">
         <div class="brigada-dot" style="background:${ledColor};"></div>
         <div class="brigada-info">
-          <b class="brig-name">${r.tecnico || "Sin nombre"}</b>
+          <b class="brig-name">${row.tecnico || "Sin nombre"}</b>
           <div class="brigada-sub">${brig}</div>
         </div>
       </div>
       <div class="brigada-hora">${hora}</div>
     </div>
   `;
+
   if (!el){
     el = document.createElement("div");
     el.id = `u-${uid}`;
@@ -330,6 +334,7 @@ function addOrUpdateUserInList(row){
     setTimeout(()=>el.classList.remove("marker-pulse"),600);
   }
 }
+
 
 // ====== Últimas 24h ======
 async function fetchInitial(clear){
