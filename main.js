@@ -26,9 +26,9 @@ const CLEAN_MIN_METERS      = 6;
 const DENSIFY_STEP          = 10;
 const MAX_MM_POINTS         = 40;
 const MAX_MATCH_INPUT       = 90;
-const MAX_DIST_RATIO        = 0.35;
-const ENDPOINT_TOL          = 25;
-const CONFIDENCE_MIN        = 0.70;
+const MAX_DIST_RATIO        = 0.6;   // más permisivo para aceptar matchings
+const ENDPOINT_TOL          = 40;    // tolerancia mayor en extremos
+const CONFIDENCE_MIN        = 0.5;   // confianza mínima Mapbox
 
 const GAP_MINUTES           = 8;
 const GAP_JUMP_METERS       = 800;
@@ -67,7 +67,7 @@ const STATIONARY_MAX_INTERVAL_MS = 5 * 60 * 1000;
 const stationaryBuffers = new Map(); // key: brigada::uid -> [{lat,lng,timestamp}]
 
 // ====== DEBUG ======
-const DEBUG_ROUTE = false;
+const DEBUG_ROUTE = false; // pon en true si quieres ver logs de Mapbox / matching
 
 // ====== Rutas en vivo por brigada ======
 const routes = new Map();
@@ -98,7 +98,7 @@ function chunk(arr,size){
   return out;
 }
 
-// RT helpers
+// ====== RT helpers ======
 function takeTailWindow(arr, maxN = RT_WINDOW_POINTS){
   if (!arr.length) return arr;
   return arr.slice(Math.max(0, arr.length - maxN));
@@ -117,7 +117,7 @@ function ensureRouteLayer(brigada){
   return r;
 }
 
-// Estacionamiento
+// ====== Estacionamiento ======
 function updateStationaryBuffer(key, p){
   let buf = stationaryBuffers.get(key) || [];
   buf.push(p);
@@ -131,16 +131,14 @@ function analyzeStationary(buf){
   let sumLat = 0, sumLng = 0;
   for (const p of buf){ sumLat += p.lat; sumLng += p.lng; }
   const c = { lat: sumLat / buf.length, lng: sumLng / buf.length };
-  let maxD = 0;
   for (const p of buf){
     const d = distMeters(p, c);
-    if (d > maxD) maxD = d;
     if (d > STATIONARY_RADIUS_M) return { stationary: false };
   }
-  return { stationary: true, center: c, maxDistance: maxD };
+  return { stationary: true, center: c };
 }
 
-// Densificar / downsample
+// ====== Densificar / downsample ======
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -176,7 +174,7 @@ function downsamplePoints(arr, maxN){
   return out;
 }
 
-// Limpieza/cortes (por si acaso; export ya no usa crudo)
+// ====== Limpieza/cortes (respaldo; export ya no usa crudo) ======
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -209,7 +207,7 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   return groups;
 }
 
-// Map Matching
+// ====== Map Matching con Mapbox ======
 function adaptiveRadius(p){
   const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
   const base = isFinite(acc) ? acc + 5 : 25;
@@ -243,14 +241,12 @@ async function mapMatchBlockSafe(seg){
   }
 
   if (!r.ok){
-    const txt = await r.text().catch(()=> "");
-    if (DEBUG_ROUTE) console.log("MM status !ok", r.status, txt.slice(0,200));
+    if (DEBUG_ROUTE) console.log("MM status !ok", r.status);
     return null;
   }
 
   const j = await r.json().catch(()=> null);
   const m = j?.matchings?.[0];
-
   if (!m?.geometry?.coordinates){
     if (DEBUG_ROUTE) console.log("MM: sin geometría");
     return null;
@@ -258,12 +254,6 @@ async function mapMatchBlockSafe(seg){
 
   if (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN) {
     if (DEBUG_ROUTE) console.log("MM: baja confianza", m.confidence);
-    if (dense.length > 24) {
-      const mid = Math.floor(dense.length/2);
-      const left  = await mapMatchBlockSafe(dense.slice(0, mid));
-      const right = await mapMatchBlockSafe(dense.slice(mid-1));
-      if (left && right) return left.concat(right.slice(1));
-    }
     return null;
   }
 
@@ -291,15 +281,73 @@ async function mapMatchBlockSafe(seg){
   }
 
   if (DEBUG_ROUTE) {
-    console.log("MM OK", {
+    console.log("MM OK usado", {
       inputSize: seg.length,
-      denseSize: dense.length,
       matchedSize: matched.length,
       confidence: m.confidence
     });
   }
 
   return matched;
+}
+
+// ====== Directions / smartBridge (respaldo, no tocamos lógica actual) ======
+async function directionsBetween(a, b) {
+  if (!MAPBOX_TOKEN) return null;
+  const direct = distMeters(a, b);
+  if (direct > BRIDGE_MAX_METERS) return null;
+
+  const url =
+    `https://api.mapbox.com/directions/v5/mapbox/${DIRECTIONS_PROFILE}/` +
+    `${a.lng},${a.lat};${b.lng},${b.lat}` +
+    `?geometries=geojson&overview=full&annotations=distance,duration` +
+    `&access_token=${MAPBOX_TOKEN}`;
+
+  let r;
+  try { r = await fetch(url); } catch { return null; }
+  if (!r.ok) return null;
+
+  const j = await r.json().catch(()=>null);
+  const route = j?.routes?.[0];
+  const coords = route?.geometry?.coordinates || [];
+  const meters = route?.distance ?? 0;
+  if (!coords.length || meters <= 0) return null;
+
+  const first = { lat: coords[0][1], lng: coords[0][0] };
+  if (distMeters(a, first) > 80) return null;
+
+  const dt = Math.max(1, (new Date(b.timestamp) - new Date(a.timestamp))/1000);
+  const v_kmh_imp = (meters/1000) / (dt/3600);
+  if (v_kmh_imp > MAX_BRIDGE_SPEED_KMH) return null;
+  if (v_kmh_imp < MIN_BRIDGE_SPEED_KMH && dt < 300) return null;
+
+  return coords.map(([lng,lat]) => ({ lat, lng, timestamp: a.timestamp }));
+}
+async function smartBridge(a, b) {
+  const d = distMeters(a, b);
+  if (d > BRIDGE_MAX_METERS) return null;
+  if (d <= DIRECTIONS_HOP_METERS) return await directionsBetween(a, b);
+
+  const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
+  const out = [a];
+  let prev = a;
+  for (let i=1; i<=hops; i++){
+    const t = i / hops;
+    const mid = {
+      lat: a.lat + (b.lat - a.lat)*t,
+      lng: a.lng + (b.lng - a.lng)*t,
+      timestamp: new Date(
+        new Date(a.timestamp).getTime() +
+        (new Date(b.timestamp) - new Date(a.timestamp)) * t
+      ).toISOString()
+    };
+    const seg = await directionsBetween(prev, mid);
+    if (!seg) return null;
+    out.push(...seg.slice(1));
+    prev = mid;
+    await sleep(60);
+  }
+  return out;
 }
 
 // ====== UI / Mapa ======
@@ -377,7 +425,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// Carga inicial (solo muestra últimos puntos)
+// ====== Carga inicial (solo últimos puntos para UI) ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -411,14 +459,14 @@ async function fetchInitial(clear){
     const marker = L.marker([last.latitud,last.longitud],{icon:getIconFor(last)}).bindPopup(buildPopup(last));
     state.cluster.addLayer(marker);
     state.users.set(uid,{marker,lastRow:last});
-    state.pointsByUser.set(uid, []); // hist se construye con realtime
+    state.pointsByUser.set(uid, []); // el histórico se arma en realtime
     addOrUpdateUserInList(last);
   });
 
   setStatus("Conectado","green");
 }
 
-// Persistencia ruta limpia
+// ====== Persistencia del trazo limpio ======
 function computeBBox(points){
   let minLat=  90, minLng= 180, maxLat= -90, maxLng= -180;
   for (const p of points){
@@ -466,7 +514,7 @@ function maybePersistRoute(brigada, r){
   }
 }
 
-// Matching incremental
+// ====== Matching incremental (usa Mapbox cuando es válido) ======
 async function matchAndAppendTail(brigada, rawTail){
   if (!rawTail || rawTail.length < 2) return;
 
@@ -478,8 +526,8 @@ async function matchAndAppendTail(brigada, rawTail){
 
   const mm = await mapMatchBlockSafe(windowInput);
   const matched = (mm && mm.length >= 2)
-    ? mm
-    : densifySegment(windowInput, DENSIFY_STEP);
+    ? mm                     // ruta limpia de Mapbox
+    : densifySegment(windowInput, DENSIFY_STEP); // fallback suave
 
   if (!matched || matched.length < 2) return;
 
@@ -516,7 +564,7 @@ async function matchAndAppendTail(brigada, rawTail){
   maybePersistRoute(brigada, r);
 }
 
-// Realtime (AQUÍ estaba el bug principal; ahora está ordenado)
+// ====== Realtime: construye trazo limpio ======
 function subscribeRealtime(){
   supa.channel('ubicaciones_brigadas-changes')
     .on('postgres_changes',
@@ -532,7 +580,7 @@ function subscribeRealtime(){
         const uid = String(row.usuario_id || "0");
         const key = `${brigada}::${uid}`;
 
-        // popup + lista
+        // UI: lista + marker
         addOrUpdateUserInList(row);
         let u = state.users.get(uid);
         if (!u){
@@ -548,7 +596,6 @@ function subscribeRealtime(){
           u.lastRow = row;
         }
 
-        // punto crudo
         const rawPoint = {
           lat: +row.latitud,
           lng: +row.longitud,
@@ -557,21 +604,18 @@ function subscribeRealtime(){
           spd: row.spd ?? null
         };
 
-        // actualizar historial crudo (orden cronológico)
+        // historial crudo (ordenado)
         let hist = state.pointsByUser.get(uid) || [];
         hist.push(rawPoint);
-        if (hist.length > 200) {
-          hist = hist.slice(hist.length - 200);
-        }
+        if (hist.length > 200) hist = hist.slice(hist.length - 200);
         state.pointsByUser.set(uid, hist);
-
-        // estacionamiento
-        const buf = updateStationaryBuffer(key, rawPoint);
-        const stat = analyzeStationary(buf);
 
         const route = ensureRouteLayer(brigada);
         const last = route.points.at(-1);
 
+        // estacionamiento
+        const buf = updateStationaryBuffer(key, rawPoint);
+        const stat = analyzeStationary(buf);
         if (stat.stationary) {
           const center = stat.center;
           if (!last || distMeters(last, center) > STATIONARY_RADIUS_M / 2) {
@@ -586,10 +630,10 @@ function subscribeRealtime(){
             maybePersistRoute(brigada, route);
             if (DEBUG_ROUTE) console.log(`[${brigada}] estacionado, ancla agregado`, anchor);
           }
-          return;
+          return; // no llamamos a Mapbox si está quieto
         }
 
-        // no estacionado: filtrar movimientos muy chicos
+        // si no está estacionado: filtro de movimiento mínimo
         if (last && !isMovingEnough(last, rawPoint, RT_MIN_MOVE_METERS)) {
           if (DEBUG_ROUTE) console.log(`[${brigada}] poco movimiento, ignorado`);
           return;
@@ -609,7 +653,7 @@ function subscribeRealtime(){
     .subscribe(status => console.log("Realtime status:", status));
 }
 
-// Export KMZ solo desde rutas_brigadas_dia
+// ====== Export KMZ solo desde rutas_brigadas_dia ======
 async function exportKMZFromState(){
   let prevDisabled = false;
   try {
@@ -681,7 +725,7 @@ async function exportKMZFromState(){
   }
 }
 
-// Arranque
+// ====== Arranque ======
 setStatus("Cargando...","gray");
-subscribeRealtime();
-fetchInitial(true);
+subscribeRealtime();   // construye rutas_brigadas_dia con trazo limpio
+fetchInitial(true);    // solo para markers / panel
