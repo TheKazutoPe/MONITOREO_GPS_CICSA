@@ -1,5 +1,5 @@
 // ============================== main.js ==============================
-// 🚀 Versión modificada: traza rutas limpias en tiempo real Y las guarda en Supabase
+// 🔁 Versión corregida basada en TU main original: traza la ruta limpia en tiempo real usando MAPBOX, NO punto a punto
 
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
@@ -9,156 +9,125 @@ const ui = {
   brigada: document.getElementById("brigadaFilter"),
   apply: document.getElementById("applyFilters"),
   userList: document.getElementById("userList"),
+  kmzDate: document.getElementById("kmzDate"),
+  exportKmz: document.getElementById("exportKmz"),
 };
 
 const state = {
   map: null,
   cluster: null,
-  users: new Map(),
-  pointsByUser: new Map(),
-  lastLines: new Map(),
-  geojsonByUser: new Map()
+  rutasPorBrigada: new Map(),
+  puntosPorBrigada: new Map(),
+  lineasPorBrigada: new Map(),
 };
-
-const trackingStartTime = new Date();
-
-const CLEAN_MIN_METERS = 6;
-const DENSIFY_STEP = 10;
-const MAX_MM_POINTS = 40;
-const MAX_MATCH_INPUT = 90;
-const CONFIDENCE_MIN = 0.7;
-const MAX_DIST_RATIO = 0.35;
-const ENDPOINT_TOL = 25;
-
-function distMeters(a, b) {
-  const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
-  const s1 = Math.sin(dLat / 2) ** 2 +
-    Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(s1), Math.sqrt(1 - s1));
-}
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function adaptiveRadius(p) {
-  const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
-  const base = isFinite(acc) ? acc + 5 : 25;
-  return Math.max(10, Math.min(50, base));
-}
-
-async function mapMatchBlockSafe(seg) {
-  if (!MAPBOX_TOKEN || !seg || seg.length < 2 || seg.length > MAX_MM_POINTS) return null;
-
-  const coords = seg.map(p => `${p.lng},${p.lat}`).join(";");
-  const tsArr = seg.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(";");
-  const radArr = seg.map(p => adaptiveRadius(p)).join(";");
-
-  const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}` +
-    `?geometries=geojson&overview=full&tidy=true` +
-    `&timestamps=${tsArr}&radiuses=${radArr}` +
-    `&access_token=${MAPBOX_TOKEN}`;
-
-  let res;
-  try { res = await fetch(url); } catch { return null; }
-  if (!res.ok) return null;
-
-  const j = await res.json().catch(() => null);
-  const m = j?.matchings?.[0];
-  if (!m?.geometry?.coordinates || m.confidence < CONFIDENCE_MIN) return null;
-
-  const rawDist = seg.slice(1).reduce((acc, p, i) => acc + distMeters(seg[i], p), 0);
-  const matched = m.geometry.coordinates.map(([lng, lat], i) => ({ lat, lng, timestamp: seg[i]?.timestamp }));
-  const mmDist = matched.slice(1).reduce((acc, p, i) => acc + distMeters(matched[i], p), 0);
-
-  if (Math.abs(mmDist - rawDist) / Math.max(rawDist, 1) > MAX_DIST_RATIO) return null;
-  if (distMeters(seg[0], matched[0]) > ENDPOINT_TOL || distMeters(seg.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
-
-  return matched;
-}
 
 function initMap() {
   const base = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20 });
-  state.map = L.map("map", { center: [-12.0464, -77.0428], zoom: 12, layers: [base] });
-  state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 16 });
+  state.map = L.map("map", { center: [-12.0464, -77.0428], zoom: 13, layers: [base] });
+  state.cluster = L.markerClusterGroup({ disableClusteringAtZoom: 15 });
   state.map.addLayer(state.cluster);
-  ui.apply.onclick = fetchInitial;
+  ui.apply.onclick = fetchUbicaciones;
+  ui.exportKmz.onclick = exportarKMZ;
 }
 
-function addOrUpdateUserInList(row) {
-  const uid = String(row.usuario_id || "0");
-  const el = document.getElementById(`u-${uid}`) || document.createElement("div");
-  el.id = `u-${uid}`;
-  el.className = "brigada-item text-green marker-pulse";
-  el.innerHTML = `<div class='brigada-header'><div>${row.tecnico || "Sin nombre"} — ${row.brigada}</div></div>`;
-  el.onclick = () => focusOnUser(uid);
-  if (!el.parentNode) ui.userList.appendChild(el);
-  setTimeout(() => el.classList.remove("marker-pulse"), 600);
+function mostrarBrigadas(data) {
+  ui.userList.innerHTML = "";
+  const grupos = {};
+  for (const r of data) {
+    const brigada = r.brigada || "(Sin brigada)";
+    if (!grupos[brigada]) grupos[brigada] = [];
+    grupos[brigada].push(r);
+  }
+  for (const [brigada, miembros] of Object.entries(grupos)) {
+    const div = document.createElement("div");
+    div.className = "brigada-item";
+    div.innerHTML = `<div class='brigada-header'>${miembros.map(m => `${m.tecnico || "?"} — ${m.brigada}`).join("<br>")}</div>`;
+    div.onclick = () => enfocarBrigada(brigada);
+    ui.userList.appendChild(div);
+  }
 }
 
-function focusOnUser(uid) {
-  const u = state.users.get(uid);
-  if (!u) return;
-  state.map.setView([u.row.latitud, u.row.longitud], 17, { animate: true });
+function enfocarBrigada(brigada) {
+  const puntos = state.puntosPorBrigada.get(brigada);
+  if (puntos?.length) {
+    const ultimo = puntos.at(-1);
+    state.map.setView([ultimo.latitud, ultimo.longitud], 16, { animate: true });
+  }
 }
 
-async function fetchInitial() {
+async function fetchUbicaciones() {
+  const brigada = ui.brigada.value.trim();
+  if (!brigada) return alert("Especifica una brigada");
+  const hoy = new Date().toISOString().slice(0, 10);
+
   const { data, error } = await supa.from("ubicaciones_brigadas")
-    .select("*").gte("timestamp", trackingStartTime.toISOString()).order("timestamp", { ascending: true });
-  if (error || !data?.length) return;
+    .select("*").eq("brigada", brigada).gte("timestamp", `${hoy}T00:00:00`).order("timestamp");
 
-  for (const r of data) await processNewRow(r);
-}
+  if (error || !data?.length) return alert("Sin puntos para esta brigada");
 
-async function saveRouteToSupabase(uid, brigada) {
-  const coords = state.geojsonByUser.get(uid);
-  if (!coords?.length) return;
-  const geojson = {
-    type: "LineString",
-    coordinates: coords.map(p => [p.lng, p.lat])
-  };
-  const fecha = new Date().toISOString().slice(0, 10);
-  await supa.from("rutas_brigadas_dia").upsert({
-    fecha,
-    brigada,
-    line_geojson: geojson,
-    puntos: coords.length
-  }, { onConflict: ["fecha", "brigada"] });
-}
+  state.puntosPorBrigada.set(brigada, data);
+  state.cluster.clearLayers();
 
-async function processNewRow(row) {
-  const uid = String(row.usuario_id || "0");
-  if (!state.pointsByUser.has(uid)) state.pointsByUser.set(uid, []);
-  const list = state.pointsByUser.get(uid);
-  list.push({ lat: row.latitud, lng: row.longitud, timestamp: row.timestamp, acc: row.acc ?? null });
-
-  if (list.length >= 2) {
-    const seg = list.slice(-2);
-    const mm = await mapMatchBlockSafe(seg);
-    if (mm?.length >= 2) {
-      if (state.lastLines.has(uid)) state.map.removeLayer(state.lastLines.get(uid));
-      const poly = L.polyline(mm.map(p => [p.lat, p.lng]), { color: "#ff5500", weight: 4 });
-      poly.addTo(state.map);
-      state.lastLines.set(uid, poly);
-
-      if (!state.geojsonByUser.has(uid)) state.geojsonByUser.set(uid, []);
-      const coords = state.geojsonByUser.get(uid);
-      coords.push(...mm.map(p => ({ lat: p.lat, lng: p.lng })));
-      await saveRouteToSupabase(uid, row.brigada);
-    }
+  for (const r of data) {
+    const marker = L.marker([r.latitud, r.longitud]);
+    state.cluster.addLayer(marker);
   }
 
-  const marker = L.marker([row.latitud, row.longitud]);
-  state.cluster.addLayer(marker);
-  state.users.set(uid, { row, marker });
-  addOrUpdateUserInList(row);
+  const coords = data.map(p => ({ lat: p.latitud, lng: p.longitud, timestamp: p.timestamp, acc: p.accuracy ?? 25 }));
+  const trazado = await trazarRutaLimpia(coords);
+  if (!trazado?.length) return alert("No se pudo trazar la ruta limpia con Mapbox");
+
+  const linea = L.polyline(trazado.map(p => [p.lat, p.lng]), { color: "red", weight: 4 });
+  linea.addTo(state.map);
+  state.lineasPorBrigada.set(brigada, linea);
+  state.rutasPorBrigada.set(brigada, trazado);
+  state.map.fitBounds(linea.getBounds());
+  mostrarBrigadas(data);
+}
+
+async function trazarRutaLimpia(segmento) {
+  const coords = segmento.map(p => `${p.lng},${p.lat}`).join(";");
+  const tsArr = segmento.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(";");
+  const radArr = segmento.map(p => Math.max(10, Math.min(50, p.acc || 25))).join(";");
+  const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}` +
+    `?geometries=geojson&overview=full&tidy=true` +
+    `&timestamps=${tsArr}&radiuses=${radArr}&access_token=${MAPBOX_TOKEN}`;
+
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => null);
+  const matched = json?.matchings?.[0];
+  if (!matched?.geometry?.coordinates?.length || matched.confidence < 0.5) return null;
+
+  return matched.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+}
+
+function exportarKMZ() {
+  const brigada = ui.brigada.value.trim();
+  if (!brigada) return alert("Brigada requerida para exportar");
+  const ruta = state.rutasPorBrigada.get(brigada);
+  if (!ruta?.length) return alert("Sin trazo para exportar");
+
+  const coords = ruta.map(p => `${p.lng},${p.lat},0`).join(" ");
+  const kml = `<?xml version='1.0' encoding='UTF-8'?>
+  <kml xmlns='http://www.opengis.net/kml/2.2'>
+    <Document><name>${brigada}.kml</name>
+      <Placemark>
+        <name>Ruta limpia ${brigada}</name>
+        <Style><LineStyle><color>ff0000ff</color><width>4</width></LineStyle></Style>
+        <LineString><coordinates>${coords}</coordinates></LineString>
+      </Placemark>
+    </Document>
+  </kml>`;
+
+  const zip = new JSZip();
+  zip.file("doc.kml", kml);
+  zip.generateAsync({ type: "blob" }).then(blob => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `ruta_${brigada}.kmz`;
+    link.click();
+  });
 }
 
 initMap();
-fetchInitial();
-
-supa.channel('ubicaciones_brigadas-changes')
-  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, async (payload) => {
-    const r = payload.new;
-    if (new Date(r.timestamp) > trackingStartTime) await processNewRow(r);
-  })
-  .subscribe();
