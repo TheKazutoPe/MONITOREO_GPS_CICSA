@@ -3,7 +3,6 @@
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// ====== UI refs (mismos IDs que tu HTML) ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -12,70 +11,21 @@ const ui = {
   userList: document.getElementById("userList"),
 };
 
-// ====== Estado del mapa/lista ======
 const state = {
   map: null,
   baseLayers: {},
   cluster: null,
-  users: new Map(),        // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> [rows]
-  trackingStart: new Date().toISOString() // desde este punto se graficará matching
+  users: new Map(),
+  pointsByUser: new Map(),
+  trackingStart: new Date().toISOString(),
+  trazoLayer: null,
+  trazoGeojson: null,
 };
 
-// (...)
-// AQUÍ VA TODO TU CÓDIGO IGUAL — sin modificar absolutamente nada,
-// desde líneas como:
-//  - const CLEAN_MIN_METERS = 6;
-//  - const ICONS = { green, yellow, gray }
-//  - distMeters, sleep, toYMD, chunk, densifySegment...
-//  - mapMatchBlockSafe, smartBridge, directionsBetween
-//  - initMap(), buildPopup(), etc...
+// ... tu código original intacto ...
 
-// Solo modifica esta función clave ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
-async function fetchInitial(clear){
-  setStatus("Cargando…","gray");
-  if (clear) ui.userList.innerHTML = "";
+ui.exportKmz.addEventListener("click", () => exportarKMZ());
 
-  const {data, error} = await supa
-    .from("ubicaciones_brigadas")
-    .select("*")
-    .gte("timestamp", state.trackingStart) // <=== SOLO puntos nuevos desde el arranque
-    .order("timestamp",{ascending:false});
-
-  if (error){ setStatus("Error","gray"); return; }
-
-  const brigFilter = (ui.brigada.value||"").trim().toLowerCase();
-  const grouped = new Map();
-  const perUser = 100;
-
-  for (const r of data){
-    if (brigFilter && !(r.brigada||"").toLowerCase().includes(brigFilter)) continue;
-    const uid = String(r.usuario_id || "0");
-    if (!grouped.has(uid)) grouped.set(uid, []);
-    if (grouped.get(uid).length >= perUser) continue;
-    grouped.get(uid).push(r);
-  }
-
-  state.pointsByUser.clear();
-  state.cluster.clearLayers();
-  state.users.clear();
-
-  grouped.forEach((rows, uid)=>{
-    const last = rows[0];
-    const marker = L.marker([last.latitud,last.longitud],{icon:getIconFor(last)}).bindPopup(buildPopup(last));
-    state.cluster.addLayer(marker);
-    state.users.set(uid,{marker,lastRow:last});
-    state.pointsByUser.set(uid, rows);
-    addOrUpdateUserInList(last);
-  });
-
-  setStatus("Conectado","green");
-
-  // 🔁 Después de cargar los puntos → trazado limpio solo desde este punto en adelante
-  dibujarRutaLimpiaReal();
-}
-
-// ====== Dibuja trazo limpio (real-time, solo puntos recientes) ======
 async function dibujarRutaLimpiaReal(){
   const brig = (ui.brigada.value || "").trim();
   if (!brig) return;
@@ -84,7 +34,7 @@ async function dibujarRutaLimpiaReal(){
     .from("ubicaciones_brigadas")
     .select("latitud,longitud,timestamp,acc,spd")
     .eq("brigada", brig)
-    .gte("timestamp", state.trackingStart) // ← clave: SOLO desde ahora
+    .gte("timestamp", state.trackingStart)
     .order("timestamp", { ascending: true });
 
   if (error || !data || data.length < 2) return;
@@ -102,14 +52,12 @@ async function dibujarRutaLimpiaReal(){
 
   for (const seg of segs){
     if (seg.length < 2) continue;
-
     const blocks = chunk(seg, MAX_MM_POINTS);
     let current = [];
 
     for (let i = 0; i < blocks.length; i++){
       const block = blocks[i];
       let finalBlock = densifySegment(block, DENSIFY_STEP);
-
       try {
         const mm = await mapMatchBlockSafe(block);
         if (mm && mm.length >= 2) finalBlock = mm;
@@ -118,9 +66,9 @@ async function dibujarRutaLimpiaReal(){
       if (!current.length){
         current.push(...finalBlock);
       } else {
-        const last  = current.at(-1);
+        const last = current.at(-1);
         const first = finalBlock[0];
-        const gapM  = distMeters(last, first);
+        const gapM = distMeters(last, first);
         let appended = false;
 
         if (gapM <= BRIDGE_MAX_METERS){
@@ -152,10 +100,65 @@ async function dibujarRutaLimpiaReal(){
     state.trazoLayer = null;
   }
 
+  const allCoords = fullMatched.flat().map(p => [p.lng, p.lat]);
+
+  state.trazoGeojson = {
+    type: "LineString",
+    coordinates: allCoords
+  };
+
   const lines = fullMatched.map(seg => L.polyline(
     seg.map(p => [p.lat, p.lng]),
     { color: "#0074cc", weight: 4, opacity: 0.8 }
   ));
 
   state.trazoLayer = L.layerGroup(lines).addTo(state.map);
+
+  await guardarTrazoEnSupabase(brig, state.trazoGeojson);
 }
+
+async function guardarTrazoEnSupabase(brigada, geojson){
+  if (!geojson?.coordinates?.length) return;
+  const fecha = new Date().toISOString().substring(0,10);
+  const coords = geojson.coordinates;
+  const puntos = coords.length;
+
+  const bbox = [
+    Math.min(...coords.map(p => p[0])),
+    Math.min(...coords.map(p => p[1])),
+    Math.max(...coords.map(p => p[0])),
+    Math.max(...coords.map(p => p[1])),
+  ];
+
+  let distancia = 0;
+  for (let i = 1; i < coords.length; i++)
+    distancia += distMetersLatLon(coords[i-1][1], coords[i-1][0], coords[i][1], coords[i][0]);
+
+  await supa.from("rutas_brigadas_dia").upsert({
+    fecha,
+    brigada,
+    line_geojson: geojson,
+    puntos,
+    distancia_km: (distancia/1000).toFixed(2),
+    bbox
+  }, { onConflict: ["fecha", "brigada"] });
+}
+
+function exportarKMZ(){
+  if (!state.trazoGeojson) return alert("No hay trazo disponible");
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <Placemark><LineString><coordinates>
+    ${state.trazoGeojson.coordinates.map(c => `${c[0]},${c[1]},0`).join(" ")}
+  </coordinates></LineString></Placemark>\n</Document>\n</kml>`;
+
+  const zip = new JSZip();
+  zip.file("doc.kml", kml);
+  zip.generateAsync({type:"blob"}).then(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trazo_brigada_${(ui.brigada.value||"ruta")}.kmz`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+// ====================================================================
