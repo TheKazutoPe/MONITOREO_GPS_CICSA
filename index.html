@@ -48,6 +48,18 @@
         <input id="kmzDate" type="date" />
       </div>
 
+      <!-- Opciones de trazo -->
+      <div class="trace-options">
+        <label class="trace-option">
+          <input type="checkbox" id="toggleTraceRealtime" />
+          Ver trazo en tiempo real
+        </label>
+        <label class="trace-option">
+          <input type="checkbox" id="toggleTraceMatched" checked />
+          Usar ruta corregida (Mapbox)
+        </label>
+      </div>
+
       <div id="userList" class="brigada-list"></div>
 
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
