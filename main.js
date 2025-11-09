@@ -3,7 +3,7 @@
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// ====== UI refs (mismos IDs que tu HTML) ======
+// ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -17,46 +17,49 @@ const state = {
   map: null,
   baseLayers: {},
   cluster: null,
-  users: new Map(),        // uid -> { marker, lastRow }
+  users: new Map(),        // uid -> { marker, lastRow, lastUiUpdate }
   pointsByUser: new Map(), // uid -> [rows] (snapshot inicial)
 };
 
-// ====== Estado de rutas limpias en tiempo real ======
-// brigada -> { date, polyline, coordsAll: [[lng,lat],...], lock, usuario_id, lastAccepted, _raw }
+// ====== Estado de rutas limpias (por brigada) ======
 const routeState = {
+  // brigada -> { date, polyline, coordsAll, lock, usuario_id, lastAccepted, _raw }
   byBrigada: new Map()
 };
 
-// =================== Parámetros de trazado / matching ===================
+// =================== Parámetros clave ===================
 
 // Limpieza básica
-const CLEAN_MIN_METERS      = 6;     // distancia mínima entre puntos sucesivos útiles
+const CLEAN_MIN_METERS      = 6;
 
 // Densificación / matching
-const DENSIFY_STEP          = 10;    // metros entre puntos densificados
-const MAX_MM_POINTS         = 40;    // puntos máx. por bloque para Matching
-const MAX_MATCH_INPUT       = 90;    // límite duro para URL GET
-const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
-const ENDPOINT_TOL          = 25;    // tolerancia de puntas (m)
-const CONFIDENCE_MIN        = 0.70;  // confianza mínima Mapbox
+const DENSIFY_STEP          = 10;
+const MAX_MM_POINTS         = 40;
+const MAX_MATCH_INPUT       = 90;
+const MAX_DIST_RATIO        = 0.35;
+const ENDPOINT_TOL          = 25;
+const CONFIDENCE_MIN        = 0.70;
 
-// Gaps (si quisieras usar en otros contextos)
+// Gaps (por si luego los usas en otros flujos)
 const GAP_MINUTES           = 8;
 const GAP_JUMP_METERS       = 800;
 
-// Puentes (no agresivo, reservado por si se requiere)
+// Puentes (reservado)
 const BRIDGE_MAX_METERS     = 800;
 const DIRECTIONS_HOP_METERS = 300;
 const MAX_BRIDGE_SPEED_KMH  = 70;
 const MIN_BRIDGE_SPEED_KMH  = 3;
 const DIRECTIONS_PROFILE    = "driving";
 
-// Frecuencia de tu app: 15s -> no necesitamos throttling fuerte
-const PER_BLOCK_DELAY       = 0;     // ms; puedes subir si algún día hay muchas brigadas
+// Anti-saturación de Matching (tu app manda 15s, así que esto casi ni afecta)
+const PER_BLOCK_DELAY       = 0;
 
 // Anti-garabato cuando está quieto
-const STAY_RADIUS_METERS    = 25;    // dentro de este radio lo consideramos mismo punto
-const MAX_STAY_SPEED_M_S    = 1.2;   // velocidad baja -> parado (1.2 m/s ≈ 4.3 km/h)
+const STAY_RADIUS_METERS    = 25;   // zona de “sigo en el mismo punto”
+const MAX_STAY_SPEED_M_S    = 1.2;  // si se mueve lento dentro del radio => parado
+
+// Suavizar UI: no refrescar marker/lista si llegan puntos demasiado seguidos
+const MIN_UI_UPDATE_MS      = 8000; // mínimo ~8s entre updates visibles por usuario
 
 // ====== Iconos ======
 const ICONS = {
@@ -201,7 +204,6 @@ async function mapMatchBlockSafe(seg){
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
 
-  // Propagar timestamps/acc aproximados
   for (let i=0;i<matched.length;i++){
     matched[i].timestamp = dense[Math.min(i, dense.length-1)].timestamp;
     matched[i].acc = dense[Math.min(i, dense.length-1)].acc;
@@ -209,7 +211,7 @@ async function mapMatchBlockSafe(seg){
   return matched;
 }
 
-// ========= Directions (no crítico, reservado si quieres puentes luego) =========
+// ========= Directions (opcional) =========
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
@@ -309,39 +311,34 @@ async function pushPointForLiveRoute(brigada, p) {
     usuario_id: p.usuario_id || null
   };
 
-  // 1) Detectar si sigue quieto en el mismo punto (ruido GPS): NO trazo
+  // 1) Si sigue en el mismo sitio (ruido) -> no agregamos al trazo
   if (rs.lastAccepted) {
     const d = distMeters(
       { lat: rs.lastAccepted.lat, lng: rs.lastAccepted.lng },
       { lat: candidate.lat,       lng: candidate.lng }
     );
     const dt = (new Date(candidate.timestamp) - new Date(rs.lastAccepted.timestamp)) / 1000;
-    const v_geom = dt > 0 ? d / dt : 0;                // m/s por geometría
-    const v = (candidate.spd != null && candidate.spd >= 0)
-      ? candidate.spd
-      : v_geom;
+    const v_geom = dt > 0 ? d / dt : 0;
+    const v = (candidate.spd != null && candidate.spd >= 0) ? candidate.spd : v_geom;
 
     if (d < STAY_RADIUS_METERS && v <= MAX_STAY_SPEED_M_S) {
-      // Solo actualizamos el tiempo de referencia, sin agregar al LineString
       rs.lastAccepted.timestamp = candidate.timestamp;
       return;
     }
   }
 
-  // 2) Movimiento real -> este punto sí cuenta
+  // 2) Movimiento real -> este punto sí cuenta para la ruta
   rs.lastAccepted = { ...candidate };
 
   if (rs.lock) return;
   rs.lock = true;
 
   try {
-    // Ventana de puntos recientes (da contexto al Matching)
     rs._raw.push(candidate);
     const MAX_LOCAL_POINTS = 120;
     if (rs._raw.length > MAX_LOCAL_POINTS) {
       rs._raw.splice(0, rs._raw.length - MAX_LOCAL_POINTS);
     }
-
     if (rs._raw.length < 2) {
       rs.lock = false;
       return;
@@ -356,25 +353,22 @@ async function pushPointForLiveRoute(brigada, p) {
       return;
     }
 
-    // 3) Mapbox Matching para corregir tramo
+    // Mapbox Matching para pegar a pista
     let seg = null;
     try {
       const mm = await mapMatchBlockSafe(cleaned);
-      if (mm && mm.length >= 2) {
-        seg = mm; // usamos ruta pegada a pista
-      }
-    } catch (e) {
+      if (mm && mm.length >= 2) seg = mm;
+    } catch(e){
       console.warn("Matching parcial falló, uso densify:", e);
     }
 
-    // Fallback si Mapbox no responde bien
     if (!seg) seg = densifySegment(cleaned, DENSIFY_STEP);
     if (!seg || seg.length < 2) {
       rs.lock = false;
       return;
     }
 
-    // 4) Agregar coords nuevas evitando duplicar último punto
+    // Agregar coords corregidas evitando duplicados
     const newCoords = seg.map(p => [p.lng, p.lat]);
     const existing = rs.coordsAll;
     if (existing.length) {
@@ -391,11 +385,11 @@ async function pushPointForLiveRoute(brigada, p) {
 
     rs.coordsAll = existing.concat(newCoords);
 
-    // 5) Dibujar polyline corregida en mapa
+    // Actualizar polyline en mapa
     const latlngs = rs.coordsAll.map(([lng,lat]) => L.latLng(lat, lng));
     rs.polyline.setLatLngs(latlngs);
 
-    // 6) Guardar LineString limpio en rutas_brigadas_dia (UPSERT por fecha+brigada)
+    // Guardar en rutas_brigadas_dia
     if (rs.coordsAll.length >= 2) {
       const distancia_km = computeDistanceKmFromCoords(rs.coordsAll);
       const bbox = computeBboxFromCoords(rs.coordsAll);
@@ -421,7 +415,7 @@ async function pushPointForLiveRoute(brigada, p) {
     }
 
     if (PER_BLOCK_DELAY > 0) await sleep(PER_BLOCK_DELAY);
-  } catch (e) {
+  } catch(e){
     console.warn("Error actualizando ruta en tiempo real para", brigada, e);
   } finally {
     rs.lock = false;
@@ -475,6 +469,7 @@ function addOrUpdateUserInList(row){
   const hora = new Date(row.timestamp).toLocaleTimeString();
   const ledColor = mins <= 2 ? "#4ade80" : mins <= 5 ? "#eab308" : "#777";
   const cls = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
+
   const html = `
     <div class="brigada-header">
       <div style="display:flex;gap:6px;align-items:flex-start;">
@@ -487,6 +482,7 @@ function addOrUpdateUserInList(row){
       <div class="brigada-hora">${hora}</div>
     </div>
   `;
+
   if (!el){
     el = document.createElement("div");
     el.id = `u-${uid}`;
@@ -495,10 +491,9 @@ function addOrUpdateUserInList(row){
     el.onclick = () => { focusOnUser(uid); ui.brigada.value = brig; };
     ui.userList.appendChild(el);
   } else {
-    el.className = `brigada-item ${cls} marker-pulse`;
+    el.className = `brigada-item ${cls}`;
     el.innerHTML = html;
     el.onclick = () => { focusOnUser(uid); ui.brigada.value = brig; };
-    setTimeout(()=>el.classList.remove("marker-pulse"),600);
   }
 }
 
@@ -535,6 +530,7 @@ async function fetchInitial(clear){
   state.cluster.clearLayers();
   state.users.clear();
 
+  const now = Date.now();
   grouped.forEach((rows, uid)=>{
     const last = rows[0];
     const marker = L.marker(
@@ -542,14 +538,16 @@ async function fetchInitial(clear){
       {icon:getIconFor(last)}
     ).bindPopup(buildPopup(last));
     state.cluster.addLayer(marker);
-    state.users.set(uid,{marker,lastRow:last});
+    state.users.set(uid,{
+      marker,
+      lastRow:last,
+      lastUiUpdate: now
+    });
     state.pointsByUser.set(uid, rows);
     addOrUpdateUserInList(last);
   });
 
   setStatus("Conectado","green");
-
-  // Activa realtime incremental a partir de ahora
   subscribeRealtimeUbicaciones();
 }
 
@@ -575,7 +573,7 @@ function subscribeRealtimeUbicaciones() {
           spd: r.spd ?? null
         };
 
-        handleRealtimePoint(point);  // se ejecuta cuando llega cada punto (ej. cada 15s)
+        handleRealtimePoint(point);
       }
     )
     .subscribe(status => {
@@ -591,28 +589,51 @@ function handleRealtimePoint(p) {
   const uid = String(p.usuario_id || "0");
   const row = { ...p, timestamp: p.timestamp };
 
-  // Marker
+  const now = Date.now();
   let u = state.users.get(uid);
-  if (!u) {
+
+  // ===== Suavizado de UI =====
+  if (u && u.lastRow) {
+    const prevTs = new Date(u.lastRow.timestamp).getTime();
+    const newTs  = new Date(row.timestamp).getTime();
+    const dtMs   = newTs - prevTs;
+
+    // Si llegan puntos muy seguidos (< MIN_UI_UPDATE_MS) y casi en el mismo lugar,
+    // no refrescamos la UI (pero igual actualizamos el trazo limpio abajo).
+    const d = distMeters(
+      { lat: u.lastRow.latitud, lng: u.lastRow.longitud },
+      { lat: row.latitud,       lng: row.longitud }
+    );
+
+    if (dtMs > 0 && dtMs < MIN_UI_UPDATE_MS && d < 5) {
+      // No tocamos marker ni lista; seguimos con el trazo limpio.
+    } else {
+      // Actualizamos marker + popup + lista cuando el cambio es real
+      u.lastRow = row;
+      u.lastUiUpdate = now;
+      u.marker.setLatLng([p.latitud,p.longitud]);
+      u.marker.setIcon(getIconFor(row));
+      u.marker.setPopupContent(
+        buildPopup({ ...row, latitud: p.latitud, longitud: p.longitud })
+      );
+      addOrUpdateUserInList(row);
+    }
+  } else {
+    // Primera vez para este uid
     const marker = L.marker(
       [p.latitud,p.longitud],
       { icon: getIconFor(row) }
     ).bindPopup(buildPopup({ ...row, latitud: p.latitud, longitud: p.longitud }));
     state.cluster.addLayer(marker);
-    state.users.set(uid, { marker, lastRow: row });
-  } else {
-    u.lastRow = row;
-    u.marker.setLatLng([p.latitud,p.longitud]);
-    u.marker.setIcon(getIconFor(row));
-    u.marker.setPopupContent(
-      buildPopup({ ...row, latitud: p.latitud, longitud: p.longitud })
-    );
+    state.users.set(uid, {
+      marker,
+      lastRow: row,
+      lastUiUpdate: now
+    });
+    addOrUpdateUserInList(row);
   }
 
-  // Lista lateral
-  addOrUpdateUserInList(row);
-
-  // Trazo limpio incremental (usa Mapbox + filtro de quieto)
+  // ===== Trazo limpio incremental (siempre procesa cada INSERT) =====
   pushPointForLiveRoute(p.brigada, {
     lat: p.latitud,
     lng: p.longitud,
@@ -624,7 +645,6 @@ function handleRealtimePoint(p) {
 }
 
 // ======================= Exportar KMZ =======================
-// Usa directamente la traza limpia guardada en rutas_brigadas_dia
 async function exportKMZFromCleanTable(){
   try {
     setStatus("Generando KMZ…","gray");
@@ -659,7 +679,7 @@ async function exportKMZFromCleanTable(){
       return;
     }
 
-    const coords = data.line_geojson.coordinates; // [ [lng,lat], ... ]
+    const coords = data.line_geojson.coordinates;
 
     let kml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
@@ -672,10 +692,7 @@ async function exportKMZFromCleanTable(){
       <Placemark>
         <name>${brig} (${ymd})</name>
         <styleUrl>#routeStyle</styleUrl>
-        <LineString>
-          <tessellate>1</tessellate>
-          <coordinates>${coordsStr}</coordinates>
-        </LineString>
+        <LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>
       </Placemark>
     `;
 
