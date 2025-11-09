@@ -17,9 +17,14 @@ const state = {
   cluster: null,
   users: new Map(),
   pointsByUser: new Map(),
-  trackingStart: new Date(),
+  trackingStart: null,
   trazoLayer: null,
 };
+
+// Inicializar trackingStart apenas carga el mapa
+window.addEventListener("DOMContentLoaded", () => {
+  state.trackingStart = new Date();
+});
 
 // Tu lógica original para inicializar el mapa, cargar capas base, íconos, eventos...
 
@@ -31,21 +36,23 @@ async function fetchInitial(triggerDraw = false){
 ui.apply.addEventListener("click", () => fetchInitial(true));
 
 // ================== TRAZADO LIMPIO EN TIEMPO REAL (desde trackingStart) ==================
-
 async function dibujarRutaLimpiaReal(){
   if (!state.trackingStart) return;
 
   const brigadaActiva = (ui.brigada.value || "").trim();
   if (!brigadaActiva) return;
 
-  const {data, error} = await supa
+  const { data, error } = await supa
     .from("ubicaciones_brigadas")
     .select("latitud,longitud,timestamp,acc,brigada")
     .eq("brigada", brigadaActiva)
     .gte("timestamp", state.trackingStart.toISOString())
     .order("timestamp", { ascending: true });
 
-  if (error || !data?.length) return;
+  if (error || !data?.length) {
+    console.warn("Sin datos suficientes para trazar");
+    return;
+  }
 
   const puntos = data.map(r => ({
     lat: +r.latitud,
@@ -65,21 +72,24 @@ async function dibujarRutaLimpiaReal(){
     const bloques = chunk(seg, MAX_MM_POINTS);
     let coordsTotales = [];
 
-    for (let i=0;i<bloques.length;i++){
+    for (let i = 0; i < bloques.length; i++) {
       const block = bloques[i];
+
       let finalBlock = densifySegment(block, DENSIFY_STEP);
 
       try {
         const mm = await mapMatchBlockSafe(block);
         if (mm?.length >= 2) finalBlock = mm;
-      } catch {}
+      } catch (e) {
+        console.warn("Matching falló en bloque", i, e);
+      }
 
-      if (!coordsTotales.length){
+      if (!coordsTotales.length) {
         coordsTotales.push(...finalBlock);
       } else {
-        const last  = coordsTotales.at(-1);
+        const last = coordsTotales.at(-1);
         const first = finalBlock[0];
-        if (distMeters(last, first) > 5){
+        if (distMeters(last, first) > 5) {
           const bridge = await smartBridge(last, first);
           if (bridge?.length) {
             coordsTotales.push(...bridge.slice(1));
@@ -94,38 +104,45 @@ async function dibujarRutaLimpiaReal(){
       await sleep(PER_BLOCK_DELAY);
     }
 
-    const latlngs = coordsTotales.map(p => [p.lat, p.lng]);
-    if (state.trazoLayer) state.map.removeLayer(state.trazoLayer);
-    state.trazoLayer = L.polyline(latlngs, {
-      color: "red",
-      weight: 4,
-      opacity: 0.8
-    }).addTo(state.map);
+    if (coordsTotales.length >= 2){
+      const latlngs = coordsTotales.map(p => [p.lat, p.lng]);
 
-    // Guardar trazado limpio en Supabase
-    const geojsonLine = {
-      type: "LineString",
-      coordinates: coordsTotales.map(p => [p.lng, p.lat])
-    };
+      if (state.trazoLayer) state.map.removeLayer(state.trazoLayer);
+      state.trazoLayer = L.polyline(latlngs, {
+        color: "red",
+        weight: 4,
+        opacity: 0.85
+      }).addTo(state.map);
 
-    const bbox = [
-      Math.min(...coordsTotales.map(p => p.lng)),
-      Math.min(...coordsTotales.map(p => p.lat)),
-      Math.max(...coordsTotales.map(p => p.lng)),
-      Math.max(...coordsTotales.map(p => p.lat))
-    ];
+      // Guardar trazado limpio en Supabase
+      const geojsonLine = {
+        type: "LineString",
+        coordinates: coordsTotales.map(p => [p.lng, p.lat])
+      };
 
-    const payload = {
-      fecha: new Date().toISOString().slice(0,10),
-      brigada: brigadaActiva,
-      line_geojson: geojsonLine,
-      puntos: coordsTotales.length,
-      distancia_km: calcDistancia(coordsTotales),
-      bbox: bbox
-    };
+      const bbox = [
+        Math.min(...coordsTotales.map(p => p.lng)),
+        Math.min(...coordsTotales.map(p => p.lat)),
+        Math.max(...coordsTotales.map(p => p.lng)),
+        Math.max(...coordsTotales.map(p => p.lat))
+      ];
 
-    await supa.from("rutas_brigadas_dia").upsert(payload, { onConflict: "fecha,brigada" });
+      const payload = {
+        fecha: toYMD(new Date()),
+        brigada: brigadaActiva,
+        line_geojson: geojsonLine,
+        puntos: coordsTotales.length,
+        distancia_km: calcDistancia(coordsTotales),
+        bbox: bbox
+      };
+
+      try {
+        await supa.from("rutas_brigadas_dia").upsert(payload, {
+          onConflict: "fecha,brigada"
+        });
+      } catch (err) {
+        console.error("Error al guardar ruta:", err);
+      }
+    }
   }
 }
-
-// ===========================================================================================
