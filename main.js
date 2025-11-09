@@ -10,28 +10,27 @@ const ui = {
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
-  // nuevos toggles en index.html
   traceRealtime: document.getElementById("toggleTraceRealtime"),
   traceMatched: document.getElementById("toggleTraceMatched"),
 };
 
-// ====== Estado del mapa/lista ======
+// ====== Estado ======
 const state = {
   map: null,
   baseLayers: {},
   cluster: null,
   users: new Map(),        // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> [rows] (para trazo en vivo)
+  pointsByUser: new Map(), // uid -> [rows] (historial filtrado)
   routes: new Map(),       // uid -> { poly, segments }
 
   traceRealtimeEnabled: ui.traceRealtime ? ui.traceRealtime.checked : false,
   traceMatchedEnabled: ui.traceMatched ? ui.traceMatched.checked : true,
 
   traceStart: new Date(),  // solo trazamos puntos >= a este momento
-  routeTimerId: null,      // intervalo fijo cada 15s
+  routeTimerId: null,      // intervalo de rutas
 };
 
-// ====== Ajustes de trazado / matching ======
+// ====== Parámetros de trazo / estabilidad ======
 const CLEAN_MIN_METERS      = 6;
 const DENSIFY_STEP          = 10;
 const MAX_MM_POINTS         = 40;
@@ -52,12 +51,18 @@ const DIRECTIONS_PROFILE    = "driving";
 const PER_BLOCK_DELAY       = 150;
 
 // Ritmo estable del trazo en vivo
-const ROUTE_REFRESH_INTERVAL_MS = 15000; // 15s fijo, no “como loco”
-const MAX_HISTORY_POINTS        = 400;   // por brigada para trazo en vivo
+const ROUTE_REFRESH_INTERVAL_MS = 15000; // 15s
+const MAX_HISTORY_POINTS        = 400;   // por brigada
 
-// Quieto (evitar mancha azul)
+// Quieto / anti-araña
 const IDLE_RADIUS_METERS    = 25;
 const IDLE_MIN_DURATION_MIN = 2;
+
+// Filtro outliers en realtime
+const NEAR_DUP_DIST_METERS  = 15;   // si está muy cerca => no agregar
+const NEAR_DUP_TIME_SEC     = 60;
+const MAX_JUMP_DIST_METERS  = 500;  // salto máximo aceptable en <60s
+const MAX_JUMP_SPEED_KMH    = 130;  // si supera esto => descartamos punto
 
 // ====== Iconos ======
 const ICONS = {
@@ -121,7 +126,7 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ====== limitar puntos (para Mapbox) ======
+// ====== limitar puntos ======
 function downsamplePoints(arr, maxN){
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
@@ -311,10 +316,17 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ======================= MAPA / LISTA (igual que tu lógica vieja) =======================
+// ======================= MAPA / LISTA =======================
 function initMap(){
-  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
-  state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
+  state.baseLayers.osm = L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { maxZoom: 19 } // 19 para evitar algunos 400
+  );
+  state.map = L.map("map",{
+    center:[-12.0464,-77.0428],
+    zoom:12,
+    layers:[state.baseLayers.osm]
+  });
   state.cluster = L.markerClusterGroup({disableClusteringAtZoom:16});
   state.map.addLayer(state.cluster);
 
@@ -325,7 +337,7 @@ function initMap(){
     ui.traceRealtime.onchange = () => {
       state.traceRealtimeEnabled = ui.traceRealtime.checked;
       if (state.traceRealtimeEnabled){
-        state.traceStart = new Date();      // empezamos trazo desde ahora
+        state.traceStart = new Date();
         clearAllRoutes();
       } else {
         clearAllRoutes();
@@ -335,7 +347,6 @@ function initMap(){
   if (ui.traceMatched){
     ui.traceMatched.onchange = () => {
       state.traceMatchedEnabled = ui.traceMatched.checked;
-      // se aplicará en el siguiente ciclo de 15s
     };
   }
 }
@@ -393,7 +404,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ======================= CARGA INICIAL (igual que antes) =======================
+// ======================= CARGA INICIAL =======================
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) {
@@ -402,7 +413,7 @@ async function fetchInitial(clear){
     state.users.clear();
     state.cluster.clearLayers();
     clearAllRoutes();
-    state.traceStart = new Date(); // para trazo en vivo solo desde que abriste
+    state.traceStart = new Date();
   }
 
   const {data, error} = await supa
@@ -432,14 +443,14 @@ async function fetchInitial(clear){
     state.users.set(uid,{marker,lastRow:last});
     addOrUpdateUserInList(last);
 
-    // historial inicial: sólo para KMZ, trazo en vivo arrancará desde traceStart
-    state.pointsByUser.set(uid, rows.slice().reverse()); // cronológico
+    // guardamos historial bruto (se filtrará al dibujar / realtime)
+    state.pointsByUser.set(uid, rows.slice().reverse());
   });
 
   setStatus("Conectado","green");
 }
 
-// ======================= RUTAS EN MAPA (cada 15s, estable) =======================
+// ======================= RUTAS EN MAPA (cada 15s) =======================
 function clearAllRoutes(){
   state.routes.forEach(({ poly }) => {
     if (poly) {
@@ -453,7 +464,6 @@ async function buildRouteForUser(uid){
   const allRows = state.pointsByUser.get(uid);
   if (!allRows || allRows.length < 2) return;
 
-  // solo puntos desde que se activó el trazo
   const pts = allRows
     .map(r => ({
       lat: +(r.latitud ?? r.lat),
@@ -472,7 +482,7 @@ async function buildRouteForUser(uid){
 
   for (const seg of segments){
     if (seg.length < 2) continue;
-    if (isIdleSegment(seg)) continue; // si estuvo quieto -> no trazo
+    if (isIdleSegment(seg)) continue; // si estuvo quieto => no dibujar
 
     if (state.traceMatchedEnabled && MAPBOX_TOKEN){
       const blocks = chunk(seg, MAX_MM_POINTS);
@@ -534,7 +544,6 @@ async function recomputeAllRoutes(){
   }
 }
 
-// loop estable cada 15s
 function startRouteLoop(){
   if (state.routeTimerId) return;
   state.routeTimerId = setInterval(() => {
@@ -542,11 +551,12 @@ function startRouteLoop(){
   }, ROUTE_REFRESH_INTERVAL_MS);
 }
 
-// ======================= REALTIME: SOLO MARCADORES + BUFFER =======================
+// ======================= REALTIME =======================
 function startRealtime(){
   supa
     .channel("ubicaciones_brigadas_rt")
-    .on("postgres_changes",
+    .on(
+      "postgres_changes",
       { event: "INSERT", schema: "public", table: "ubicaciones_brigadas" },
       (payload) => {
         const row = payload.new;
@@ -557,7 +567,7 @@ function startRealtime(){
         const lng = +row.longitud;
         if (!isFinite(lat) || !isFinite(lng)) return;
 
-        // marker
+        // ===== Marker (como siempre) =====
         let u = state.users.get(uid);
         if (!u){
           const marker = L.marker([lat,lng],{icon:getIconFor(row)}).bindPopup(buildPopup(row));
@@ -570,14 +580,43 @@ function startRealtime(){
           u.marker.setIcon(getIconFor(row));
           u.marker.setPopupContent(buildPopup(row));
         }
-
         addOrUpdateUserInList(row);
 
-        // buffer para trazo en vivo (limitado y sin recalcular aquí)
+        // ===== Historial para trazo (con filtros anti-locos) =====
         if (!state.pointsByUser.has(uid)) state.pointsByUser.set(uid, []);
         const list = state.pointsByUser.get(uid);
-        const point = { ...row };
-        list.push(point);
+
+        const newTs = new Date(row.timestamp_pe || row.timestamp || row.created_at || Date.now());
+        const newPoint = {
+          ...row,
+          timestamp: newTs.toISOString()
+        };
+
+        const last = list[list.length - 1];
+        if (last) {
+          const lastTs = new Date(last.timestamp_pe || last.timestamp || last.created_at || newTs);
+          const lastLat = +(last.latitud ?? last.lat);
+          const lastLng = +(last.longitud ?? last.lng);
+          if (isFinite(lastLat) && isFinite(lastLng)) {
+            const prev = { lat:lastLat, lng:lastLng };
+            const curr = { lat, lng };
+            const dtSec = (newTs - lastTs) / 1000;
+            const dMet  = distMeters(prev, curr);
+            const vKmh  = dtSec > 0 ? (dMet / dtSec) * 3.6 : 0;
+
+            // 1) Outlier: salto absurdo o velocidad irreal -> ignorar punto
+            if ((dtSec <= 60 && (dMet > MAX_JUMP_DIST_METERS || vKmh > MAX_JUMP_SPEED_KMH))) {
+              return;
+            }
+
+            // 2) Muy cerca y pronto (brigada quieta) -> no agregar para evitar araña
+            if (dtSec <= NEAR_DUP_TIME_SEC && dMet < NEAR_DUP_DIST_METERS) {
+              return;
+            }
+          }
+        }
+
+        list.push(newPoint);
         if (list.length > MAX_HISTORY_POINTS){
           list.splice(0, list.length - MAX_HISTORY_POINTS);
         }
@@ -586,8 +625,7 @@ function startRealtime(){
     .subscribe();
 }
 
-// ============================= EXPORTAR KMZ =============================
-// (basado en tu antigua lógica + Mapbox + filtro quieto)
+// ======================= KMZ (sin cambios de lógica base, con filtros) =======================
 async function exportKMZFromState(){
   let prevDisabled = false;
   try {
@@ -641,14 +679,14 @@ async function exportKMZFromState(){
     const renderedSegments = [];
     for (const seg of segments){
       if (seg.length < 2) continue;
-      if (isIdleSegment(seg)) continue; // no guardes la maraña quieto
+      if (isIdleSegment(seg)) continue; // no guardes marañas de quieto
 
       const blocks = chunk(seg, MAX_MM_POINTS);
       let current = [];
       for (const block of blocks){
         let finalBlock = densifySegment(block, DENSIFY_STEP);
 
-        if (MAPBOX_TOKEN){   // aquí SÍ usamos Mapbox para corregir KMZ
+        if (MAPBOX_TOKEN){
           try {
             const mm = await mapMatchBlockSafe(block);
             if (mm && mm.length >= 2) finalBlock = mm;
@@ -721,7 +759,7 @@ async function exportKMZFromState(){
     a.click();
     URL.revokeObjectURL(a.href);
 
-    alert(`✅ KMZ listo: ${brig} (${ymd}) — ${renderedSegments.length} tramo(s)`);
+    alert(`✅ KMZ listo: ${brig} (${ymd})`);
   } catch(e){
     console.error(e);
     alert("❌ No se pudo generar el KMZ: " + e.message);
@@ -734,5 +772,5 @@ async function exportKMZFromState(){
 // ======================= ARRANQUE =======================
 setStatus("Cargando...","gray");
 fetchInitial(true);
-startRealtime();      // marcadores + buffer
-startRouteLoop();     // trazo en vivo cada 15s si está activado
+startRealtime();
+startRouteLoop();
