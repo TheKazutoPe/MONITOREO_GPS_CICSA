@@ -19,6 +19,9 @@
 
   <!-- Supabase -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+  <!-- JSZip para generar KMZ -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
 </head>
 
 <body>
@@ -40,7 +43,14 @@
         </div>
       </div>
 
+      <!-- Fecha para el KMZ -->
+      <div class="filter-box" style="margin-top:6px;">
+        <input id="kmzDate" type="date" />
+      </div>
+
       <div id="userList" class="brigada-list"></div>
+
+      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
     <main id="map" class="map-container"></main>
