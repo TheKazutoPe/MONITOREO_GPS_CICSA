@@ -98,6 +98,10 @@ function chunk(arr,size){
   for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
   return out;
 }
+// El mejor timestamp disponible para una fila
+function pickTs(row) {
+  return row.timestamp || row.timestamp_pe || row.created_at || row.updated_at || new Date().toISOString();
+}
 
 // ====== densificar ======
 function densifySegment(points, step = DENSIFY_STEP) {
@@ -498,19 +502,49 @@ function addOrUpdateUserInList(row){
 }
 
 // ======================= Snapshot inicial =======================
+// TOLERANTE a columnas: intenta timestamp, luego timestamp_pe, y si falla, filtra en cliente
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
 
-  const {data, error} = await supa
+  const sinceISO = new Date(Date.now() - 24*60*60*1000).toISOString();
+
+  // Intento A: columna "timestamp"
+  let data = null, error = null;
+  ({ data, error } = await supa
     .from("ubicaciones_brigadas")
     .select("*")
-    .gte("timestamp", new Date(Date.now()-24*60*60*1000).toISOString())
-    .order("timestamp",{ascending:false});
+    .gte("timestamp", sinceISO)
+    .order("timestamp", { ascending:false })
+  );
 
-  if (error){
+  // Intento B: columna "timestamp_pe"
+  if (error || !Array.isArray(data)) {
+    ({ data, error } = await supa
+      .from("ubicaciones_brigadas")
+      .select("*")
+      .gte("timestamp_pe", sinceISO)
+      .order("timestamp_pe", { ascending:false })
+    );
+  }
+
+  // Intento C: sin filtro/orden en SQL -> filtrar/ordenar en cliente
+  if (error || !Array.isArray(data)) {
+    ({ data, error } = await supa
+      .from("ubicaciones_brigadas")
+      .select("*")
+    );
+    if (!error && Array.isArray(data)) {
+      const since = new Date(sinceISO).getTime();
+      data = data
+        .filter(r => new Date(pickTs(r)).getTime() >= since)
+        .sort((a,b) => new Date(pickTs(b)) - new Date(pickTs(a)));
+    }
+  }
+
+  if (error) {
     console.error(error);
-    setStatus("Error","gray");
+    setStatus("ERROR","gray");
     return;
   }
 
@@ -533,6 +567,7 @@ async function fetchInitial(clear){
   const now = Date.now();
   grouped.forEach((rows, uid)=>{
     const last = rows[0];
+    last.timestamp = pickTs(last); // usar mejor TS
     const marker = L.marker(
       [last.latitud,last.longitud],
       {icon:getIconFor(last)}
@@ -598,8 +633,7 @@ function handleRealtimePoint(p) {
     const newTs  = new Date(row.timestamp).getTime();
     const dtMs   = newTs - prevTs;
 
-    // Si llegan puntos muy seguidos (< MIN_UI_UPDATE_MS) y casi en el mismo lugar,
-    // no refrescamos la UI (pero igual actualizamos el trazo limpio abajo).
+    // Si llegan puntos muy seguidos y casi en el mismo lugar, no refrescamos la UI
     const d = distMeters(
       { lat: u.lastRow.latitud, lng: u.lastRow.longitud },
       { lat: row.latitud,       lng: row.longitud }
