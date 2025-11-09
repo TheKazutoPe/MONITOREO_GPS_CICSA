@@ -3,7 +3,7 @@
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// ====== UI refs (mismos IDs que tu HTML) ======
+// ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -20,25 +20,26 @@ const state = {
   baseLayers: {},
   cluster: null,
   users: new Map(),        // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> [rows]
+  pointsByUser: new Map(), // uid -> [rows] (solo desde traceStart)
   routes: new Map(),       // uid -> { poly, segments }
   traceRealtime: ui.traceRealtime ? ui.traceRealtime.checked : false,
   traceMatched: ui.traceMatched ? ui.traceMatched.checked : true,
   routeRefreshTimer: null,
+  traceStart: new Date(),  // solo trazamos puntos >= a este momento
 };
 
 // ====== Ajustes de trazado / matching ======
-const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
-const DENSIFY_STEP          = 10;    // curvatura urbana más real
-const MAX_MM_POINTS         = 40;    // tamaño de bloque crudo
-const MAX_MATCH_INPUT       = 90;    // límite duro URL Matching
-const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
-const ENDPOINT_TOL          = 25;    // tolerancia de puntas (m)
-const CONFIDENCE_MIN        = 0.70;  // confianza mínima Mapbox (0..1)
+const CLEAN_MIN_METERS      = 6;      // limpia dientes pequeños
+const DENSIFY_STEP          = 10;
+const MAX_MM_POINTS         = 40;
+const MAX_MATCH_INPUT       = 90;
+const MAX_DIST_RATIO        = 0.35;
+const ENDPOINT_TOL          = 25;
+const CONFIDENCE_MIN        = 0.70;
 
-// Gaps / “teleport”
-const GAP_MINUTES           = 8;     // gap de tiempo → nuevo segmento
-const GAP_JUMP_METERS       = 800;   // salto brusco → nuevo segmento
+// Gaps / saltos
+const GAP_MINUTES           = 8;
+const GAP_JUMP_METERS       = 800;
 
 // Puentes (Directions)
 const BRIDGE_MAX_METERS     = 800;
@@ -47,8 +48,16 @@ const MAX_BRIDGE_SPEED_KMH  = 70;
 const MIN_BRIDGE_SPEED_KMH  = 3;
 const DIRECTIONS_PROFILE    = "driving";
 
-// Ritmo de llamadas
+// Ritmo de refresco y carga
+const ROUTE_REFRESH_INTERVAL_MS = 15000; // *** clave: 15 s ***
 const PER_BLOCK_DELAY       = 150;
+
+// Historial máximo por brigada para trazo en vivo
+const MAX_HISTORY_POINTS    = 400;
+
+// Quieto / “pasto azul”
+const IDLE_RADIUS_METERS    = 25;   // radio máximo para considerarlo quieto
+const IDLE_MIN_DURATION_MIN = 2;    // si estuvo ≥2 min dentro de ese radio → no dibujar línea
 
 // ====== Iconos ======
 const ICONS = {
@@ -112,7 +121,7 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ====== limitar puntos ======
+// ====== limitar puntos (evita URLs enormes) ======
 function downsamplePoints(arr, maxN){
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
@@ -126,7 +135,7 @@ function downsamplePoints(arr, maxN){
   return out;
 }
 
-// ====== limpieza / cortes ======
+// ====== limpieza, cortes ======
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
   if (!points.length) return points;
   const out = [points[0]];
@@ -157,6 +166,20 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   }
   if (cur.length>1) groups.push(cur);
   return groups;
+}
+
+// ====== segmentos quietos (no dibujar “pasto azul”) ======
+function isIdleSegment(seg){
+  if (!seg || seg.length < 2) return false;
+  const first = seg[0];
+  let maxD = 0;
+  for (const p of seg){
+    const d = distMeters(first, p);
+    if (d > maxD) maxD = d;
+    if (maxD > IDLE_RADIUS_METERS) return false; // ya no es quieto
+  }
+  const durMin = (new Date(seg.at(-1).timestamp) - new Date(first.timestamp)) / 60000;
+  return durMin >= IDLE_MIN_DURATION_MIN;
 }
 
 // ====== Radio adaptativo ======
@@ -311,7 +334,7 @@ async function buildRouteForUser(uid){
       acc: r.acc ?? null,
       spd: r.spd ?? null
     }))
-    .filter(p => isFinite(p.lat) && isFinite(p.lng) && p.timestamp)
+    .filter(p => isFinite(p.lat) && isFinite(p.lng) && p.timestamp && new Date(p.timestamp) >= state.traceStart)
     .sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
 
   if (pts.length < 2) return;
@@ -322,6 +345,7 @@ async function buildRouteForUser(uid){
 
   for (const seg of segments){
     if (seg.length < 2) continue;
+    if (isIdleSegment(seg)) continue; // *** no dibujar cuando está quieto ***
 
     if (state.traceMatched && MAPBOX_TOKEN){
       const blocks = chunk(seg, MAX_MM_POINTS);
@@ -364,7 +388,9 @@ async function buildRouteForUser(uid){
       if (current.length > 1) renderedSegments.push(current);
     } else {
       const rawSeg = densifySegment(seg, DENSIFY_STEP);
-      if (rawSeg.length > 1) renderedSegments.push(rawSeg);
+      if (rawSeg.length > 1 && !isIdleSegment(rawSeg)) {
+        renderedSegments.push(rawSeg);
+      }
     }
   }
 
@@ -379,6 +405,7 @@ async function buildRouteForUser(uid){
   state.routes.set(uid, { poly, segments: renderedSegments });
 }
 
+// ====== Refresh de rutas (limitado a cada 15s) ======
 function scheduleRouteRefresh(){
   if (!state.traceRealtime) return;
   if (state.routeRefreshTimer) return;
@@ -391,7 +418,7 @@ function scheduleRouteRefresh(){
     for (const uid of uids){
       await buildRouteForUser(uid);
     }
-  }, 1500);
+  }, ROUTE_REFRESH_INTERVAL_MS);
 }
 
 // ====== Mapa / Lista ======
@@ -412,6 +439,7 @@ function initMap(){
       if (!state.traceRealtime){
         clearAllRoutes();
       } else {
+        state.traceStart = new Date();      // nuevo tramo desde ahora
         scheduleRouteRefresh();
       }
     };
@@ -479,7 +507,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ====== Carga inicial (últimas 24h) ======
+// ====== Carga inicial ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear){
@@ -488,12 +516,14 @@ async function fetchInitial(clear){
     state.pointsByUser.clear();
     state.users.clear();
     state.cluster.clearLayers();
+    state.traceStart = new Date(); // trazos en vivo solo desde este momento
   }
 
+  // Solo buscamos última posición reciente por brigada / usuario (no toda la ruta)
   const {data, error} = await supa
     .from("ubicaciones_brigadas")
     .select("*")
-    .gte("timestamp", new Date(Date.now()-24*60*60*1000).toISOString())
+    .gte("timestamp", new Date(Date.now()-2*60*60*1000).toISOString()) // últimas 2h
     .order("timestamp",{ascending:false});
 
   if (error){
@@ -503,29 +533,18 @@ async function fetchInitial(clear){
   }
 
   const brigFilter = (ui.brigada.value||"").trim().toLowerCase();
-  const grouped = new Map();
-  const perUser = 100;
+  const seen = new Set();
 
   for (const r of data){
-    if (brigFilter && !(r.brigada||"").toLowerCase().includes(brigFilter)) continue;
     const uid = String(r.usuario_id || "0");
-    if (!grouped.has(uid)) grouped.set(uid, []);
-    if (grouped.get(uid).length >= perUser) continue;
-    grouped.get(uid).push(r);
-  }
+    if (seen.has(uid)) continue;
+    if (brigFilter && !(r.brigada||"").toLowerCase().includes(brigFilter)) continue;
+    seen.add(uid);
 
-  grouped.forEach((rows, uid)=>{
-    const last = rows[0];
-    const marker = L.marker([last.latitud,last.longitud],{icon:getIconFor(last)}).bindPopup(buildPopup(last));
+    const marker = L.marker([r.latitud,r.longitud],{icon:getIconFor(r)}).bindPopup(buildPopup(r));
     state.cluster.addLayer(marker);
-    state.users.set(uid,{marker,lastRow:last});
-    // guardamos en orden cronológico
-    state.pointsByUser.set(uid, rows.slice().reverse());
-    addOrUpdateUserInList(last);
-  });
-
-  if (state.traceRealtime){
-    scheduleRouteRefresh();
+    state.users.set(uid,{marker,lastRow:r});
+    addOrUpdateUserInList(r);
   }
 
   setStatus("Conectado","green");
@@ -586,6 +605,7 @@ async function exportKMZFromState(){
     const renderedSegments = [];
     for (const seg of segments){
       if (seg.length < 2) continue;
+      if (isIdleSegment(seg)) continue; // también limpiamos quieto en KMZ
 
       const blocks = chunk(seg, MAX_MM_POINTS);
       let current = [];
@@ -704,18 +724,25 @@ function startRealtime(){
           u.marker.setPopupContent(buildPopup(row));
         }
 
-        // Lista
+        // Lista lateral
         addOrUpdateUserInList(row);
 
-        // Historial puntos
-        if (!state.pointsByUser.has(uid)) state.pointsByUser.set(uid, []);
-        const list = state.pointsByUser.get(uid);
-        const last = list[list.length - 1];
-        if (!last || last.id !== row.id){
-          list.push(row);
+        // Historial para trazo en vivo (solo desde traceStart)
+        const ts = new Date(row.timestamp_pe || row.timestamp || row.created_at || Date.now());
+        if (ts >= state.traceStart){
+          if (!state.pointsByUser.has(uid)) state.pointsByUser.set(uid, []);
+          const list = state.pointsByUser.get(uid);
+          const point = { ...row, timestamp: ts.toISOString() };
+          const last = list[list.length - 1];
+          if (!last || last.id !== point.id){
+            list.push(point);
+            if (list.length > MAX_HISTORY_POINTS){
+              list.splice(0, list.length - MAX_HISTORY_POINTS);
+            }
+          }
         }
 
-        // Trazado
+        // Programar recalculo (máx cada 15s)
         if (state.traceRealtime){
           scheduleRouteRefresh();
         }
