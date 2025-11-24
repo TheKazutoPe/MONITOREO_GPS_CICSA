@@ -21,7 +21,7 @@ const state = {
   pointsByUser: new Map(), // uid -> [rows]
 };
 
-// ====== Ajustes de trazado / matching ======
+// ====== Ajustes de trazado / matching (EXPORT / HISTÓRICO) ======
 const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
 const DENSIFY_STEP          = 10;    // curvatura urbana más real
 const MAX_MM_POINTS         = 40;    // tamaño de bloque crudo
@@ -41,10 +41,10 @@ const MAX_BRIDGE_SPEED_KMH  = 70;    // si la unión implica >70 km/h = NO unir
 const MIN_BRIDGE_SPEED_KMH  = 3;     // si implica <3 km/h en gap corto = ruido
 const DIRECTIONS_PROFILE    = "driving"; // o "driving-traffic"
 
-// Ritmo de llamadas para no saturar API
+// Ritmo de llamadas para no saturar API (histórico / export)
 const PER_BLOCK_DELAY       = 150;
 
-// ====== Iconos/estética (como tu base) ======
+// ====== Iconos/estética ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
@@ -294,7 +294,7 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ====== Mapa / Lista (igual que tu base) ======
+// ====== Mapa / Lista ======
 function initMap(){
   state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
   state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
@@ -358,7 +358,7 @@ function addOrUpdateUserInList(row){
   }
 }
 
-// ====== Últimas 24h (igual que tenías) ======
+// ====== Últimas 24h ======
 async function fetchInitial(clear){
   setStatus("Cargando…","gray");
   if (clear) ui.userList.innerHTML = "";
@@ -555,6 +555,258 @@ async function exportKMZFromState(){
   }
 }
 
+// ====================== LIVE MAP-MATCHING EN TIEMPO REAL ======================
+// Config de snapeado en vivo (en tiempo real)
+const LIVE_MIN_POINTS       = 6;    // mín. puntos nuevos antes de llamar
+const LIVE_MIN_SECONDS      = 20;   // mín. segundos entre llamadas por brigada
+const LIVE_MAX_POINTS       = 80;   // máx. puntos por request (segmento)
+
+// Límites globales para muchas brigadas a la vez
+const LIVE_GLOBAL_MIN_MS      = 500;  // al menos 0.5 s entre requests globales
+const LIVE_GLOBAL_MAX_PER_MIN = 120;  // máx. requests/min entre TODAS las brigadas
+
+// Estado de snapeado en vivo
+const liveSnapState = {
+  enabled: true,
+  startedAt: Date.now(),      // punto de corte: sólo puntos >= a este instante
+  perBrigada: {},             // uid -> { raw, matched, lastMatchAt, lastRawIndexMatched, polyline }
+  lastGlobalMatchAt: 0,
+  requestsThisMinute: 0,
+  currentMinute: null
+};
+
+// Llamar cuando abras la vista en vivo
+function startLiveSnap() {
+  liveSnapState.enabled = true;
+  liveSnapState.startedAt = Date.now();
+  liveSnapState.perBrigada = {};
+  liveSnapState.lastGlobalMatchAt = 0;
+  liveSnapState.requestsThisMinute = 0;
+  liveSnapState.currentMinute = null;
+}
+
+// Para apagar el snapeado en vivo si lo necesitas
+function stopLiveSnap() {
+  liveSnapState.enabled = false;
+}
+
+// Control de cuota global
+function canDoGlobalRequestNow() {
+  const now = Date.now();
+  const minute = Math.floor(now / 60000);
+
+  // reset contador por minuto
+  if (liveSnapState.currentMinute !== minute) {
+    liveSnapState.currentMinute = minute;
+    liveSnapState.requestsThisMinute = 0;
+  }
+
+  if (now - liveSnapState.lastGlobalMatchAt < LIVE_GLOBAL_MIN_MS) return false;
+  if (liveSnapState.requestsThisMinute >= LIVE_GLOBAL_MAX_PER_MIN) return false;
+
+  liveSnapState.lastGlobalMatchAt = now;
+  liveSnapState.requestsThisMinute += 1;
+  return true;
+}
+
+// Dibuja/actualiza la polyline snapeada de una brigada
+function updateBrigadaMatchedPolyline(uid, st) {
+  if (!state.map) return;
+  if (!st || !st.matched || st.matched.length < 2) return;
+
+  const latlngs = st.matched.map(p => [p.lat, p.lng]);
+  if (!st.polyline) {
+    st.polyline = L.polyline(latlngs, {
+      weight: 4,
+      opacity: 0.9
+      // color: puedes fijar color aquí si quieres
+    }).addTo(state.map);
+  } else {
+    st.polyline.setLatLngs(latlngs);
+  }
+}
+
+/**
+ * onLivePoint
+ * uid: identificador que uses para la brigada (p.ej. usuario_id)
+ * point: { lat, lng, timestamp, acc, spd? }
+ *
+ * Llama a esta función CADA VEZ que recibas una nueva coordenada en tiempo real.
+ */
+async function onLivePoint(uid, point) {
+  if (!liveSnapState.enabled) return;
+  if (!MAPBOX_TOKEN) return;
+  if (!uid || !point) return;
+
+  const tMs = point.timestamp ? new Date(point.timestamp).getTime() : Date.now();
+  if (!isFinite(tMs)) return;
+
+  // Ignorar históricos: sólo puntos >= startedAt
+  if (tMs < liveSnapState.startedAt) return;
+
+  let st = liveSnapState.perBrigada[uid];
+  if (!st) {
+    st = liveSnapState.perBrigada[uid] = {
+      raw: [],
+      matched: [],
+      lastMatchAt: 0,
+      lastRawIndexMatched: -1,
+      polyline: null
+    };
+  }
+
+  // Añadimos el punto crudo a la secuencia de esta brigada
+  st.raw.push({
+    lat: point.lat,
+    lng: point.lng,
+    timestamp: point.timestamp || new Date().toISOString(),
+    acc: point.acc ?? null,
+    spd: point.spd ?? null
+  });
+
+  const now = Date.now();
+
+  // Límite por brigada (ritmo mínimo entre requests)
+  if (now - st.lastMatchAt < LIVE_MIN_SECONDS * 1000) {
+    return;
+  }
+
+  // Seleccionamos sólo los puntos nuevos desde el último índice matchado
+  const startIdx = st.lastRawIndexMatched + 1;
+  const newPoints = st.raw.slice(startIdx);
+  if (newPoints.length < LIVE_MIN_POINTS) {
+    return;
+  }
+
+  // Limitamos el tamaño máximo que enviamos a Mapbox
+  const seg = newPoints.slice(-LIVE_MAX_POINTS);
+
+  // Límite global entre todas las brigadas
+  if (!canDoGlobalRequestNow()) {
+    return;
+  }
+
+  st.lastMatchAt = now;
+  st.lastRawIndexMatched = st.raw.length - 1;
+
+  try {
+    const matched = await mapMatchBlockSafe(seg);
+    if (!matched || matched.length < 2) return;
+
+    // Acumulamos la ruta snapeada
+    st.matched.push(...matched);
+
+    // Dibujar/actualizar polyline en el mapa
+    updateBrigadaMatchedPolyline(uid, st);
+
+    // 👉 Si quisieras guardar los segmentos snapeados en Supabase
+    // puedes llamar aquí a un endpoint backend con `matched`.
+
+  } catch (err) {
+    console.warn("Error en map-matching en vivo:", err);
+  }
+}
+
+// ====== Polling en vivo desde Supabase ======
+let livePolling = false;
+let liveLastTimestamp = null;
+const LIVE_POLL_INTERVAL_MS = 5000;  // 5 segundos
+
+// Crea/actualiza marker y lista para un punto nuevo en tiempo real
+function updateUserRealtime(row) {
+  const uid = String(row.usuario_id || "0");
+  let u = state.users.get(uid);
+
+  if (!u) {
+    // Crear marker nuevo
+    const marker = L.marker([row.latitud, row.longitud], {
+      icon: getIconFor(row)
+    }).bindPopup(buildPopup(row));
+    state.cluster.addLayer(marker);
+    state.users.set(uid, { marker, lastRow: row });
+  } else {
+    // Actualizar marker existente
+    u.lastRow = row;
+    u.marker.setLatLng([row.latitud, row.longitud]);
+    u.marker.setIcon(getIconFor(row));
+    u.marker.setPopupContent(buildPopup(row));
+  }
+  // Actualizar panel lateral
+  addOrUpdateUserInList(row);
+}
+
+async function pollLiveOnce() {
+  if (!livePolling) return;
+
+  try {
+    let q = supa
+      .from("ubicaciones_brigadas")
+      .select("*")
+      .order("timestamp", { ascending: true });
+
+    if (liveLastTimestamp) {
+      q = q.gt("timestamp", liveLastTimestamp);
+    } else {
+      // por seguridad, sólo miramos los últimos 2 minutos
+      const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      q = q.gte("timestamp", since);
+    }
+
+    const { data, error } = await q;
+    if (error) {
+      console.error("Error en polling en vivo:", error);
+      return;
+    }
+    if (!data || !data.length) return;
+
+    for (const row of data) {
+      if (!row.timestamp) continue;
+      liveLastTimestamp = row.timestamp;
+
+      // 1) actualizar marker y panel
+      updateUserRealtime(row);
+
+      // 2) enviar punto al snapeado en vivo
+      const uid = String(row.usuario_id || "0");
+      const point = {
+        lat: +row.latitud,
+        lng: +row.longitud,
+        timestamp: row.timestamp_pe || row.timestamp,
+        acc: row.acc ?? null,
+        spd: row.spd ?? null
+      };
+      await onLivePoint(uid, point);
+    }
+  } catch (e) {
+    console.error("Error en pollLiveOnce:", e);
+  } finally {
+    if (livePolling) {
+      setTimeout(pollLiveOnce, LIVE_POLL_INTERVAL_MS);
+    }
+  }
+}
+
+function startLivePolling() {
+  if (livePolling) return;
+  livePolling = true;
+  liveLastTimestamp = null;
+  pollLiveOnce();
+}
+
+function stopLivePolling() {
+  livePolling = false;
+}
+
 // ====== Arranque ======
 setStatus("Cargando...","gray");
-fetchInitial(true);
+fetchInitial(true)
+  .then(() => {
+    // Iniciamos el snapeado en vivo y el polling una vez cargado el histórico
+    startLiveSnap();
+    startLivePolling();
+  })
+  .catch(() => {
+    // Si algo falla igual intentamos iniciar el modo en vivo
+    startLiveSnap();
+    startLivePolling();
+  });
