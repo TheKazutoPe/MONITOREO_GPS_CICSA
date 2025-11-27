@@ -9,91 +9,50 @@
   <link rel="stylesheet" href="styles.css" />
 
   <!-- Leaflet Core -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <!-- MarkerCluster -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-  />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Supabase -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2.48.0/dist/umd/supabase.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+  <!-- JSZip para generar KMZ -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
 </head>
 
 <body>
-  <div class="app-root">
-    <!-- ====== SIDEBAR ====== -->
-    <aside class="sidebar">
-      <header class="sidebar-header">
-        <h1 class="sidebar-title">Monitoreo GPS</h1>
-        <p class="sidebar-subtitle">Rastreo en tiempo real de brigadas.</p>
-      </header>
+  <header class="header">
+    <div class="header-left">
+      <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
+      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
+    </div>
+    <div id="status" class="status-badge gray">CARGANDO...</div>
+  </header>
 
-      <!-- Estado de conexión -->
-      <div class="status-row">
-        <span class="status-label">Estado:</span>
-        <span id="status" class="status-pill status-gray">Inicializando...</span>
+  <div class="main-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Brigadas conectadas</h2>
+        <div class="filter-box">
+          <input id="brigadaFilter" type="text" placeholder="Brigada 12.1" />
+          <button id="applyFilters">Aplicar</button>
+        </div>
       </div>
 
-      <!-- Filtros -->
-      <section class="sidebar-section">
-        <h2 class="sidebar-section-title">Filtros</h2>
-        <div class="form-row">
-          <label for="brigadaFilter">Brigada / Técnico</label>
-          <input
-            id="brigadaFilter"
-            type="text"
-            placeholder="Ej: BR-01 o nombre"
-          />
-        </div>
-        <button id="applyFilters" type="button" class="btn btn-primary">
-          Aplicar filtros
-        </button>
-      </section>
+      <!-- Fecha para el KMZ -->
+      <div class="filter-box" style="margin-top:6px;">
+        <input id="kmzDate" type="date" />
+      </div>
 
-      <!-- Lista de brigadas activas -->
-      <section class="sidebar-section">
-        <h2 class="sidebar-section-title">Brigadas activas (≤5 min)</h2>
-        <div id="userList" class="brigada-list"></div>
-      </section>
+      <div id="userList" class="brigada-list"></div>
 
-      <!-- Lista de brigadas inactivas -->
-      <section class="sidebar-section">
-        <div class="inactive-wrapper">
-          <button
-            id="toggleInactiveBtn"
-            type="button"
-            class="inactive-toggle"
-          >
-            Inactivas (0)
-          </button>
-          <div
-            id="inactiveList"
-            class="brigada-list brigada-list--inactive"
-            style="display:none;"
-          ></div>
-        </div>
-      </section>
-
-      <!-- Exportar KMZ -->
-      <section class="sidebar-section">
-        <button id="exportKmzBtn" type="button" class="btn btn-outline">
-          📍 Exportar KMZ
-        </button>
-      </section>
+      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
-    <!-- ====== MAPA ====== -->
     <main id="map" class="map-container"></main>
   </div>
 
