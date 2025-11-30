@@ -16,16 +16,16 @@ const HISTORY_MINUTES = 1440; // 24h
 const MAX_POINTS_PER_USER = 200;
 
 // Mapbox (el token ya viene desde config.js)
-const MAP_STYLE_CLARO =
-  "mapbox://styles/kevincarter343/clzq0sfw0002x01pw1kxx865f";
+const MAP_STYLE_CLARO = "mapbox://styles/kevincarter343/clzq0sfw0002x01pw1kxx865f";
 const MAP_STYLE_STREETS = "mapbox://styles/mapbox/streets-v12";
 const MAP_STYLE_SATELLITE = "mapbox://styles/mapbox/satellite-v9";
 
 // Map Matching (KMZ) / trazado limpio
-const USE_MAP_MATCHING = true; // si quieres desactivar el matching, pon false
-const MAX_MM_POINTS = 50; // máximo de puntos por petición de map matching
-const MAX_MM_SEGMENTS_PER_USER = 3; // máximo de segmentos a dibujar por usuario
-const MIN_MM_DISTANCE_DIFF = 5; // metros: si la distancia cruda vs matched < 5m, evitamos re-dibujar
+// 🔴 Lo desactivamos para producción para evitar errores 422 y consumo extra:
+const USE_MAP_MATCHING = false; // si quieres volver a probar matching, cambia a true
+const MAX_MM_POINTS = 50;
+const MAX_MM_SEGMENTS_PER_USER = 3;
+const MIN_MM_DISTANCE_DIFF = 5;
 const MIN_MM_POINTS_TO_MATCH = 2;
 
 // =====================================================================
@@ -36,9 +36,9 @@ const state = {
   map: null,
   baseLayers: {},
   cluster: null,
-  users: new Map(), // uid -> { marker, lastRow }
-  pointsByUser: new Map(), // uid -> [rows]
-  matchedSegmentsByUser: new Map(), // uid -> { segments: [[{lat,lng},...]], lastRawDistance: number }
+  users: new Map(),          // uid -> { marker, lastRow }
+  pointsByUser: new Map(),   // uid -> [rows]
+  matchedSegmentsByUser: new Map(),
 
   lastFetchAt: null,
   isFetching: false,
@@ -167,13 +167,12 @@ function animateMarker(marker, fromRow, toRow, baseDuration = 2000) {
     : marker.getLatLng();
   const endLatLng = L.latLng(toRow.latitud, toRow.longitud);
 
-  // Distancia entre puntos en metros
   const d = distMeters(
     { lat: startLatLng.lat, lng: startLatLng.lng },
     { lat: endLatLng.lat, lng: endLatLng.lng }
   );
 
-  // Ajuste de umbral: animar casi siempre salvo casos extremos
+  // Umbral para evitar saltos extremos o ruido mínimo
   if (!isFinite(d) || d < 1 || d > 10000) {
     marker.setLatLng(endLatLng);
     applyMarkerRotation(marker, startLatLng, endLatLng);
@@ -181,8 +180,8 @@ function animateMarker(marker, fromRow, toRow, baseDuration = 2000) {
   }
 
   // Duración proporcional a la distancia, con límites
-  const minDuration = 500; // ms
-  const maxDuration = 5000; // ms
+  const minDuration = 500;
+  const maxDuration = 5000;
   let duration = d * 60; // ~60 ms por metro
   duration = Math.max(minDuration, Math.min(maxDuration, duration));
 
@@ -196,61 +195,52 @@ function animateMarker(marker, fromRow, toRow, baseDuration = 2000) {
     const lat = startLatLng.lat + (endLatLng.lat - startLatLng.lat) * t;
     const lng = startLatLng.lng + (endLatLng.lng - startLatLng.lng) * t;
 
-    // Leaflet actualiza translate3d(...) aquí
-    marker.setLatLng([lat, lng]);
+    marker.setLatLng([lat, lng]);                 // mueve (Leaflet)
+    applyMarkerRotation(marker, startLatLng, endLatLng); // rota
 
-    // Y aquí solo tocamos la rotación, sin romper el translate
-    applyMarkerRotation(marker, startLatLng, endLatLng);
-
-    if (t < 1) {
-      requestAnimationFrame(frame);
-    }
+    if (t < 1) requestAnimationFrame(frame);
   }
 
   requestAnimationFrame(frame);
 }
 
-// ====== Radio adaptativo (matching) ======
-function adaptiveRadius(p) {
-  const acc = p && p.acc != null ? Number(p.acc) : NaN;
-  const base = isFinite(acc) ? acc + 5 : 25;
-  return Math.max(10, Math.min(50, base));
-}
+// =====================================================================
+// Map Matching (dejado por si luego quieres reactivarlo)
+// =====================================================================
 
-// ====== Map Matching ======
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
+
   if (seg.length > MAX_MM_POINTS) {
-    console.warn("Segmento demasiado grande para map matching", seg.length);
-    return null;
+    seg = seg.slice(-MAX_MM_POINTS);
   }
 
   try {
     const coords = seg.map((p) => [p.lng, p.lat]);
     const coordStr = coords.map((c) => c.join(",")).join(";");
-    const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coordStr}?geometries=geojson&radiuses=${seg
-      .map((p) => adaptiveRadius(p))
-      .join(
-        ";"
-      )}&access_token=${MAPBOX_TOKEN}&tid=cicsa-gps-routes&steps=false&overview=full`;
+
+    const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
 
     const resp = await fetch(url);
+    let json = null;
+    try {
+      json = await resp.json();
+    } catch (e) {}
+
     if (!resp.ok) {
-      console.warn("Map Matching: respuesta no OK", resp.status);
-      return null;
-    }
-    const json = await resp.json();
-
-    if (!json.matchings || json.matchings.length === 0) {
+      const msg = json && (json.message || json.error);
+      console.warn("Map Matching error", resp.status, msg || "");
       return null;
     }
 
-    const best = json.matchings[0]; // la mejor
+    if (!json || !json.matchings || json.matchings.length === 0) {
+      return null;
+    }
+
+    const best = json.matchings[0];
     const geometry = best.geometry;
-    if (!geometry || geometry.type !== "LineString") {
-      return null;
-    }
+    if (!geometry || geometry.type !== "LineString") return null;
 
     const out = [];
     for (const [lng, lat] of geometry.coordinates) {
@@ -269,11 +259,9 @@ async function mapMatchBlockSafe(seg) {
 
 const ui = {
   status: document.getElementById("status"),
-  // en tu index.html no existe last-update ni toggle-matching, así que quedarán null
-  lastUpdate: document.getElementById("last-update"),
-  // id correcto según index.html: "userList"
+  lastUpdate: document.getElementById("statUpdated"), // uso tu card de stats
   userList: document.getElementById("userList"),
-  toggleMatching: document.getElementById("toggle-matching"),
+  toggleMatching: document.getElementById("toggle-matching"), // no existe, se queda null
 };
 
 // =====================================================================
@@ -367,16 +355,15 @@ async function fetchBrigadasData() {
 function setStatus(text, kind = "info") {
   if (!ui.status) return;
   ui.status.textContent = text;
-  ui.status.className = "";
-  ui.status.classList.add("status", `status-${kind}`);
+  ui.status.className = "status-badge " + kind;
 }
 
 function setLastUpdate(date) {
   if (!ui.lastUpdate) return;
   if (!date) {
-    ui.lastUpdate.textContent = "—";
+    ui.lastUpdate.textContent = "--:--:--";
   } else {
-    ui.lastUpdate.textContent = date.toLocaleString();
+    ui.lastUpdate.textContent = date.toLocaleTimeString();
   }
 }
 
@@ -402,7 +389,7 @@ function addOrUpdateUserInList(row) {
   let li = document.getElementById(id);
 
   if (!li) {
-    li = document.createElement("li");
+    li = document.createElement("div");
     li.id = id;
     li.className = `user-item status-${statusClass}`;
     li.innerHTML = `
@@ -490,7 +477,6 @@ function updateMarkersFromData(rows) {
       marker.setIcon(getIconFor(last));
       marker.setPopupContent(buildPopup(last));
 
-      // animar desde lastRow anterior a última posición nueva
       animateMarker(marker, prev.lastRow, last);
       state.cluster.addLayer(marker);
     } else {
@@ -685,7 +671,7 @@ function fitMapToAllMarkers() {
 }
 
 // =====================================================================
-// Toggle Matching
+// Toggle Matching (no existe en el HTML, pero dejamos la lógica por si luego lo agregas)
 // =====================================================================
 
 if (ui.toggleMatching) {
