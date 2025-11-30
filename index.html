@@ -9,12 +9,21 @@
   <link rel="stylesheet" href="styles.css" />
 
   <!-- Leaflet Core -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <!-- MarkerCluster -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Supabase -->
@@ -50,6 +59,16 @@
       <div class="filter-group">
         <input id="filterName" type="text" placeholder="Buscar técnico..." />
         <input id="filterBrigada" type="text" placeholder="Buscar brigada..." />
+
+        <!-- NUEVOS: zona y contrata -->
+        <select id="filterZona">
+          <option value="">Zona: todas</option>
+        </select>
+
+        <select id="filterContrata">
+          <option value="">Contrata: todas</option>
+        </select>
+
         <select id="filterStatus">
           <option value="">Estado</option>
           <option value="online">Conectados (≤2 min)</option>

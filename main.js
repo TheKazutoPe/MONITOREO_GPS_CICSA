@@ -14,6 +14,8 @@ const ui = {
   userList: document.getElementById("userList"),
   filterName: document.getElementById("filterName"),
   filterStatus: document.getElementById("filterStatus"),
+  filterZona: document.getElementById("filterZona"),
+  filterContrata: document.getElementById("filterContrata"),
   btnCenter: document.getElementById("btnCenter"),
   btnShowAll: document.getElementById("btnShowAll"),
   mapStyleSelect: document.getElementById("mapStyleSelect"),
@@ -28,7 +30,7 @@ const state = {
   currentBase: "streets",
   cluster: null,
   plainLayer: null,
-  mode: "plain", // vista global por defecto
+  mode: "plain", // vista global ON por defecto
   users: new Map(),
   pointsByUser: new Map()
 };
@@ -217,9 +219,7 @@ function adaptiveRadius(p) {
   return Math.max(10, Math.min(50, base));
 }
 
-// ====== Map matching, directions, smartBridge ======
-// (idéntico a la versión anterior, no lo recorto para que lo tengas completo)
-
+// ====== Map matching ======
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
@@ -294,6 +294,7 @@ async function mapMatchBlockSafe(seg) {
   return matched;
 }
 
+// ====== Directions / puentes ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
@@ -318,6 +319,7 @@ async function directionsBetween(a, b) {
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
   const meters = route?.distance ?? 0;
+  const secs = route?.duration ?? 0;
   if (!coords.length || meters <= 0) return null;
 
   const first = { lat: coords[0][1], lng: coords[0][0] };
@@ -426,6 +428,7 @@ function initMap() {
   state.map.addLayer(state.plainLayer);
   if (ui.btnToggleCluster) ui.btnToggleCluster.textContent = "🌐 Vista global (ON)";
 
+  // Cambiar icono (punto/carro) según zoom
   state.map.on("zoomend", () => {
     for (const [, u] of state.users.entries()) {
       if (!u.lastRow) continue;
@@ -502,9 +505,7 @@ function toggleClusterMode() {
   }
 }
 
-// ====== UI estado / lista / carga / KMZ ======
-// (idéntico a la versión anterior, lo dejo completo para producción)
-
+// ====== UI estado ======
 function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
@@ -524,13 +525,60 @@ function buildPopup(r) {
   const ts = new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${
     r.brigada || "-"
-  }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
+  }<br>Zona: ${r.zona || "-"} · Contrata: ${r.contrata || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
+/**
+ * Llena los selects de zona y contrata a partir de los datos crudos.
+ */
+function populateFilterOptionsFromData(rows) {
+  if (!ui.filterZona || !ui.filterContrata) return;
+
+  const zonas = new Set();
+  const contratas = new Set();
+
+  rows.forEach(r => {
+    if (r.zona) zonas.add(r.zona.trim());
+    if (r.contrata) contratas.add(r.contrata.trim());
+  });
+
+  // Zona
+  const currentZona = ui.filterZona.value || "";
+  ui.filterZona.innerHTML = '<option value="">Zona: todas</option>';
+  Array.from(zonas)
+    .sort((a, b) => a.localeCompare(b))
+    .forEach(z => {
+      const opt = document.createElement("option");
+      opt.value = z;
+      opt.textContent = z;
+      ui.filterZona.appendChild(opt);
+    });
+  if (currentZona) ui.filterZona.value = currentZona;
+
+  // Contrata
+  const currentContrata = ui.filterContrata.value || "";
+  ui.filterContrata.innerHTML =
+    '<option value="">Contrata: todas</option>';
+  Array.from(contratas)
+    .sort((a, b) => a.localeCompare(b))
+    .forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      ui.filterContrata.appendChild(opt);
+    });
+  if (currentContrata) ui.filterContrata.value = currentContrata;
+}
+
+// ====== Lista de brigadas ======
 function addOrUpdateUserInList(row, statusCode) {
   const uid = String(row.usuario_id || "0");
   const brig = row.brigada || "-";
   const tech = row.tecnico || "Sin nombre";
+  const zona = row.zona || "-";
+  const contrata = row.contrata || "-";
+  const cargo = row.cargo || "-";
+
   const mins = Math.round(
     (Date.now() - new Date(row.timestamp)) / 60000
   );
@@ -541,7 +589,11 @@ function addOrUpdateUserInList(row, statusCode) {
   const html = `
     <div class="brig-main">
       <div class="brig-name">${tech}</div>
-      <div class="brig-sub">${brig}</div>
+      <div class="brig-sub">Brigada: ${brig}</div>
+      <div class="brig-extra">
+        Zona: ${zona} · Contrata: ${contrata}<br>
+        Cargo: ${cargo}
+      </div>
     </div>
     <div class="brig-meta">
       <div class="brig-led ${
@@ -565,9 +617,13 @@ function addOrUpdateUserInList(row, statusCode) {
     el.id = `u-${uid}`;
     el.className = baseClass;
     el.innerHTML = html;
+
     el.dataset.tech = tech.toLowerCase();
     el.dataset.brigada = brig.toLowerCase();
     el.dataset.status = statusCode;
+    el.dataset.zona = zona.toLowerCase();
+    el.dataset.contrata = contrata.toLowerCase();
+
     el.onclick = () => {
       focusOnUser(uid);
       if (ui.brigada) ui.brigada.value = brig;
@@ -578,9 +634,13 @@ function addOrUpdateUserInList(row, statusCode) {
   } else {
     el.className = baseClass + " marker-pulse";
     el.innerHTML = html;
+
     el.dataset.tech = tech.toLowerCase();
     el.dataset.brigada = brig.toLowerCase();
     el.dataset.status = statusCode;
+    el.dataset.zona = zona.toLowerCase();
+    el.dataset.contrata = contrata.toLowerCase();
+
     el.onclick = () => {
       focusOnUser(uid);
       if (ui.brigada) ui.brigada.value = brig;
@@ -598,22 +658,29 @@ function applyListFilters() {
       .trim()
       .toLowerCase();
   const status = ui.filterStatus?.value || "";
+  const zona = (ui.filterZona?.value || "").trim().toLowerCase();
+  const contrata = (ui.filterContrata?.value || "").trim().toLowerCase();
 
   const cards = ui.userList.querySelectorAll(".brigada-item");
   cards.forEach(card => {
     const t = card.dataset.tech || "";
     const b = card.dataset.brigada || "";
     const s = card.dataset.status || "";
+    const z = card.dataset.zona || "";
+    const c = card.dataset.contrata || "";
 
     const match =
       (!name || t.includes(name)) &&
       (!brigadaText || b.includes(brigadaText)) &&
-      (!status || s === status);
+      (!status || s === status) &&
+      (!zona || z === zona) &&
+      (!contrata || c === contrata);
 
     card.style.display = match ? "flex" : "none";
   });
 }
 
+// ====== Carga de ubicaciones ======
 async function fetchInitial(clearList) {
   try {
     setStatus("Cargando…", "gray");
@@ -634,16 +701,38 @@ async function fetchInitial(clearList) {
       return;
     }
 
+    // llenar combos zona/contrata
+    populateFilterOptionsFromData(data || []);
+
     const brigFilter = (ui.brigada?.value || "").trim().toLowerCase();
+    const zonaFilter = (ui.filterZona?.value || "").trim().toLowerCase();
+    const contrataFilter = (ui.filterContrata?.value || "")
+      .trim()
+      .toLowerCase();
+
     const grouped = new Map();
     const perUser = 100;
 
     for (const r of data) {
+      // filtros de brigada / zona / contrata aplicados a mapa + lista
       if (
         brigFilter &&
         !(r.brigada || "").toLowerCase().includes(brigFilter)
       )
         continue;
+
+      if (
+        zonaFilter &&
+        (r.zona || "").trim().toLowerCase() !== zonaFilter
+      )
+        continue;
+
+      if (
+        contrataFilter &&
+        (r.contrata || "").trim().toLowerCase() !== contrataFilter
+      )
+        continue;
+
       const uid = String(r.usuario_id || "0");
       if (!grouped.has(uid)) grouped.set(uid, []);
       if (grouped.get(uid).length >= perUser) continue;
@@ -686,6 +775,7 @@ async function fetchInitial(clearList) {
       addOrUpdateUserInList(last, statusCode);
     });
 
+    // eliminar usuarios que ya no están activos en este filtro
     for (const [uid, u] of state.users.entries()) {
       if (!activeUids.has(uid)) {
         state.cluster.removeLayer(u.marker);
@@ -704,6 +794,7 @@ async function fetchInitial(clearList) {
   }
 }
 
+// ====== Exportar KMZ ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
