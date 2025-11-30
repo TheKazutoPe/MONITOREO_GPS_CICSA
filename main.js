@@ -20,7 +20,10 @@ const ui = {
   btnShowAll: document.getElementById("btnShowAll"),
   mapStyleSelect: document.getElementById("mapStyleSelect"),
   btnRefresh: document.getElementById("btnRefresh"),
-  btnToggleCluster: document.getElementById("btnToggleCluster")
+  btnToggleCluster: document.getElementById("btnToggleCluster"),
+  siteSearch: document.getElementById("siteSearch"),
+  btnBuscarSite: document.getElementById("btnBuscarSite"),
+  routesPanel: document.getElementById("routesPanel")
 };
 
 // ====== Estado ======
@@ -32,7 +35,9 @@ const state = {
   plainLayer: null,
   mode: "plain", // vista global ON por defecto
   users: new Map(),
-  pointsByUser: new Map()
+  pointsByUser: new Map(),
+  siteMarker: null,
+  routeLayer: null
 };
 
 // ====== Parámetros de trazado / matching ======
@@ -319,7 +324,6 @@ async function directionsBetween(a, b) {
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
   const meters = route?.distance ?? 0;
-  const secs = route?.duration ?? 0;
   if (!coords.length || meters <= 0) return null;
 
   const first = { lat: coords[0][1], lng: coords[0][0] };
@@ -423,6 +427,7 @@ function initMap() {
     disableClusteringAtZoom: 16
   });
   state.plainLayer = L.layerGroup();
+  state.routeLayer = L.layerGroup().addTo(state.map);
 
   // Vista global ON
   state.map.addLayer(state.plainLayer);
@@ -469,6 +474,7 @@ function initMap() {
 
   if (ui.btnRefresh) ui.btnRefresh.onclick = () => fetchInitial(false);
   if (ui.btnToggleCluster) ui.btnToggleCluster.onclick = () => toggleClusterMode();
+  if (ui.btnBuscarSite) ui.btnBuscarSite.onclick = () => handleBuscarSite();
 }
 initMap();
 
@@ -792,6 +798,218 @@ async function fetchInitial(clearList) {
     console.error(e);
     setStatus("Error", "gray");
   }
+}
+
+// ====== Búsqueda de Site en Supabase ======
+async function fetchSiteByName(siteName) {
+  if (!siteName || !siteName.trim()) return null;
+
+  const term = siteName.trim();
+
+  const { data, error } = await supa
+    .from("sites_nacional_tabla")
+    .select('"Site ID*", "Site Name*", "Latitude", "Longitude"')
+    .ilike('"Site Name*"', `%${term}%`);
+
+  if (error) {
+    console.error("Error buscando site:", error);
+    return null;
+  }
+  if (!data || data.length === 0) return null;
+
+  const row = data[0];
+
+  const lat = parseFloat(row["Latitude"]);
+  const lng = parseFloat(row["Longitude"]);
+
+  if (!isFinite(lat) || !isFinite(lng)) return null;
+
+  return {
+    id: row["Site ID*"],
+    name: row["Site Name*"],
+    lat,
+    lng
+  };
+}
+
+// ====== Rutas brigadas más cercanas a Site ======
+function formatMinutes(m) {
+  if (m < 1) return "<1 min";
+  if (m < 60) return `${Math.round(m)} min`;
+  const h = Math.floor(m / 60);
+  const min = Math.round(m % 60);
+  if (min === 0) return `${h} h`;
+  return `${h} h ${min} min`;
+}
+
+function formatKm(meters) {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+async function calcularRutasBrigadasCercanas(site) {
+  if (!state.map || !MAPBOX_TOKEN) {
+    alert("Falta mapa o MAPBOX_TOKEN para calcular rutas.");
+    return;
+  }
+
+  // Limpiar rutas previas
+  state.routeLayer.clearLayers();
+  ui.routesPanel.innerHTML = "";
+
+  // Armar array de brigadas con su última posición
+  const brigadas = [];
+  for (const [uid, u] of state.users.entries()) {
+    if (!u.lastRow) continue;
+    const lat = u.lastRow.latitud;
+    const lng = u.lastRow.longitud;
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+
+    const d = distMeters(
+      { lat, lng },
+      { lat: site.lat, lng: site.lng }
+    );
+    brigadas.push({
+      uid,
+      row: u.lastRow,
+      lat,
+      lng,
+      dist: d
+    });
+  }
+
+  if (!brigadas.length) {
+    alert("No hay brigadas con ubicación válida para calcular rutas.");
+    return;
+  }
+
+  // Ordenar por distancia directa y quedarnos con las más cercanas
+  brigadas.sort((a, b) => a.dist - b.dist);
+  const candidatos = brigadas.slice(0, 5); // por ejemplo, 5 más cercanas
+
+  const resultados = [];
+
+  for (const b of candidatos) {
+    const url =
+      `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+      `${b.lng},${b.lat};${site.lng},${site.lat}` +
+      `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const route = data.routes?.[0];
+      if (!route) continue;
+
+      const meters = route.distance || 0;
+      const seconds = route.duration || 0;
+      const minutes = seconds / 60;
+
+      resultados.push({
+        brigada: b.row.brigada || "-",
+        tecnico: b.row.tecnico || "Sin nombre",
+        zona: b.row.zona || "-",
+        contrata: b.row.contrata || "-",
+        distance: meters,
+        duration: minutes,
+        geometry: route.geometry
+      });
+
+      // Pintar ruta real de Mapbox
+      const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+
+      L.polyline(coords, {
+        color: "#ffcc00",
+        weight: 4,
+        opacity: 0.9
+      }).addTo(state.routeLayer);
+
+      await sleep(150);
+    } catch (e) {
+      console.error("Error en directions Mapbox:", e);
+    }
+  }
+
+  if (!resultados.length) {
+    ui.routesPanel.innerHTML =
+      "<div style='font-size:12px;color:#bbb;'>No se pudo obtener rutas desde Mapbox.</div>";
+    return;
+  }
+
+  // Ordenar por tiempo estimado
+  resultados.sort((a, b) => a.duration - b.duration);
+
+  // Mostrar ranking en el panel
+  const titulo = document.createElement("h3");
+  titulo.textContent = `Rutas hacia: ${site.name}`;
+  ui.routesPanel.appendChild(titulo);
+
+  resultados.forEach(r => {
+    const item = document.createElement("div");
+    item.className = "route-item";
+    item.innerHTML = `
+      <div>
+        <span class="route-item-main">${r.brigada} – ${r.tecnico}</span>
+        <span class="route-item-sub">Zona: ${r.zona} · Contrata: ${r.contrata}</span>
+      </div>
+      <div style="text-align:right;">
+        <span class="route-item-main">${formatMinutes(r.duration)}</span>
+        <span class="route-item-sub">${formatKm(r.distance)}</span>
+      </div>
+    `;
+    ui.routesPanel.appendChild(item);
+  });
+
+  // Enfocar mapa al conjunto de rutas + site
+  const bounds = state.routeLayer.getBounds();
+  if (bounds.isValid()) {
+    state.map.fitBounds(bounds, { padding: [50, 50] });
+  } else {
+    state.map.setView([site.lat, site.lng], 13);
+  }
+}
+
+// ====== Handler principal: buscar site y calcular rutas ======
+async function handleBuscarSite() {
+  const name = ui.siteSearch?.value || "";
+  if (!name.trim()) {
+    alert("Ingresa el nombre del Site.");
+    return;
+  }
+
+  setStatus("Buscando site…", "gray");
+
+  const site = await fetchSiteByName(name);
+  if (!site) {
+    setStatus("Site no encontrado", "yellow");
+    alert("No se encontró el Site o no tiene coordenadas válidas.");
+    return;
+  }
+
+  // Marcar el site en el mapa
+  if (state.siteMarker) {
+    state.map.removeLayer(state.siteMarker);
+  }
+  state.siteMarker = L.marker([site.lat, site.lng], {
+    icon: L.icon({
+      iconUrl:
+        "https://docs.mapbox.com/help/demos/custom-markers-gl-js/mapbox-icon.png",
+      iconSize: [30, 40],
+      iconAnchor: [15, 40]
+    })
+  })
+    .addTo(state.map)
+    .bindPopup(
+      `<b>${site.name}</b><br>Lat: ${site.lat.toFixed(
+        5
+      )}<br>Lng: ${site.lng.toFixed(5)}`
+    )
+    .openPopup();
+
+  await calcularRutasBrigadasCercanas(site);
+
+  setStatus("Conectado", "green");
 }
 
 // ====== Exportar KMZ ======

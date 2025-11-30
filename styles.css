@@ -250,6 +250,49 @@ body {
   animation: cardPulse 0.6s ease-out;
 }
 
+/* PANEL DE RUTAS A SITE */
+
+.routes-panel {
+  margin-top: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  background: #1b1b1b;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 0 0 1px #262626;
+  font-size: 12px;
+}
+
+.routes-panel h3 {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  color: #f5f5f5;
+}
+
+.route-item {
+  padding: 6px 6px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  background: #232323;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.route-item span {
+  display: block;
+}
+
+.route-item-main {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.route-item-sub {
+  font-size: 11px;
+  color: #bbbbbb;
+}
+
 /* KMZ */
 
 .kmz-box {

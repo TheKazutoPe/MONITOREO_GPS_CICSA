@@ -55,12 +55,11 @@
     <aside class="sidebar">
       <h2 class="sidebar-title">Brigadas conectadas</h2>
 
-      <!-- FILTROS -->
+      <!-- FILTROS BRIGADAS -->
       <div class="filter-group">
         <input id="filterName" type="text" placeholder="Buscar técnico..." />
         <input id="filterBrigada" type="text" placeholder="Buscar brigada..." />
 
-        <!-- NUEVOS: zona y contrata -->
         <select id="filterZona">
           <option value="">Zona: todas</option>
         </select>
@@ -78,6 +77,15 @@
 
         <button id="applyFilters" class="btn-full">Aplicar filtros</button>
       </div>
+
+      <!-- DESPACHO POR SITE -->
+      <div class="filter-group" style="margin-top:10px;">
+        <input id="siteSearch" type="text" placeholder="Ingresar nombre de Site..." />
+        <button id="btnBuscarSite" class="btn-full">🚐 Buscar brigadas cercanas</button>
+      </div>
+
+      <!-- RESULTADO DE RUTAS A SITE -->
+      <div id="routesPanel" class="routes-panel"></div>
 
       <!-- LISTA DE BRIGADAS -->
       <div id="userList" class="brigada-list"></div>
