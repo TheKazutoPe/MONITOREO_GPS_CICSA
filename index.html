@@ -9,12 +9,21 @@
   <link rel="stylesheet" href="styles.css" />
 
   <!-- Leaflet Core -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <!-- MarkerCluster -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Supabase -->
@@ -25,42 +34,99 @@
 </head>
 
 <body>
+  <!-- CABECERA -->
   <header class="header">
     <div class="header-left">
       <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
-      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
+      <div class="header-title">
+        <h1>Monitoreo GPS</h1>
+        <span class="header-subtitle">Brigadas – Red Nacional</span>
+      </div>
     </div>
     <div id="status" class="status-badge gray">CARGANDO...</div>
   </header>
 
+  <!-- CONTENIDO PRINCIPAL -->
   <div class="main-container">
+    <!-- SIDEBAR -->
     <aside class="sidebar">
       <div class="sidebar-header">
         <h2>Brigadas conectadas</h2>
+
+        <!-- FILTRO POR BRIGADA -->
         <div class="filter-box">
-          <input id="brigadaFilter" type="text" placeholder="Brigada 12.1" />
+          <input
+            id="brigadaFilter"
+            type="text"
+            placeholder="Brigada 12.1"
+          />
           <button id="applyFilters">Aplicar</button>
         </div>
       </div>
 
-      <!-- Fecha para el KMZ -->
-      <div class="filter-box" style="margin-top:6px;">
+      <!-- Fecha para generación de KMZ -->
+      <div class="filter-box" style="margin-top: 6px;">
+        <label for="kmzDate" class="filter-label">Fecha para KMZ</label>
         <input id="kmzDate" type="date" />
       </div>
 
+      <!-- NUEVOS FILTROS -->
+      <div class="filter-box">
+        <label for="timeRange" class="filter-label">Rango de tiempo</label>
+        <select id="timeRange">
+          <option value="2">Últimas 2 h</option>
+          <option value="6">Últimas 6 h</option>
+          <option value="12">Últimas 12 h</option>
+          <option value="24" selected>Últimas 24 h</option>
+        </select>
+      </div>
+
+      <div class="filter-box">
+        <label for="statusFilter" class="filter-label">Estado</label>
+        <select id="statusFilter">
+          <option value="all">Todas las brigadas</option>
+          <option value="active">Solo activas (≤ 5 min)</option>
+          <option value="recent">Activas últimas 2 h</option>
+          <option value="offline">Desconectadas (&gt; 30 min)</option>
+        </select>
+      </div>
+
+      <!-- LISTA DE BRIGADAS -->
       <div id="userList" class="brigada-list"></div>
 
+      <!-- BOTÓN EXPORTAR KMZ -->
       <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
     </aside>
 
-    <main id="map" class="map-container"></main>
+    <!-- MAPA -->
+    <main id="map" class="map-container">
+      <!-- Panel de estadísticas nacionales -->
+      <div id="mapStats" class="map-stats">
+        <div class="stat-card">
+          <div class="stat-label">Brigadas activas ahora</div>
+          <div class="stat-value" id="statOnline">0</div>
+          <div class="stat-hint">Últimos 5 minutos</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Brigadas con reporte</div>
+          <div class="stat-value" id="statTotal">0</div>
+          <div class="stat-hint" id="statRangeText">Rango seleccionado</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Última actualización</div>
+          <div class="stat-value" id="statUpdated">--:--:--</div>
+          <div class="stat-hint">hora local</div>
+        </div>
+      </div>
+    </main>
   </div>
 
+  <!-- FOOTER -->
   <footer class="footer">
     <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
   </footer>
 
-  <!-- Orden correcto -->
+  <!-- Config + Lógica -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>

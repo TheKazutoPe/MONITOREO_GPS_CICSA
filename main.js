@@ -10,6 +10,8 @@ const ui = {
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
+  timeRange: document.getElementById("timeRange"),
+  statusFilter: document.getElementById("statusFilter"),
 };
 
 // ====== Estado del mapa/lista ======
@@ -44,17 +46,39 @@ const DIRECTIONS_PROFILE    = "driving"; // o "driving-traffic"
 // Ritmo de llamadas para no saturar API
 const PER_BLOCK_DELAY       = 150;
 
-// ====== Iconos/estética (como tu base) ======
+// ====== Iconos/estética ======
 const ICONS = {
   green: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   yellow: L.icon({ iconUrl: "assets/carro-orange.png", iconSize: [40, 24], iconAnchor: [20, 12] }),
   gray:   L.icon({ iconUrl: "assets/carro-gray.png",   iconSize: [40, 24], iconAnchor: [20, 12] }),
 };
+
+function getMinutesSince(row) {
+  return Math.round((Date.now() - new Date(row.timestamp)) / 60000);
+}
+
 function getIconFor(row) {
-  const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
+  const mins = getMinutesSince(row);
   if (mins <= 2) return ICONS.green;
   if (mins <= 5) return ICONS.yellow;
   return ICONS.gray;
+}
+
+// Filtro por estado (activa / reciente / offline / todas)
+function statusMatches(row) {
+  const mode = ui.statusFilter ? ui.statusFilter.value : "all";
+  const mins = getMinutesSince(row);
+
+  switch (mode) {
+    case "active":
+      return mins <= 5;
+    case "recent":
+      return mins <= 120; // 2 horas
+    case "offline":
+      return mins > 30;
+    default:
+      return true;
+  }
 }
 
 // ====== Helpers generales ======
@@ -65,20 +89,20 @@ function distMeters(a, b) {
   const s1 =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(a.lat * Math.PI / 180) *
-    Math.cos(b.lat * Math.PI / 180) *
-    Math.sin(dLng / 2) ** 2;
+      Math.cos(b.lat * Math.PI / 180) *
+      Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.atan2(Math.sqrt(s1), Math.sqrt(1 - s1));
 }
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
-function toYMD(d){
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function toYMD(d) {
   const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,"0");
-  const dd = String(d.getDate()).padStart(2,"0");
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
 }
-function chunk(arr,size){
-  const out=[];
-  for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size));
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
@@ -98,7 +122,7 @@ function densifySegment(points, step = DENSIFY_STEP) {
         lat: a.lat + (b.lat - a.lat) * t,
         lng: a.lng + (b.lng - a.lng) * t,
         timestamp: a.timestamp,
-        acc: a.acc
+        acc: a.acc,
       });
     }
   }
@@ -107,11 +131,11 @@ function densifySegment(points, step = DENSIFY_STEP) {
 }
 
 // ====== limitar puntos (evita URL enorme del Matching) ======
-function downsamplePoints(arr, maxN){
+function downsamplePoints(arr, maxN) {
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
   const step = (arr.length - 1) / (maxN - 1);
-  for (let i = 0; i < maxN; i++){
+  for (let i = 0; i < maxN; i++) {
     const idx = Math.round(i * step);
     out.push(arr[idx]);
   }
@@ -121,47 +145,48 @@ function downsamplePoints(arr, maxN){
 }
 
 // ====== limpieza, cortes ======
-function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS){
+function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS) {
   if (!points.length) return points;
   const out = [points[0]];
-  for (let i=1;i<points.length;i++){
-    const prev = out[out.length-1];
-    const cur  = points[i];
-    if (distMeters(prev,cur) >= minMeters){
+  for (let i = 1; i < points.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = points[i];
+    if (distMeters(prev, cur) >= minMeters) {
       out.push(cur);
     }
   }
   return out;
 }
-function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS){
+
+function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS) {
   const groups = [];
   let cur = [];
-  for (let i=0;i<points.length;i++){
+  for (let i = 0; i < points.length; i++) {
     const p = points[i];
-    if (!cur.length){ cur.push(p); continue; }
-    const prev = cur[cur.length-1];
-    const dtMin = (new Date(p.timestamp) - new Date(prev.timestamp))/60000;
+    if (!cur.length) { cur.push(p); continue; }
+    const prev = cur[cur.length - 1];
+    const dtMin = (new Date(p.timestamp) - new Date(prev.timestamp)) / 60000;
     const djump = distMeters(prev, p);
-    if (dtMin > maxGapMin || djump > maxJumpM){
-      if (cur.length>1) groups.push(cur);
+    if (dtMin > maxGapMin || djump > maxJumpM) {
+      if (cur.length > 1) groups.push(cur);
       cur = [p];
     } else {
       cur.push(p);
     }
   }
-  if (cur.length>1) groups.push(cur);
+  if (cur.length > 1) groups.push(cur);
   return groups;
 }
 
 // ====== Radio adaptativo por punto (usa 'acc' si existe) ======
-function adaptiveRadius(p){
+function adaptiveRadius(p) {
   const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
   const base = isFinite(acc) ? acc + 5 : 25; // leve holgura
   return Math.max(10, Math.min(50, base));   // 10–50 m
 }
 
 // ====== Map Matching (timestamps + radiuses + downsample) ======
-async function mapMatchBlockSafe(seg){
+async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
   if (seg.length > MAX_MM_POINTS) return null;
@@ -174,59 +199,61 @@ async function mapMatchBlockSafe(seg){
 
   // distancia cruda (validación)
   let rawDist = 0;
-  for (let i=0;i<dense.length-1;i++) rawDist += distMeters(dense[i], dense[i+1]);
+  for (let i = 0; i < dense.length - 1; i++) rawDist += distMeters(dense[i], dense[i + 1]);
 
   // parámetros con timestamps y radiuses ADAPTATIVOS
-  const coords = dense.map(p=>`${p.lng},${p.lat}`).join(";");
-  const tsArr  = dense.map(p=>Math.floor(new Date(p.timestamp).getTime()/1000)).join(";");
-  const radArr = dense.map(p=>adaptiveRadius(p)).join(";");
+  const coords = dense.map(p => `${p.lng},${p.lat}`).join(";");
+  const tsArr  = dense.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(";");
+  const radArr = dense.map(p => adaptiveRadius(p)).join(";");
 
-  const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}` +
-              `?geometries=geojson&overview=full&tidy=true` +
-              `&timestamps=${tsArr}&radiuses=${radArr}` +
-              `&access_token=${MAPBOX_TOKEN}`;
+  const url =
+    `https://api.mapbox.com/matching/v5/mapbox/driving/${coords}` +
+    `?geometries=geojson&overview=full&tidy=true` +
+    `&timestamps=${tsArr}&radiuses=${radArr}` +
+    `&access_token=${MAPBOX_TOKEN}`;
 
   let r;
-  try{ r = await fetch(url, { method:"GET", mode:"cors" }); }
-  catch(e){ console.warn("Matching fetch error:", e); return null; }
+  try { r = await fetch(url, { method: "GET", mode: "cors" }); }
+  catch (e) { console.warn("Matching fetch error:", e); return null; }
 
-  if (!r.ok){
-    const txt = await r.text().catch(()=> "");
-    console.warn("Matching status:", r.status, txt.slice(0,200));
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    console.warn("Matching status:", r.status, txt.slice(0, 200));
     return null;
   }
 
-  const j = await r.json().catch(()=> null);
+  const j = await r.json().catch(() => null);
   const m = j?.matchings?.[0];
+
   // Confianza mínima + fallback partiendo el bloque
   if (!m?.geometry?.coordinates || (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)) {
     if (dense.length > 24) {
-      const mid = Math.floor(dense.length/2);
+      const mid = Math.floor(dense.length / 2);
       const left  = await mapMatchBlockSafe(dense.slice(0, mid));
-      const right = await mapMatchBlockSafe(dense.slice(mid-1));
+      const right = await mapMatchBlockSafe(dense.slice(mid - 1));
       if (left && right) return left.concat(right.slice(1));
     }
     return null;
   }
 
-  const matched = m.geometry.coordinates.map(([lng,lat])=>({lat,lng}));
+  const matched = m.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
 
   // validaciones anti-teleport
-  let mmDist=0;
-  for (let i=0;i<matched.length-1;i++) mmDist += distMeters(matched[i], matched[i+1]);
-  if ((Math.abs(mmDist - rawDist) / Math.max(rawDist,1)) > MAX_DIST_RATIO) return null;
+  let mmDist = 0;
+  for (let i = 0; i < matched.length - 1; i++) mmDist += distMeters(matched[i], matched[i + 1]);
+  if ((Math.abs(mmDist - rawDist) / Math.max(rawDist, 1)) > MAX_DIST_RATIO) return null;
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
 
   // timestamps aproximados (opcional)
-  for (let i=0;i<matched.length;i++){
-    matched[i].timestamp = dense[Math.min(i, dense.length-1)].timestamp;
-    matched[i].acc = dense[Math.min(i, dense.length-1)].acc;
+  for (let i = 0; i < matched.length; i++) {
+    matched[i].timestamp = dense[Math.min(i, dense.length - 1)].timestamp;
+    matched[i].acc = dense[Math.min(i, dense.length - 1)].acc;
   }
   return matched;
 }
 
-// ====== Directions con plausibilidad (distancia / duración / velocidad) ======
+// ====== Directions con plausibilidad ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
@@ -243,27 +270,25 @@ async function directionsBetween(a, b) {
   try { r = await fetch(url); } catch { return null; }
   if (!r.ok) return null;
 
-  const j = await r.json().catch(()=>null);
+  const j = await r.json().catch(() => null);
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
   const meters = route?.distance ?? 0;   // m
   const secs   = route?.duration ?? 0;   // s
   if (!coords.length || meters <= 0) return null;
 
-  // coherencia espacial al inicio del puente
   const first = { lat: coords[0][1], lng: coords[0][0] };
   if (distMeters(a, first) > 80) return null;
 
-  // coherencia temporal: ¿da el tiempo para recorrer esa distancia?
-  const dt = Math.max(1, (new Date(b.timestamp) - new Date(a.timestamp))/1000);
-  const v_kmh_imp = (meters/1000) / (dt/3600);
+  const dt = Math.max(1, (new Date(b.timestamp) - new Date(a.timestamp)) / 1000);
+  const v_kmh_imp = (meters / 1000) / (dt / 3600);
   if (v_kmh_imp > MAX_BRIDGE_SPEED_KMH) return null;
   if (v_kmh_imp < MIN_BRIDGE_SPEED_KMH && dt < 300) return null;
 
-  return coords.map(([lng,lat]) => ({ lat, lng, timestamp: a.timestamp }));
+  return coords.map(([lng, lat]) => ({ lat, lng, timestamp: a.timestamp }));
 }
 
-// ====== Bridge en varios “hops” y con cancelación si un tramo no es plausible ======
+// ====== Bridge multi-hop ======
 async function smartBridge(a, b) {
   const d = distMeters(a, b);
   if (d > BRIDGE_MAX_METERS) return null;
@@ -275,18 +300,18 @@ async function smartBridge(a, b) {
   const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
   const out = [a];
   let prev = a;
-  for (let i=1; i<=hops; i++){
+  for (let i = 1; i <= hops; i++) {
     const t = i / hops;
     const mid = {
-      lat: a.lat + (b.lat - a.lat)*t,
-      lng: a.lng + (b.lng - a.lng)*t,
+      lat: a.lat + (b.lat - a.lat) * t,
+      lng: a.lng + (b.lng - a.lng) * t,
       timestamp: new Date(
         new Date(a.timestamp).getTime() +
         (new Date(b.timestamp) - new Date(a.timestamp)) * t
-      ).toISOString()
+      ).toISOString(),
     };
     const seg = await directionsBetween(prev, mid);
-    if (!seg) return null; // si un hop no pasa validaciones, NO unimos
+    if (!seg) return null;
     out.push(...seg.slice(1));
     prev = mid;
     await sleep(60);
@@ -294,22 +319,40 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ====== Mapa / Lista (igual que tu base) ======
-function initMap(){
-  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:20});
-  state.map = L.map("map",{center:[-12.0464,-77.0428],zoom:12,layers:[state.baseLayers.osm]});
-  state.cluster = L.markerClusterGroup({disableClusteringAtZoom:16});
+// ====== Mapa / Lista ======
+function initMap() {
+  state.baseLayers.osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 20,
+  });
+
+  state.map = L.map("map", {
+    center: [-12.0464, -77.0428],
+    zoom: 12,
+    layers: [state.baseLayers.osm],
+  });
+
+  // clustering mejorado
+  state.cluster = L.markerClusterGroup({
+    disableClusteringAtZoom: 17,
+    maxClusterRadius: 45,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    zoomToBoundsOnClick: true,
+  });
   state.map.addLayer(state.cluster);
 
   ui.apply.onclick = () => fetchInitial(true);
   ui.exportKmz.onclick = () => exportKMZFromState();
+  if (ui.timeRange) ui.timeRange.onchange = () => fetchInitial(true);
+  if (ui.statusFilter) ui.statusFilter.onchange = () => fetchInitial(true);
 }
 initMap();
 
-function setStatus(text, kind){
+function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
 }
+
 function focusOnUser(uid) {
   const u = state.users.get(uid);
   if (!u || !u.marker) return;
@@ -317,16 +360,18 @@ function focusOnUser(uid) {
   state.map.setView(latlng, 17, { animate: true });
   u.marker.openPopup();
 }
-function buildPopup(r){
+
+function buildPopup(r) {
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
   const ts = new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${r.brigada || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
-function addOrUpdateUserInList(row){
+
+function addOrUpdateUserInList(row) {
   const uid = String(row.usuario_id || "0");
   let el = document.getElementById(`u-${uid}`);
-  const mins = Math.round((Date.now() - new Date(row.timestamp))/60000);
+  const mins = getMinutesSince(row);
   const brig = row.brigada || "-";
   const hora = new Date(row.timestamp).toLocaleTimeString();
   const ledColor = mins <= 2 ? "#4ade80" : mins <= 5 ? "#eab308" : "#777";
@@ -343,7 +388,7 @@ function addOrUpdateUserInList(row){
       <div class="brigada-hora">${hora}</div>
     </div>
   `;
-  if (!el){
+  if (!el) {
     el = document.createElement("div");
     el.id = `u-${uid}`;
     el.className = `brigada-item ${cls}`;
@@ -354,29 +399,82 @@ function addOrUpdateUserInList(row){
     el.className = `brigada-item ${cls} marker-pulse`;
     el.innerHTML = html;
     el.onclick = () => { focusOnUser(uid); ui.brigada.value = brig; };
-    setTimeout(()=>el.classList.remove("marker-pulse"),600);
+    setTimeout(() => el.classList.remove("marker-pulse"), 600);
   }
 }
 
-// ====== Últimas 24h (igual que tenías) ======
-async function fetchInitial(clear){
-  setStatus("Cargando…","gray");
+// Actualiza panel de estadísticas nacionales
+function updateGlobalStats({ onlineNow, totalBrigadas, lastTs, hoursWindow }) {
+  const elOnline  = document.getElementById("statOnline");
+  const elTotal   = document.getElementById("statTotal");
+  const elUpdated = document.getElementById("statUpdated");
+  const elRange   = document.getElementById("statRangeText");
+
+  if (elOnline)  elOnline.textContent  = onlineNow ?? 0;
+  if (elTotal)   elTotal.textContent   = totalBrigadas ?? 0;
+  if (elUpdated) elUpdated.textContent = lastTs ? new Date(lastTs).toLocaleTimeString() : "--:--:--";
+  if (elRange)   elRange.textContent   = `Últimas ${hoursWindow} h`;
+}
+
+// ====== Carga inicial (rango dinámico + stats) ======
+async function fetchInitial(clear) {
+  setStatus("Cargando…", "gray");
   if (clear) ui.userList.innerHTML = "";
 
-  const {data, error} = await supa
+  const hours = ui.timeRange ? Number(ui.timeRange.value || 24) : 24;
+  const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supa
     .from("ubicaciones_brigadas")
     .select("*")
-    .gte("timestamp", new Date(Date.now()-24*60*60*1000).toISOString())
-    .order("timestamp",{ascending:false});
+    .gte("timestamp", sinceIso)
+    .order("timestamp", { ascending: false });
 
-  if (error){ setStatus("Error","gray"); return; }
+  if (error) {
+    console.error(error);
+    setStatus("Error", "red");
+    return;
+  }
 
-  const brigFilter = (ui.brigada.value||"").trim().toLowerCase();
+  if (!data || !data.length) {
+    state.pointsByUser.clear();
+    state.cluster.clearLayers();
+    state.users.clear();
+    updateGlobalStats({
+      onlineNow: 0,
+      totalBrigadas: 0,
+      lastTs: null,
+      hoursWindow: hours,
+    });
+    setStatus("Sin datos", "gray");
+    return;
+  }
+
+  // === Estadísticas nacionales (todos los registros en el rango) ===
+  const idsSet = new Set();
+  let onlineNow = 0;
+  for (const r of data) {
+    const uid = String(r.usuario_id || "0");
+    idsSet.add(uid);
+    const mins = getMinutesSince(r);
+    if (mins <= 5) onlineNow++;
+  }
+  updateGlobalStats({
+    onlineNow,
+    totalBrigadas: idsSet.size,
+    lastTs: data[0].timestamp,
+    hoursWindow: hours,
+  });
+
+  // === Agrupado por usuario con filtros de brigada + estado ===
+  const brigFilter = (ui.brigada.value || "").trim().toLowerCase();
   const grouped = new Map();
   const perUser = 100;
 
-  for (const r of data){
-    if (brigFilter && !(r.brigada||"").toLowerCase().includes(brigFilter)) continue;
+  for (const r of data) {
+    if (brigFilter && !(r.brigada || "").toLowerCase().includes(brigFilter)) continue;
+    if (!statusMatches(r)) continue;
+
     const uid = String(r.usuario_id || "0");
     if (!grouped.has(uid)) grouped.set(uid, []);
     if (grouped.get(uid).length >= perUser) continue;
@@ -387,49 +485,61 @@ async function fetchInitial(clear){
   state.cluster.clearLayers();
   state.users.clear();
 
-  grouped.forEach((rows, uid)=>{
+  grouped.forEach((rows, uid) => {
     const last = rows[0];
-    const marker = L.marker([last.latitud,last.longitud],{icon:getIconFor(last)}).bindPopup(buildPopup(last));
+    const marker = L.marker([last.latitud, last.longitud], { icon: getIconFor(last) })
+      .bindPopup(buildPopup(last));
+
     state.cluster.addLayer(marker);
-    state.users.set(uid,{marker,lastRow:last});
+    state.users.set(uid, { marker, lastRow: last });
     state.pointsByUser.set(uid, rows);
     addOrUpdateUserInList(last);
   });
 
-  setStatus("Conectado","green");
+  if (state.cluster.getLayers().length > 0) {
+    state.map.fitBounds(state.cluster.getBounds(), {
+      padding: [40, 40],
+      maxZoom: 12,
+    });
+  }
+
+  setStatus("Conectado", "green");
 }
 
 // ============================= EXPORTAR KMZ =============================
-// Recorre TODO el día de la brigada (desde el PRIMER punto del día), en orden,
-// con matching a pista y puentes plausibles. Si no hay forma plausible, corta tramo.
-async function exportKMZFromState(){
+async function exportKMZFromState() {
   let prevDisabled = false;
   try {
-    setStatus("Generando KMZ…","gray");
-    if (ui?.exportKmz){ prevDisabled = ui.exportKmz.disabled; ui.exportKmz.disabled = true; }
+    setStatus("Generando KMZ…", "gray");
+    if (ui?.exportKmz) {
+      prevDisabled = ui.exportKmz.disabled;
+      ui.exportKmz.disabled = true;
+    }
 
     const brig = (ui.brigada.value || "").trim();
-    if (!brig){
+    if (!brig) {
       alert("Escribe la brigada EXACTA para exportar su KMZ.");
       return;
     }
 
     const dateInput = document.getElementById("kmzDate");
-    const chosen = (dateInput && dateInput.value) ? new Date(dateInput.value+"T00:00:00") : new Date();
+    const chosen = (dateInput && dateInput.value)
+      ? new Date(dateInput.value + "T00:00:00")
+      : new Date();
     const ymd = toYMD(chosen);
-    const next = new Date(chosen.getTime() + 24*60*60*1000);
+    const next = new Date(chosen.getTime() + 24 * 60 * 60 * 1000);
     const ymdNext = toYMD(next);
 
-    const {data, error} = await supa
+    const { data, error } = await supa
       .from("ubicaciones_brigadas")
       .select("latitud,longitud,timestamp,tecnico,usuario_id,timestamp_pe,brigada,acc,spd")
       .eq("brigada", brig)
       .gte("timestamp_pe", ymd)
       .lt("timestamp_pe", ymdNext)
-      .order("timestamp_pe",{ascending:true});
+      .order("timestamp_pe", { ascending: true });
 
     if (error) throw new Error(error.message);
-    if (!data || data.length < 2){
+    if (!data || data.length < 2) {
       alert(`⚠️ No hay datos para "${brig}" en ${ymd}.`);
       return;
     }
@@ -439,47 +549,40 @@ async function exportKMZFromState(){
       .map(r => ({
         lat: +r.latitud,
         lng: +r.longitud,
-        timestamp: r.timestamp_pe || r.timestamp,  // usar hora local del día
+        timestamp: r.timestamp_pe || r.timestamp,
         acc: r.acc ?? null,
-        spd: r.spd ?? null
+        spd: r.spd ?? null,
       }))
       .filter(p => isFinite(p.lat) && isFinite(p.lng) && p.timestamp)
-      .sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    if (all.length < 2){
+    if (all.length < 2) {
       alert(`⚠️ No hay suficientes puntos para "${brig}" en ${ymd}.`);
       return;
     }
 
-    // 1) limpiar puntitos pegados (conserva el primer punto del día)
     const rows1 = [all[0], ...cleanClosePoints(all.slice(1), CLEAN_MIN_METERS)];
-
-    // 2) cortar por huecos/“saltos”
     const segments = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
 
-    // 3) procesar cada segmento con matching + unir con bridges plausibles
-    const renderedSegments = []; // cada elemento será un Placemark
-    for (const seg of segments){
+    const renderedSegments = [];
+    for (const seg of segments) {
       if (seg.length < 2) continue;
 
       const blocks = chunk(seg, MAX_MM_POINTS);
       let current = [];
-      for (let i=0;i<blocks.length;i++){
+      for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i];
 
-        // default por si falla matching: densificado
         let finalBlock = densifySegment(block, DENSIFY_STEP);
-
-        // Map Matching pegado a pista (con timestamps + radiuses adaptativos)
         try {
           const mm = await mapMatchBlockSafe(block);
           if (mm && mm.length >= 2) finalBlock = mm;
-        } catch(_) {}
+        } catch (_) {}
 
-        if (!current.length){
+        if (!current.length) {
           current.push(...finalBlock);
         } else {
-          const last  = current[current.length-1];
+          const last  = current[current.length - 1];
           const first = finalBlock[0];
           const gapM  = distMeters(last, first);
 
@@ -493,7 +596,6 @@ async function exportKMZFromState(){
               }
             }
             if (!appended) {
-              // no hay unión plausible -> cerramos tramo y comenzamos uno nuevo
               if (current.length > 1) renderedSegments.push(current);
               current = [...finalBlock];
               await sleep(PER_BLOCK_DELAY);
@@ -508,19 +610,20 @@ async function exportKMZFromState(){
       if (current.length > 1) renderedSegments.push(current);
     }
 
-    if (!renderedSegments.length){
+    if (!renderedSegments.length) {
       alert("No se generó traza válida.");
       return;
     }
 
-    // 4) Exportar KML/KMZ: un Placemark por tramo (sin diagonales)
-    let kml = `<?xml version="1.0" encoding="UTF-8"?>` +
-              `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
-              `<name>${brig} - ${ymd}</name>` +
-              `<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>`;
+    // 4) Exportar KML/KMZ
+    let kml =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
+      `<name>${brig} - ${ymd}</name>` +
+      `<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>`;
 
     for (const seg of renderedSegments) {
-      const coordsStr = seg.map(p=>`${p.lng},${p.lat},0`).join(" ");
+      const coordsStr = seg.map(p => `${p.lng},${p.lat},0`).join(" ");
       kml += `
         <Placemark>
           <name>${brig} (${ymd})</name>
@@ -531,30 +634,33 @@ async function exportKMZFromState(){
 
     kml += `</Document></kml>`;
 
-    // 5) Generar KMZ
     if (!window.JSZip) {
-      try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch(_){}
+      try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch (_) {}
     }
     const zip = new JSZip();
     zip.file("doc.kml", kml);
-    const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:1}});
+    const blob = await zip.generateAsync({
+      type: "blob",
+      compression: "DEFLATE",
+      compressionOptions: { level: 1 },
+    });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g,"_");
+    const safeBrig = brig.replace(/[^a-zA-Z0-9_-]+/g, "_");
     a.download = `recorrido_${safeBrig}_${ymd}.kmz`;
     a.click();
     URL.revokeObjectURL(a.href);
 
     alert(`✅ KMZ listo: ${brig} (${ymd}) — ${renderedSegments.length} tramo(s) plausibles`);
-  } catch(e){
+  } catch (e) {
     console.error(e);
     alert("❌ No se pudo generar el KMZ: " + e.message);
   } finally {
-    setStatus("Conectado","green");
+    setStatus("Conectado", "green");
     if (ui?.exportKmz) ui.exportKmz.disabled = prevDisabled;
   }
 }
 
 // ====== Arranque ======
-setStatus("Cargando...","gray");
+setStatus("Cargando...", "gray");
 fetchInitial(true);
