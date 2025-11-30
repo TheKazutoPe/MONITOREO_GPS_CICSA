@@ -1,5 +1,4 @@
 // ============================== main.js ==============================
-// Usa CONFIG y supabase globales cargados en index.html
 const supa = supabase.createClient(
   CONFIG.SUPABASE_URL,
   CONFIG.SUPABASE_ANON_KEY
@@ -19,22 +18,22 @@ const ui = {
   btnShowAll: document.getElementById("btnShowAll"),
   mapStyleSelect: document.getElementById("mapStyleSelect"),
   btnRefresh: document.getElementById("btnRefresh"),
-  btnToggleCluster: document.getElementById("btnToggleCluster") // nuevo
+  btnToggleCluster: document.getElementById("btnToggleCluster")
 };
 
-// ====== Estado del mapa/lista ======
+// ====== Estado ======
 const state = {
   map: null,
   baseLayers: {},
   currentBase: "streets",
-  cluster: null,      // capa agrupada
-  plainLayer: null,   // capa sin agrupar
-  mode: "cluster",    // "cluster" | "plain"
-  users: new Map(),   // uid -> { marker, lastRow }
+  cluster: null,
+  plainLayer: null,
+  mode: "cluster", // cluster | plain
+  users: new Map(),
   pointsByUser: new Map()
 };
 
-// ====== Ajustes trazado / matching ======
+// ====== Parámetros de trazado / matching ======
 const CLEAN_MIN_METERS = 6;
 const DENSIFY_STEP = 10;
 const MAX_MM_POINTS = 40;
@@ -43,22 +42,19 @@ const MAX_DIST_RATIO = 0.35;
 const ENDPOINT_TOL = 25;
 const CONFIDENCE_MIN = 0.7;
 
-// Gaps / “teleport”
 const GAP_MINUTES = 8;
 const GAP_JUMP_METERS = 800;
 
-// Puentes por carretera
 const BRIDGE_MAX_METERS = 800;
 const DIRECTIONS_HOP_METERS = 300;
 const MAX_BRIDGE_SPEED_KMH = 70;
 const MIN_BRIDGE_SPEED_KMH = 3;
 const DIRECTIONS_PROFILE = "driving";
 
-// Ritmo de llamadas
 const PER_BLOCK_DELAY = 150;
 
-// ====== Iconos ======
-const ICONS = {
+// ====== Iconos adaptativos (carro / punto) ======
+const CAR_ICONS = {
   green: L.icon({
     iconUrl: "assets/carro-green.png",
     iconSize: [40, 24],
@@ -76,11 +72,40 @@ const ICONS = {
   })
 };
 
-function getIconFor(row) {
+const DOT_ICONS = {
+  green: L.divIcon({
+    className: "marker-dot marker-dot-green",
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  }),
+  yellow: L.divIcon({
+    className: "marker-dot marker-dot-yellow",
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  }),
+  gray: L.divIcon({
+    className: "marker-dot marker-dot-gray",
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  })
+};
+
+function getStatusColor(row) {
   const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
-  if (mins <= 2) return ICONS.green;
-  if (mins <= 5) return ICONS.yellow;
-  return ICONS.gray;
+  if (mins <= 2) return "green";
+  if (mins <= 5) return "yellow";
+  return "gray";
+}
+
+// Decide icono según zoom (carro cerca, punto lejos)
+function getIconFor(row) {
+  const color = getStatusColor(row);
+  const zoom = state.map ? state.map.getZoom() : 10;
+  if (zoom >= 11) {
+    return CAR_ICONS[color];
+  } else {
+    return DOT_ICONS[color];
+  }
 }
 
 // ====== Helpers generales ======
@@ -110,7 +135,7 @@ function chunk(arr, size) {
   return out;
 }
 
-// ====== densificar una secuencia ======
+// densificar
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -137,7 +162,6 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ====== limitar puntos ======
 function downsamplePoints(arr, maxN) {
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
@@ -151,7 +175,6 @@ function downsamplePoints(arr, maxN) {
   return out;
 }
 
-// ====== limpieza, cortes ======
 function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS) {
   if (!points.length) return points;
   const out = [points[0]];
@@ -164,6 +187,7 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS) {
   }
   return out;
 }
+
 function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS) {
   const groups = [];
   let cur = [];
@@ -188,14 +212,13 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   return groups;
 }
 
-// ====== Radio adaptativo ======
 function adaptiveRadius(p) {
   const acc = p && p.acc != null ? Number(p.acc) : NaN;
   const base = isFinite(acc) ? acc + 5 : 25;
   return Math.max(10, Math.min(50, base));
 }
 
-// ====== Map Matching ======
+// ====== Map matching ======
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
@@ -227,7 +250,6 @@ async function mapMatchBlockSafe(seg) {
     console.warn("Matching fetch error:", e);
     return null;
   }
-
   if (!r.ok) {
     const txt = await r.text().catch(() => "");
     console.warn("Matching status:", r.status, txt.slice(0, 200));
@@ -271,7 +293,7 @@ async function mapMatchBlockSafe(seg) {
   return matched;
 }
 
-// ====== Directions / Bridges ======
+// ====== Directions / puentes ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
@@ -296,7 +318,6 @@ async function directionsBetween(a, b) {
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
   const meters = route?.distance ?? 0;
-  const secs = route?.duration ?? 0;
   if (!coords.length || meters <= 0) return null;
 
   const first = { lat: coords[0][1], lng: coords[0][0] };
@@ -347,14 +368,13 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ====== ANIMACIÓN SUAVE DE MARCADORES ======
+// ====== Animación de marcador ======
 function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   if (!fromLatLng || !toLatLng) {
     marker.setLatLng(toLatLng);
     return;
   }
   const start = performance.now();
-
   function step(ts) {
     const elapsed = ts - start;
     const p = Math.min(elapsed / duration, 1);
@@ -363,7 +383,6 @@ function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
     marker.setLatLng([lat, lng]);
     if (p < 1) requestAnimationFrame(step);
   }
-
   requestAnimationFrame(step);
 }
 
@@ -381,9 +400,8 @@ function createMapboxLayer(styleId) {
   );
 }
 
-// ====== MAPA / LISTA ======
+// ====== MAPA ======
 function initMap() {
-  // Capas base (streets por defecto)
   state.baseLayers.streets = createMapboxLayer("streets-v12");
   state.baseLayers.dark = createMapboxLayer("dark-v11");
   state.baseLayers.satellite = createMapboxLayer("satellite-streets-v12");
@@ -399,18 +417,20 @@ function initMap() {
   });
   state.currentBase = "streets";
 
-  // Clúster (modo agrupado)
   state.cluster = L.markerClusterGroup({
     disableClusteringAtZoom: 16
   });
-
-  // Capa plana (modo global)
   state.plainLayer = L.layerGroup();
-
-  // Por defecto usamos clúster
   state.map.addLayer(state.cluster);
 
-  // Eventos UI
+  // Cambiar iconos carro/punto al cambiar zoom
+  state.map.on("zoomend", () => {
+    for (const [, u] of state.users.entries()) {
+      if (!u.lastRow) continue;
+      u.marker.setIcon(getIconFor(u.lastRow));
+    }
+  });
+
   if (ui.apply) ui.apply.onclick = () => fetchInitial(true);
   if (ui.exportKmz) ui.exportKmz.onclick = () => exportKMZFromState();
 
@@ -422,20 +442,17 @@ function initMap() {
 
   if (ui.btnShowAll) {
     ui.btnShowAll.onclick = () => {
-      const layers =
-        state.mode === "cluster"
-          ? state.cluster.getLayers()
-          : state.plainLayer.getLayers();
-      if (!layers.length) return;
       const group =
         state.mode === "cluster" ? state.cluster : state.plainLayer;
+      const layers = group.getLayers();
+      if (!layers.length) return;
       state.map.fitBounds(group.getBounds(), { padding: [40, 40] });
     };
   }
 
   if (ui.mapStyleSelect) {
     ui.mapStyleSelect.onchange = () => {
-      const chosen = ui.mapStyleSelect.value; // streets | dark | satellite | osm
+      const chosen = ui.mapStyleSelect.value;
       if (chosen === state.currentBase) return;
       const currentLayer = state.baseLayers[state.currentBase];
       const newLayer = state.baseLayers[chosen];
@@ -446,12 +463,11 @@ function initMap() {
   }
 
   if (ui.btnRefresh) ui.btnRefresh.onclick = () => fetchInitial(false);
-
   if (ui.btnToggleCluster) ui.btnToggleCluster.onclick = () => toggleClusterMode();
 }
 initMap();
 
-// Añadir marcador a la capa activa (cluster o plano)
+// ====== capas y cluster toggle ======
 function addMarkerToActiveLayer(marker) {
   if (state.mode === "cluster") {
     state.cluster.addLayer(marker);
@@ -460,7 +476,6 @@ function addMarkerToActiveLayer(marker) {
   }
 }
 
-// Recolocar todos los marcadores cuando cambio de modo
 function refreshMarkerContainers() {
   state.cluster.clearLayers();
   state.plainLayer.clearLayers();
@@ -469,7 +484,6 @@ function refreshMarkerContainers() {
   }
 }
 
-// Cambiar entre modo agrupado y vista global
 function toggleClusterMode() {
   if (state.mode === "cluster") {
     state.mode = "plain";
@@ -574,7 +588,6 @@ function addOrUpdateUserInList(row, statusCode) {
   }
 }
 
-// Aplica filtros sobre la lista ya cargada
 function applyListFilters() {
   const name = (ui.filterName?.value || "").trim().toLowerCase();
   const brigadaText =
@@ -598,7 +611,7 @@ function applyListFilters() {
   });
 }
 
-// ====== Carga de datos (últimas 24h) ======
+// ====== Carga de ubicaciones ======
 async function fetchInitial(clearList) {
   try {
     setStatus("Cargando…", "gray");
@@ -635,7 +648,6 @@ async function fetchInitial(clearList) {
       grouped.get(uid).push(r);
     }
 
-    // limpiar ambas capas
     state.cluster.clearLayers();
     state.plainLayer.clearLayers();
 
@@ -672,7 +684,6 @@ async function fetchInitial(clearList) {
       addOrUpdateUserInList(last, statusCode);
     });
 
-    // Eliminar brigadas que ya no aparecen
     for (const [uid, u] of state.users.entries()) {
       if (!activeUids.has(uid)) {
         state.cluster.removeLayer(u.marker);
@@ -691,7 +702,7 @@ async function fetchInitial(clearList) {
   }
 }
 
-// ============================= EXPORTAR KMZ =============================
+// ====== Exportar KMZ (igual que antes) ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
@@ -860,4 +871,4 @@ async function exportKMZFromState() {
 // ====== Arranque ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
-// setInterval(() => fetchInitial(false), 30000); // si quieres auto-actualización
+// setInterval(() => fetchInitial(false), 30000); // si quieres auto-refresh
