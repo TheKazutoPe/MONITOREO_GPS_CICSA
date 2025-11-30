@@ -9,7 +9,7 @@ const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 // ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
-  brigada: document.getElementById("filterBrigada"), // filtro principal de brigada
+  brigada: document.getElementById("filterBrigada"),
   apply: document.getElementById("applyFilters"),
   exportKmz: document.getElementById("exportKmzBtn"),
   userList: document.getElementById("userList"),
@@ -18,7 +18,8 @@ const ui = {
   btnCenter: document.getElementById("btnCenter"),
   btnShowAll: document.getElementById("btnShowAll"),
   mapStyleSelect: document.getElementById("mapStyleSelect"),
-  btnRefresh: document.getElementById("btnRefresh")
+  btnRefresh: document.getElementById("btnRefresh"),
+  btnToggleCluster: document.getElementById("btnToggleCluster") // nuevo
 };
 
 // ====== Estado del mapa/lista ======
@@ -26,8 +27,10 @@ const state = {
   map: null,
   baseLayers: {},
   currentBase: "streets",
-  cluster: null,
-  users: new Map(), // uid -> { marker, lastRow }
+  cluster: null,      // capa agrupada
+  plainLayer: null,   // capa sin agrupar
+  mode: "cluster",    // "cluster" | "plain"
+  users: new Map(),   // uid -> { marker, lastRow }
   pointsByUser: new Map()
 };
 
@@ -364,14 +367,13 @@ function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   requestAnimationFrame(step);
 }
 
-// ====== MAPBOX TILE LAYERS para Leaflet ======
+// ====== Mapbox tiles en Leaflet ======
 function createMapboxLayer(styleId) {
   return L.tileLayer(
     `https://api.mapbox.com/styles/v1/mapbox/${styleId}/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`,
     {
       maxZoom: 20,
       tileSize: 256,
-      zoomOffset: 0,
       attribution:
         '© <a href="https://www.openstreetmap.org/">OpenStreetMap</a> ' +
         '© <a href="https://www.mapbox.com/">Mapbox</a>'
@@ -379,9 +381,9 @@ function createMapboxLayer(styleId) {
   );
 }
 
-// ====== Mapa / Lista ======
+// ====== MAPA / LISTA ======
 function initMap() {
-  // Capas base
+  // Capas base (streets por defecto)
   state.baseLayers.streets = createMapboxLayer("streets-v12");
   state.baseLayers.dark = createMapboxLayer("dark-v11");
   state.baseLayers.satellite = createMapboxLayer("satellite-streets-v12");
@@ -390,7 +392,6 @@ function initMap() {
     { maxZoom: 20 }
   );
 
-  // Streets-v12 por defecto
   state.map = L.map("map", {
     center: [-12.0464, -77.0428],
     zoom: 6,
@@ -398,22 +399,20 @@ function initMap() {
   });
   state.currentBase = "streets";
 
-  // Clúster
+  // Clúster (modo agrupado)
   state.cluster = L.markerClusterGroup({
     disableClusteringAtZoom: 16
   });
+
+  // Capa plana (modo global)
+  state.plainLayer = L.layerGroup();
+
+  // Por defecto usamos clúster
   state.map.addLayer(state.cluster);
 
-  // Eventos de UI
-  if (ui.apply) {
-    ui.apply.onclick = () => {
-      fetchInitial(true);
-    };
-  }
-
-  if (ui.exportKmz) {
-    ui.exportKmz.onclick = () => exportKMZFromState();
-  }
+  // Eventos UI
+  if (ui.apply) ui.apply.onclick = () => fetchInitial(true);
+  if (ui.exportKmz) ui.exportKmz.onclick = () => exportKMZFromState();
 
   if (ui.btnCenter) {
     ui.btnCenter.onclick = () => {
@@ -423,8 +422,14 @@ function initMap() {
 
   if (ui.btnShowAll) {
     ui.btnShowAll.onclick = () => {
-      if (!state.cluster || state.cluster.getLayers().length === 0) return;
-      state.map.fitBounds(state.cluster.getBounds(), { padding: [40, 40] });
+      const layers =
+        state.mode === "cluster"
+          ? state.cluster.getLayers()
+          : state.plainLayer.getLayers();
+      if (!layers.length) return;
+      const group =
+        state.mode === "cluster" ? state.cluster : state.plainLayer;
+      state.map.fitBounds(group.getBounds(), { padding: [40, 40] });
     };
   }
 
@@ -440,14 +445,48 @@ function initMap() {
     };
   }
 
-  if (ui.btnRefresh) {
-    ui.btnRefresh.onclick = () => {
-      fetchInitial(false);
-    };
-  }
+  if (ui.btnRefresh) ui.btnRefresh.onclick = () => fetchInitial(false);
+
+  if (ui.btnToggleCluster) ui.btnToggleCluster.onclick = () => toggleClusterMode();
 }
 initMap();
 
+// Añadir marcador a la capa activa (cluster o plano)
+function addMarkerToActiveLayer(marker) {
+  if (state.mode === "cluster") {
+    state.cluster.addLayer(marker);
+  } else {
+    state.plainLayer.addLayer(marker);
+  }
+}
+
+// Recolocar todos los marcadores cuando cambio de modo
+function refreshMarkerContainers() {
+  state.cluster.clearLayers();
+  state.plainLayer.clearLayers();
+  for (const [, u] of state.users.entries()) {
+    addMarkerToActiveLayer(u.marker);
+  }
+}
+
+// Cambiar entre modo agrupado y vista global
+function toggleClusterMode() {
+  if (state.mode === "cluster") {
+    state.mode = "plain";
+    state.map.removeLayer(state.cluster);
+    state.map.addLayer(state.plainLayer);
+    refreshMarkerContainers();
+    ui.btnToggleCluster.textContent = "🌐 Vista global (ON)";
+  } else {
+    state.mode = "cluster";
+    state.map.removeLayer(state.plainLayer);
+    state.map.addLayer(state.cluster);
+    refreshMarkerContainers();
+    ui.btnToggleCluster.textContent = "🌐 Vista global";
+  }
+}
+
+// ====== UI de estado ======
 function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
@@ -470,7 +509,7 @@ function buildPopup(r) {
   }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
-// Agrega / actualiza card de brigada
+// ====== Lista de brigadas ======
 function addOrUpdateUserInList(row, statusCode) {
   const uid = String(row.usuario_id || "0");
   const brig = row.brigada || "-";
@@ -596,7 +635,9 @@ async function fetchInitial(clearList) {
       grouped.get(uid).push(r);
     }
 
+    // limpiar ambas capas
     state.cluster.clearLayers();
+    state.plainLayer.clearLayers();
 
     const activeUids = new Set();
 
@@ -615,7 +656,7 @@ async function fetchInitial(clearList) {
         const marker = L.marker([last.latitud, last.longitud], {
           icon: getIconFor(last)
         }).bindPopup(buildPopup(last));
-        state.cluster.addLayer(marker);
+        addMarkerToActiveLayer(marker);
         state.users.set(uid, { marker, lastRow: last });
       } else {
         const marker = userState.marker;
@@ -624,7 +665,7 @@ async function fetchInitial(clearList) {
         animateMarker(marker, oldPos, newPos, 850);
         marker.setIcon(getIconFor(last));
         marker.setPopupContent(buildPopup(last));
-        state.cluster.addLayer(marker);
+        addMarkerToActiveLayer(marker);
         userState.lastRow = last;
       }
 
@@ -635,6 +676,7 @@ async function fetchInitial(clearList) {
     for (const [uid, u] of state.users.entries()) {
       if (!activeUids.has(uid)) {
         state.cluster.removeLayer(u.marker);
+        state.plainLayer.removeLayer(u.marker);
         state.users.delete(uid);
         const el = document.getElementById(`u-${uid}`);
         if (el) el.remove();
@@ -818,5 +860,4 @@ async function exportKMZFromState() {
 // ====== Arranque ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
-// Si quieres auto-actualización, descomenta:
-// setInterval(() => fetchInitial(false), 30000);
+// setInterval(() => fetchInitial(false), 30000); // si quieres auto-actualización
