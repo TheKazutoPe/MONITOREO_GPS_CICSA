@@ -2,18 +2,20 @@
 // Configuración general
 // =====================================================================
 
-const SUPABASE_URL = "https://qotgbsgfliebyoixbhyi.supabase.co";
-const SUPABASE_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvdGdic2dmbGllYnlvaXhiaHlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzAwNDQ1NDUsImV4cCI6MjA0NTYyMDU0NX0.XH1U2qofmY77-9n9FO03mFGb20CqE22Sqc5uGvV_hBk";
+// Tomamos la configuración desde config.js (window.CONFIG)
+const { SUPABASE_URL, SUPABASE_ANON_KEY, MAPBOX_TOKEN } = window.CONFIG;
+
+// Clave anon de Supabase
+const SUPABASE_KEY = SUPABASE_ANON_KEY;
+
+// Cliente Supabase ÚNICO para todo el archivo
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const AUTO_REFRESH_MS = 15000; // 15s
 const HISTORY_MINUTES = 1440; // 24h
 const MAX_POINTS_PER_USER = 200;
 
-// Mapbox
-const MAPBOX_TOKEN =
-  "pk.eyJ1Ijoia2V2aW5jYXJ0ZXIzNDMiLCJhIjoiY2x5d2hndDB5MHZ0ZzJqcXZidjZvdTk4NiJ9.ndo3qIeJU9iAuFR7ra7K3g";
-
+// Mapbox (el token ya viene desde config.js)
 const MAP_STYLE_CLARO =
   "mapbox://styles/kevincarter343/clzq0sfw0002x01pw1kxx865f";
 const MAP_STYLE_STREETS = "mapbox://styles/mapbox/streets-v12";
@@ -267,8 +269,10 @@ async function mapMatchBlockSafe(seg) {
 
 const ui = {
   status: document.getElementById("status"),
+  // en tu index.html no existe last-update ni toggle-matching, así que quedarán null
   lastUpdate: document.getElementById("last-update"),
-  userList: document.getElementById("user-list"),
+  // id correcto según index.html: "userList"
+  userList: document.getElementById("userList"),
   toggleMatching: document.getElementById("toggle-matching"),
 };
 
@@ -339,12 +343,10 @@ function initMap() {
 // =====================================================================
 
 async function fetchBrigadasData() {
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
   const now = new Date();
   const fromDt = new Date(now.getTime() - HISTORY_MINUTES * 60000);
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("ubicaciones_brigadas")
     .select("*")
     .gte("timestamp", fromDt.toISOString())
