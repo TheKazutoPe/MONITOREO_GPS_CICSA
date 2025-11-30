@@ -22,14 +22,18 @@ const ui = {
   btnRefresh: document.getElementById("btnRefresh"),
   btnToggleCluster: document.getElementById("btnToggleCluster"),
 
-  // 🔍 nuevo: búsqueda de Site y rutas
+  // Site + rutas
   siteSearch: document.getElementById("siteSearch"),
   btnBuscarSite: document.getElementById("btnBuscarSite"),
   siteSuggestions: document.getElementById("siteSuggestions"),
   routesPanel: document.getElementById("routesPanel")
 };
 
-// ====== Estado ======
+if (ui.siteSuggestions) {
+  ui.siteSuggestions.classList.add("suggestions-box");
+}
+
+// ====== Estado global ======
 const state = {
   map: null,
   baseLayers: {},
@@ -37,22 +41,20 @@ const state = {
   cluster: null,
   plainLayer: null,
   mode: "plain", // vista global ON por defecto
-  users: new Map(),
+  users: new Map(), // uid -> { marker, lastRow }
   pointsByUser: new Map(),
 
-  // nuevo: capa de rutas y marcador de Site
   routeLayer: null,
   siteMarker: null
 };
 
-// ====== Parámetros de trazado / matching ======
+// ====== Parámetros de limpieza y matching ======
 const CLEAN_MIN_METERS = 6;
 const DENSIFY_STEP = 10;
 const MAX_MM_POINTS = 40;
 const MAX_MATCH_INPUT = 90;
 const MAX_DIST_RATIO = 0.35;
 const ENDPOINT_TOL = 25;
-const CONFIDENCE_MIN = 0.7;
 
 const GAP_MINUTES = 8;
 const GAP_JUMP_METERS = 800;
@@ -65,7 +67,7 @@ const DIRECTIONS_PROFILE = "driving";
 
 const PER_BLOCK_DELAY = 150;
 
-// ====== Iconos adaptativos (carro / punto) ======
+// ====== Iconos adaptativos ======
 const CAR_ICONS = {
   green: L.icon({
     iconUrl: "assets/carro-green.png",
@@ -109,7 +111,7 @@ function getStatusColor(row) {
   return "gray";
 }
 
-// puntos en zoom bajo, carro en zoom alto
+// punto en zoom bajo, carro en zoom alto
 function getIconFor(row) {
   const color = getStatusColor(row);
   const zoom = state.map ? state.map.getZoom() : 10;
@@ -120,7 +122,7 @@ function getIconFor(row) {
   }
 }
 
-// ====== Helpers ======
+// ====== Helpers generales ======
 function distMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -147,6 +149,7 @@ function chunk(arr, size) {
   return out;
 }
 
+// ====== Limpieza / densificación ======
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -229,7 +232,7 @@ function adaptiveRadius(p) {
   return Math.max(10, Math.min(50, base));
 }
 
-// ====== Map matching ======
+// ====== Map Matching ======
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
@@ -271,7 +274,7 @@ async function mapMatchBlockSafe(seg) {
   const m = j?.matchings?.[0];
   if (
     !m?.geometry?.coordinates ||
-    (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)
+    (typeof m.confidence === "number" && m.confidence < 0.7)
   ) {
     if (dense.length > 24) {
       const mid = Math.floor(dense.length / 2);
@@ -380,7 +383,7 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ====== Animación marcador ======
+// ====== Animación de marcadores ======
 function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   if (!fromLatLng || !toLatLng) {
     marker.setLatLng(toLatLng);
@@ -398,7 +401,7 @@ function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   requestAnimationFrame(step);
 }
 
-// ====== Mapbox tiles ======
+// ====== Capas base Mapbox/OSM ======
 function createMapboxLayer(styleId) {
   return L.tileLayer(
     `https://api.mapbox.com/styles/v1/mapbox/${styleId}/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`,
@@ -412,7 +415,7 @@ function createMapboxLayer(styleId) {
   );
 }
 
-// ====== MAPA ======
+// ====== Inicialización del mapa ======
 function initMap() {
   state.baseLayers.streets = createMapboxLayer("streets-v12");
   state.baseLayers.dark = createMapboxLayer("dark-v11");
@@ -433,15 +436,13 @@ function initMap() {
     disableClusteringAtZoom: 16
   });
   state.plainLayer = L.layerGroup();
-
-  // 🔴 nueva capa para rutas hacia Site
   state.routeLayer = L.layerGroup().addTo(state.map);
 
-  // Vista global ON
+  // Vista global ON por defecto
   state.map.addLayer(state.plainLayer);
   if (ui.btnToggleCluster) ui.btnToggleCluster.textContent = "🌐 Vista global (ON)";
 
-  // Cambiar icono (punto/carro) según zoom
+  // Cambiar iconos cuando cambie el zoom (punto/carro)
   state.map.on("zoomend", () => {
     for (const [, u] of state.users.entries()) {
       if (!u.lastRow) continue;
@@ -485,7 +486,7 @@ function initMap() {
 }
 initMap();
 
-// ====== capas y cluster toggle ======
+// ====== Helpers de capas / cluster ======
 function addMarkerToActiveLayer(marker) {
   if (state.mode === "cluster") {
     state.cluster.addLayer(marker);
@@ -518,7 +519,7 @@ function toggleClusterMode() {
   }
 }
 
-// ====== UI estado ======
+// ====== UI estado y popups ======
 function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
@@ -538,7 +539,9 @@ function buildPopup(r) {
   const ts = new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${
     r.brigada || "-"
-  }<br>Zona: ${r.zona || "-"} · Contrata: ${r.contrata || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
+  }<br>Zona: ${r.zona || "-"} · Contrata: ${
+    r.contrata || "-"
+  }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
 /**
@@ -583,7 +586,7 @@ function populateFilterOptionsFromData(rows) {
   if (currentContrata) ui.filterContrata.value = currentContrata;
 }
 
-// ====== Lista de brigadas ======
+// ====== Lista de brigadas en sidebar ======
 function addOrUpdateUserInList(row, statusCode) {
   const uid = String(row.usuario_id || "0");
   const brig = row.brigada || "-";
@@ -714,7 +717,7 @@ async function fetchInitial(clearList) {
       return;
     }
 
-    // llenar combos zona/contrata
+    // llena combos zona/contrata
     populateFilterOptionsFromData(data || []);
 
     const brigFilter = (ui.brigada?.value || "").trim().toLowerCase();
@@ -754,7 +757,7 @@ async function fetchInitial(clearList) {
 
     state.cluster.clearLayers();
     state.plainLayer.clearLayers();
-    if (state.routeLayer) state.routeLayer.clearLayers(); // limpiamos rutas al actualizar
+    if (state.routeLayer) state.routeLayer.clearLayers();
 
     const activeUids = new Set();
 
@@ -789,7 +792,7 @@ async function fetchInitial(clearList) {
       addOrUpdateUserInList(last, statusCode);
     });
 
-    // eliminar usuarios que ya no están activos en este filtro
+    // quitar usuarios que no están en esta vista
     for (const [uid, u] of state.users.entries()) {
       if (!activeUids.has(uid)) {
         state.cluster.removeLayer(u.marker);
@@ -1042,9 +1045,6 @@ function showSiteSuggestions(list) {
   list.forEach(site => {
     const div = document.createElement("div");
     div.className = "suggestion-item";
-    div.style.padding = "4px 6px";
-    div.style.cursor = "pointer";
-    div.style.borderBottom = "1px solid #333";
     div.innerHTML = `<strong>${site.id || ""}</strong> - ${site.name}`;
     div.onclick = () => {
       ui.siteSearch.value = site.name;
@@ -1057,7 +1057,7 @@ function showSiteSuggestions(list) {
   box.style.display = "block";
 }
 
-// Calcular rutas desde brigadas más cercanas
+// ====== Rutas desde brigadas hacia el Site ======
 async function calcularRutasBrigadasCercanas(site) {
   if (!state.map || !MAPBOX_TOKEN) {
     alert("No hay mapa o token de Mapbox para calcular rutas.");
@@ -1070,7 +1070,6 @@ async function calcularRutasBrigadasCercanas(site) {
   state.routeLayer.clearLayers();
   ui.routesPanel.innerHTML = "";
 
-  // obtener brigadas con posición válida
   const brigadas = [];
   for (const [, u] of state.users.entries()) {
     const row = u.lastRow;
@@ -1091,8 +1090,14 @@ async function calcularRutasBrigadasCercanas(site) {
   brigadas.sort((a, b) => a.dist - b.dist);
   const candidatos = brigadas.slice(0, 3); // 3 brigadas más cercanas
 
+  const routeColors = ["#00e676", "#ffc857", "#ff5252"];
+
   const resultados = [];
-  for (const b of candidatos) {
+
+  for (let i = 0; i < candidatos.length; i++) {
+    const b = candidatos[i];
+    const color = routeColors[i % routeColors.length];
+
     const url =
       `https://api.mapbox.com/directions/v5/mapbox/driving/` +
       `${b.lng},${b.lat};${site.lng},${site.lat}` +
@@ -1109,6 +1114,35 @@ async function calcularRutasBrigadasCercanas(site) {
       const seconds = route.duration || 0;
       const minutes = seconds / 60;
 
+      const coords = route.geometry.coordinates.map(([lng, lat]) => [
+        lat,
+        lng
+      ]);
+
+      const line = L.polyline(coords, {
+        color,
+        weight: i === 0 ? 6 : 4,
+        opacity: 0.9,
+        dashArray: i === 0 ? null : "8 6",
+        lineJoin: "round"
+      }).addTo(state.routeLayer);
+
+      line.bringToFront();
+
+      L.circleMarker([b.lat, b.lng], {
+        radius: 5,
+        color: "#000",
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 1
+      })
+        .addTo(state.routeLayer)
+        .bindPopup(
+          `<b>${b.row.brigada || "-"}</b><br>${b.row.tecnico ||
+            b.row.usuario ||
+            "Sin nombre"}`
+        );
+
       resultados.push({
         brigada: b.row.brigada || "-",
         tecnico: b.row.tecnico || b.row.usuario || "Sin nombre",
@@ -1116,19 +1150,9 @@ async function calcularRutasBrigadasCercanas(site) {
         contrata: b.row.contrata || "-",
         distance: meters,
         duration: minutes,
-        geometry: route.geometry
+        color,
+        polyline: line
       });
-
-      const coords = route.geometry.coordinates.map(([lng, lat]) => [
-        lat,
-        lng
-      ]);
-
-      L.polyline(coords, {
-        color: "#ffcc00",
-        weight: 4,
-        opacity: 0.9
-      }).addTo(state.routeLayer);
 
       await sleep(120);
     } catch (e) {
@@ -1138,46 +1162,55 @@ async function calcularRutasBrigadasCercanas(site) {
 
   if (!resultados.length) {
     ui.routesPanel.innerHTML =
-      "<div style='color:#bbb;'>No se pudo obtener rutas desde Mapbox.</div>";
+      "<div style='color:#bbb; padding:6px;'>No se pudo obtener rutas desde Mapbox.</div>";
     return;
   }
 
   resultados.sort((a, b) => a.duration - b.duration);
 
   const title = document.createElement("div");
-  title.style.fontWeight = "bold";
-  title.style.marginBottom = "4px";
+  title.className = "routes-panel-title";
   title.textContent = `Rutas hacia: ${site.name}`;
   ui.routesPanel.appendChild(title);
 
-  resultados.forEach(r => {
+  resultados.forEach((r, idx) => {
     const item = document.createElement("div");
-    item.style.display = "flex";
-    item.style.justifyContent = "space-between";
-    item.style.padding = "4px 0";
-    item.style.borderBottom = "1px solid #333";
+    item.className = "route-item";
+
+    const rankLabel = idx === 0 ? "1️⃣" : idx === 1 ? "2️⃣" : "3️⃣";
+
     item.innerHTML = `
-      <div>
-        <div><b>${r.brigada}</b> - ${r.tecnico}</div>
-        <div style="font-size:10px;color:#aaa;">Zona: ${r.zona} · Contrata: ${r.contrata}</div>
+      <div class="route-item-left">
+        <div class="route-item-main">${rankLabel} ${r.brigada} – ${r.tecnico}</div>
+        <div class="route-item-sub">Zona: ${r.zona} · Contrata: ${r.contrata}</div>
       </div>
-      <div style="text-align:right;">
-        <div><b>${formatMinutes(r.duration)}</b></div>
-        <div style="font-size:10px;color:#aaa;">${formatKm(r.distance)}</div>
+      <div class="route-item-pill" style="background:${r.color}1f; border:1px solid ${r.color}80;">
+        <div class="route-item-main">${formatMinutes(r.duration)}</div>
+        <div class="route-item-sub">${formatKm(r.distance)}</div>
       </div>
     `;
+
+    item.onclick = () => {
+      if (r.polyline) {
+        const bounds = r.polyline.getBounds();
+        if (bounds.isValid()) {
+          state.map.fitBounds(bounds, { padding: [60, 60] });
+        }
+      }
+    };
+
     ui.routesPanel.appendChild(item);
   });
 
   const bounds = state.routeLayer.getBounds();
   if (bounds.isValid()) {
-    state.map.fitBounds(bounds, { padding: [40, 40] });
+    state.map.fitBounds(bounds, { padding: [50, 50] });
   } else {
     state.map.setView([site.lat, site.lng], 13);
   }
 }
 
-// Handler principal al buscar Site
+// ====== Handler principal al buscar Site ======
 async function handleBuscarSite(siteFromAutocomplete = null) {
   let site = siteFromAutocomplete;
 
@@ -1196,7 +1229,6 @@ async function handleBuscarSite(siteFromAutocomplete = null) {
     site = results[0];
   }
 
-  // colocar marcador del site
   if (!state.siteMarker) {
     state.siteMarker = L.marker([site.lat, site.lng], {
       icon: L.icon({
@@ -1222,10 +1254,10 @@ async function handleBuscarSite(siteFromAutocomplete = null) {
   await calcularRutasBrigadasCercanas(site);
 }
 
-/* ====== Arranque ====== */
+// ====== Arranque + eventos ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
-setInterval(() => fetchInitial(false), 30000); // opcional
+setInterval(() => fetchInitial(false), 30000);
 
 // Eventos para Site
 if (ui.siteSearch) {
