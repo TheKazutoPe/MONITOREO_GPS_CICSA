@@ -2,20 +2,16 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
+  <title>Monitoreo GPS – CARSO</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS - Brigadas</title>
 
-  <!-- Hoja de estilos -->
-  <link rel="stylesheet" href="styles.css" />
-
-  <!-- Leaflet Core -->
+  <!-- Leaflet -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
   />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- MarkerCluster -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
@@ -24,109 +20,120 @@
     rel="stylesheet"
     href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
   />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
-  <!-- Supabase -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-
-  <!-- JSZip para generar KMZ -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
+  <!-- Estilos propios -->
+  <link rel="stylesheet" href="styles.css" />
 </head>
-
 <body>
-  <!-- CABECERA -->
-  <header class="header">
-    <div class="header-left">
-      <img src="assets/logo_carso.png" alt="CARSO" class="logo" />
-      <div class="header-title">
-        <h1>Monitoreo GPS</h1>
-        <span class="header-subtitle">Brigadas – Red Nacional</span>
-      </div>
-    </div>
-    <div id="status" class="status-badge gray">CARGANDO...</div>
-  </header>
-
-  <!-- CONTENIDO PRINCIPAL -->
-  <div class="main-container">
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h2>Brigadas conectadas</h2>
-
-        <!-- FILTRO POR BRIGADA -->
-        <div class="filter-box">
-          <input
-            id="brigadaFilter"
-            type="text"
-            placeholder="Brigada 12.1"
-          />
-          <button id="applyFilters">Aplicar</button>
+  <div class="app-root">
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-logo">carso</div>
+        <div class="brand-title">
+          <div class="brand-main">Monitoreo GPS</div>
+          <div class="brand-sub">Brigadas – Red Nacional</div>
         </div>
       </div>
-
-      <!-- Fecha para generación de KMZ -->
-      <div class="filter-box" style="margin-top: 6px;">
-        <label for="kmzDate" class="filter-label">Fecha para KMZ</label>
-        <input id="kmzDate" type="date" />
-      </div>
-
-      <!-- NUEVOS FILTROS -->
-      <div class="filter-box">
-        <label for="timeRange" class="filter-label">Rango de tiempo</label>
-        <select id="timeRange">
-          <option value="2">Últimas 2 h</option>
-          <option value="6">Últimas 6 h</option>
-          <option value="12">Últimas 12 h</option>
-          <option value="24" selected>Últimas 24 h</option>
-        </select>
-      </div>
-
-      <div class="filter-box">
-        <label for="statusFilter" class="filter-label">Estado</label>
-        <select id="statusFilter">
-          <option value="all">Todas las brigadas</option>
-          <option value="active">Solo activas (≤ 5 min)</option>
-          <option value="recent">Activas últimas 2 h</option>
-          <option value="offline">Desconectadas (&gt; 30 min)</option>
-        </select>
-      </div>
-
-      <!-- LISTA DE BRIGADAS -->
-      <div id="userList" class="brigada-list"></div>
-
-      <!-- BOTÓN EXPORTAR KMZ -->
-      <button id="exportKmzBtn" class="export-btn">📍 Exportar KMZ</button>
-    </aside>
-
-    <!-- MAPA -->
-    <main id="map" class="map-container">
-      <!-- Panel de estadísticas nacionales -->
-      <div id="mapStats" class="map-stats">
+      <div class="topbar-right">
         <div class="stat-card">
-          <div class="stat-label">Brigadas activas ahora</div>
+          <div class="stat-label">BRIGADAS ACTIVAS AHORA</div>
           <div class="stat-value" id="statOnline">0</div>
-          <div class="stat-hint">Últimos 5 minutos</div>
+          <div class="stat-sub">Últimos 5 minutos</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Brigadas con reporte</div>
+          <div class="stat-label">BRIGADAS CON REPORTE</div>
           <div class="stat-value" id="statTotal">0</div>
-          <div class="stat-hint" id="statRangeText">Rango seleccionado</div>
+          <div class="stat-sub" id="statRangeText">Últimas 24 h</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Última actualización</div>
+          <div class="stat-label">ÚLTIMA ACTUALIZACIÓN</div>
           <div class="stat-value" id="statUpdated">--:--:--</div>
-          <div class="stat-hint">hora local</div>
+          <div class="stat-sub">hora local</div>
         </div>
+        <span id="status" class="status-badge gray">Cargando...</span>
       </div>
-    </main>
+    </header>
+
+    <div class="app-body">
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <label class="sidebar-label">Brigadas conectadas</label>
+          <div class="sidebar-row">
+            <input
+              id="brigadaFilter"
+              type="text"
+              class="input"
+              placeholder="Brigada 12.1"
+            />
+          </div>
+          <button id="applyFilters" class="btn btn-primary">Aplicar</button>
+        </div>
+
+        <div class="sidebar-section">
+          <label class="sidebar-label">Fecha para KMZ</label>
+          <input
+            id="kmzDate"
+            type="text"
+            class="input"
+            placeholder="dd / mm / aaaa"
+            disabled
+          />
+        </div>
+
+        <div class="sidebar-section">
+          <label class="sidebar-label">Rango de tiempo</label>
+          <select id="timeRange" class="input">
+            <option value="1">Última 1 h</option>
+            <option value="3">Últimas 3 h</option>
+            <option value="6">Últimas 6 h</option>
+            <option value="12">Últimas 12 h</option>
+            <option value="24" selected>Últimas 24 h</option>
+            <option value="48">Últimas 48 h</option>
+          </select>
+        </div>
+
+        <div class="sidebar-section">
+          <label class="sidebar-label">Estado</label>
+          <select id="statusFilter" class="input">
+            <option value="all" selected>Todas las brigadas</option>
+            <option value="active">Activas (≤ 5 min)</option>
+            <option value="recent">Recientes (≤ 2 h)</option>
+            <option value="offline">Sin reporte (&gt; 30 min)</option>
+          </select>
+        </div>
+
+        <div class="sidebar-section sidebar-list">
+          <div class="sidebar-label">Listado de brigadas</div>
+          <div id="userList" class="user-list"></div>
+        </div>
+
+        <div class="sidebar-footer">
+          <button id="exportKmzBtn" class="btn btn-danger">
+            ⭳ Exportar KMZ
+          </button>
+        </div>
+      </aside>
+
+      <!-- MAPA -->
+      <main class="map-wrapper">
+        <div id="map"></div>
+      </main>
+    </div>
   </div>
 
-  <!-- FOOTER -->
-  <footer class="footer">
-    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
-  </footer>
+  <!-- JS libs -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.48.0/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-  <!-- Config + Lógica -->
+  <!-- Config + app -->
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
