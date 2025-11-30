@@ -796,27 +796,40 @@ async function fetchInitial(clearList) {
 
 // ====== Autocomplete Sites (Supabase) ======
 async function searchSites(query) {
+  // mínimo 2 letras
   if (!query || query.length < 2) return [];
 
   const { data, error } = await supa
     .from("sites_nacional_tabla")
-    .select('"Site ID*", "Site Name*", "Latitude", "Longitude"')
+    .select("*") // más robusto con nombres de columna con *
     .ilike('"Site Name*"', `%${query}%`)
-    .limit(15);
+    .limit(20);
 
   if (error) {
     console.error("Error buscando sites:", error);
+    alert("Error buscando sites: " + error.message);
     return [];
   }
 
+  if (!data || data.length === 0) return [];
+
   return data
-    .map(row => ({
-      id: row["Site ID*"],
-      name: row["Site Name*"],
-      lat: parseFloat(row["Latitude"]),
-      lng: parseFloat(row["Longitude"])
-    }))
-    .filter(s => isFinite(s.lat) && isFinite(s.lng));
+    .map(row => {
+      const lat = parseFloat(row["Latitude"]);
+      const lng = parseFloat(row["Longitude"]);
+      if (!isFinite(lat) || !isFinite(lng)) return null;
+
+      return {
+        id: row["Site ID*"],
+        name: row["Site Name*"],
+        lat,
+        lng,
+        distrito: row["DISTRITO"],
+        provincia: row["Provincia"],
+        departamento: row["Departamento"]
+      };
+    })
+    .filter(Boolean);
 }
 
 function showSiteSuggestions(list) {
@@ -835,7 +848,7 @@ function showSiteSuggestions(list) {
     div.onclick = () => {
       ui.siteSearch.value = site.name;
       ui.siteSuggestions.style.display = "none";
-      handleBuscarSite(site);
+      handleBuscarSite(site); // pasa el site seleccionado
     };
     box.appendChild(div);
   });
