@@ -226,7 +226,7 @@ body {
   background: #777;
 }
 
-/* Pulso al actualizar */
+/* Pulso en tarjetas */
 
 @keyframes cardPulse {
   0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.25); }
@@ -337,21 +337,61 @@ body {
   border-radius: 3px;
 }
 
-/* MARCADORES TIPO PUNTO (ADAPTATIVOS) */
+/* ===================== PUNTOS EN EL MAPA ===================== */
+/* Mismo tamaño, más contraste, centro blanco tipo mira */
 
 .marker-dot {
-  width: 10px;
-  height: 10px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  position: relative;
+  border: 2px solid #ffffff;                 /* borde blanco fuerte */
+  box-shadow:
+    0 0 3px rgba(0, 0, 0, 0.9),
+    0 0 8px rgba(0, 0, 0, 0.6);             /* halo oscuro */
 }
+
+/* disco blanco en el centro */
+.marker-dot::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* color del aro exterior (estado) */
 .marker-dot-green {
-  background: #46ff7f;
+  background: #13c94f;
 }
+
 .marker-dot-yellow {
-  background: #ffc857;
+  background: #e5a100;
 }
+
 .marker-dot-gray {
-  background: #777777;
+  background: #666666;
+}
+
+/* Pulso suave solo para online (verde) */
+@keyframes dotPulse {
+  0% {
+    box-shadow:
+      0 0 3px rgba(0, 0, 0, 0.9),
+      0 0 8px rgba(0, 0, 0, 0.6);
+  }
+  50% {
+    box-shadow:
+      0 0 3px rgba(0, 0, 0, 0.9),
+      0 0 14px rgba(19, 201, 79, 0.8);
+  }
+  100% {
+    box-shadow:
+      0 0 3px rgba(0, 0, 0, 0.9),
+      0 0 8px rgba(0, 0, 0, 0.6);
+  }
+}
+
+.marker-dot-green {
+  animation: dotPulse 1.8s infinite;
 }

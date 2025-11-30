@@ -28,7 +28,7 @@ const state = {
   currentBase: "streets",
   cluster: null,
   plainLayer: null,
-  mode: "cluster", // cluster | plain
+  mode: "plain", // vista global por defecto
   users: new Map(),
   pointsByUser: new Map()
 };
@@ -75,18 +75,18 @@ const CAR_ICONS = {
 const DOT_ICONS = {
   green: L.divIcon({
     className: "marker-dot marker-dot-green",
-    iconSize: [14, 14],
-    iconAnchor: [7, 7]
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
   }),
   yellow: L.divIcon({
     className: "marker-dot marker-dot-yellow",
-    iconSize: [14, 14],
-    iconAnchor: [7, 7]
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
   }),
   gray: L.divIcon({
     className: "marker-dot marker-dot-gray",
-    iconSize: [14, 14],
-    iconAnchor: [7, 7]
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
   })
 };
 
@@ -97,7 +97,7 @@ function getStatusColor(row) {
   return "gray";
 }
 
-// Decide icono según zoom (carro cerca, punto lejos)
+// puntos en zoom bajo, carro en zoom alto
 function getIconFor(row) {
   const color = getStatusColor(row);
   const zoom = state.map ? state.map.getZoom() : 10;
@@ -108,7 +108,7 @@ function getIconFor(row) {
   }
 }
 
-// ====== Helpers generales ======
+// ====== Helpers ======
 function distMeters(a, b) {
   const R = 6371000;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -135,7 +135,6 @@ function chunk(arr, size) {
   return out;
 }
 
-// densificar
 function densifySegment(points, step = DENSIFY_STEP) {
   if (!points || points.length < 2) return points;
   const out = [];
@@ -218,7 +217,9 @@ function adaptiveRadius(p) {
   return Math.max(10, Math.min(50, base));
 }
 
-// ====== Map matching ======
+// ====== Map matching, directions, smartBridge ======
+// (idéntico a la versión anterior, no lo recorto para que lo tengas completo)
+
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
@@ -293,7 +294,6 @@ async function mapMatchBlockSafe(seg) {
   return matched;
 }
 
-// ====== Directions / puentes ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
@@ -368,7 +368,7 @@ async function smartBridge(a, b) {
   return out;
 }
 
-// ====== Animación de marcador ======
+// ====== Animación marcador ======
 function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   if (!fromLatLng || !toLatLng) {
     marker.setLatLng(toLatLng);
@@ -386,7 +386,7 @@ function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   requestAnimationFrame(step);
 }
 
-// ====== Mapbox tiles en Leaflet ======
+// ====== Mapbox tiles ======
 function createMapboxLayer(styleId) {
   return L.tileLayer(
     `https://api.mapbox.com/styles/v1/mapbox/${styleId}/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`,
@@ -421,9 +421,11 @@ function initMap() {
     disableClusteringAtZoom: 16
   });
   state.plainLayer = L.layerGroup();
-  state.map.addLayer(state.cluster);
 
-  // Cambiar iconos carro/punto al cambiar zoom
+  // Vista global ON
+  state.map.addLayer(state.plainLayer);
+  if (ui.btnToggleCluster) ui.btnToggleCluster.textContent = "🌐 Vista global (ON)";
+
   state.map.on("zoomend", () => {
     for (const [, u] of state.users.entries()) {
       if (!u.lastRow) continue;
@@ -500,7 +502,9 @@ function toggleClusterMode() {
   }
 }
 
-// ====== UI de estado ======
+// ====== UI estado / lista / carga / KMZ ======
+// (idéntico a la versión anterior, lo dejo completo para producción)
+
 function setStatus(text, kind) {
   ui.status.textContent = text;
   ui.status.className = `status-badge ${kind || "gray"}`;
@@ -523,7 +527,6 @@ function buildPopup(r) {
   }<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
-// ====== Lista de brigadas ======
 function addOrUpdateUserInList(row, statusCode) {
   const uid = String(row.usuario_id || "0");
   const brig = row.brigada || "-";
@@ -611,7 +614,6 @@ function applyListFilters() {
   });
 }
 
-// ====== Carga de ubicaciones ======
 async function fetchInitial(clearList) {
   try {
     setStatus("Cargando…", "gray");
@@ -702,7 +704,6 @@ async function fetchInitial(clearList) {
   }
 }
 
-// ====== Exportar KMZ (igual que antes) ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
@@ -871,4 +872,4 @@ async function exportKMZFromState() {
 // ====== Arranque ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
-// setInterval(() => fetchInitial(false), 30000); // si quieres auto-refresh
+setInterval(() => fetchInitial(false), 30000); // opcional
