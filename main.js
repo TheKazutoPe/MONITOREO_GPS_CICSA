@@ -829,9 +829,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // Aquí podrías usar tu lógica de trazado limpio + generación KMZ
-    // Por simplicidad, generamos un KML simple:
-
     let kml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
@@ -871,4 +868,7 @@ setInterval(() => fetchInitial(false), 30000);
 
 if (ui.btnBuscarSite) {
   ui.btnBuscarSite.addEventListener("click", () => handleBuscarSite());
+}
+if (ui.exportKmz) {
+  ui.exportKmz.addEventListener("click", exportKMZFromState);
 }

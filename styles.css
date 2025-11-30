@@ -153,7 +153,7 @@ body {
   transform: translateY(-1px);
 }
 
-/* LISTA BRIGADAS */
+/* CONTENEDOR LISTA BRIGADAS */
 
 .brigada-list {
   margin-top: 10px;
@@ -162,92 +162,64 @@ body {
   padding-right: 4px;
 }
 
-.brigada-item {
+/* ====================== LISTA DE BRIGADAS (items) ====================== */
+
+.user-item {
   background: #1d1d1d;
   border-radius: 10px;
-  margin-bottom: 8px;
-  padding: 10px 10px;
+  padding: 10px;
+  margin-bottom: 10px;
   cursor: pointer;
-  border-left: 4px solid #333;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  border-left: 4px solid #444;
   transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
-.brigada-item:hover {
+
+.user-item:hover {
   background: #232323;
   transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.35);
 }
 
-.brig-online {
+.status-online {
   border-left-color: #46ff7f;
 }
-.brig-mid {
+
+.status-mid {
   border-left-color: #ffc857;
 }
-.brig-off {
+
+.status-off {
   border-left-color: #777;
 }
 
-.brig-main {
+.user-main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  margin-bottom: 4px;
 }
-.brig-name {
-  font-weight: 600;
+
+.user-name {
   font-size: 14px;
+  font-weight: 600;
 }
-.brig-sub {
+
+.user-brigada {
   font-size: 12px;
   color: #aaa;
 }
 
-.brig-extra {
-  font-size: 11px;
-  color: #8e8e8e;
-  margin-top: 2px;
-  line-height: 1.2;
-}
-
-.brig-meta {
+.user-sub {
   font-size: 12px;
-  text-align: right;
-  color: #ccc;
+  color: #bbb;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
 }
 
-.brig-led {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-bottom: 6px;
-}
-.brig-led.online {
-  background: #46ff7f;
-}
-.brig-led.mid {
-  background: #ffc857;
-}
-.brig-led.off {
-  background: #777;
-}
+/* Ocultar por filtro */
 
-/* Pulso en tarjetas */
-
-@keyframes cardPulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.25);
-  }
-  70% {
-    box-shadow: 0 0 0 12px rgba(255, 255, 255, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
-  }
-}
-.marker-pulse {
-  animation: cardPulse 0.6s ease-out;
+.hidden {
+  display: none !important;
 }
 
 /* PANEL DE RUTAS A SITE */
@@ -261,6 +233,14 @@ body {
   padding: 8px;
   box-shadow: 0 0 0 1px #262626;
   font-size: 12px;
+}
+
+.routes-panel:empty {
+  padding: 0;
+  margin-top: 0;
+  box-shadow: none;
+  max-height: 0;
+  overflow: hidden;
 }
 
 .routes-panel h3 {
@@ -425,20 +405,18 @@ body {
 }
 
 /* ===================== PUNTOS EN EL MAPA ===================== */
-/* Mismo tamaño, más contraste, centro blanco tipo mira */
 
 .marker-dot {
   width: 18px;
   height: 18px;
   border-radius: 50%;
   position: relative;
-  border: 2px solid #ffffff; /* borde blanco fuerte */
+  border: 2px solid #ffffff;
   box-shadow:
     0 0 3px rgba(0, 0, 0, 0.9),
-    0 0 8px rgba(0, 0, 0, 0.6); /* halo oscuro */
+    0 0 8px rgba(0, 0, 0, 0.6);
 }
 
-/* disco blanco en el centro */
 .marker-dot::after {
   content: "";
   position: absolute;
@@ -447,7 +425,6 @@ body {
   background: rgba(255, 255, 255, 0.9);
 }
 
-/* color del aro exterior (estado) */
 .marker-dot-green {
   background: #13c94f;
 }
@@ -460,7 +437,6 @@ body {
   background: #666666;
 }
 
-/* Pulso suave solo para online (verde) */
 @keyframes dotPulse {
   0% {
     box-shadow:
