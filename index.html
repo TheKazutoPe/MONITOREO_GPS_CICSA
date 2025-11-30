@@ -78,23 +78,33 @@
         <button id="applyFilters" class="btn-full">Aplicar filtros</button>
       </div>
 
-      <!-- DESPACHO POR SITE -->
-      <div class="filter-group" style="margin-top:10px;">
-        <input id="siteSearch" type="text" placeholder="Ingresar nombre de Site..." />
-        <button id="btnBuscarSite" class="btn-full">🚐 Buscar brigadas cercanas</button>
+      <!-- BUSCADOR DE SITE + AUTOCOMPLETE -->
+      <div class="filter-group" style="margin-top:10px; position: relative;">
+        <input
+          id="siteSearch"
+          type="text"
+          placeholder="Ingresar nombre de Site..."
+          autocomplete="off"
+        />
+        <div id="siteSuggestions" class="suggestions-box"></div>
+        <button id="btnBuscarSite" class="btn-full">
+          🚐 Buscar brigadas cercanas
+        </button>
       </div>
 
-      <!-- RESULTADO DE RUTAS A SITE -->
+      <!-- RESULTADOS DE RUTAS A SITE -->
       <div id="routesPanel" class="routes-panel"></div>
 
       <!-- LISTA DE BRIGADAS -->
       <div id="userList" class="brigada-list"></div>
 
-      <!-- KMZ -->
+      <!-- EXPORTAR KMZ -->
       <div class="kmz-box">
         <label for="kmzDate">Fecha para KMZ</label>
         <input id="kmzDate" type="date" />
-        <button id="exportKmzBtn" class="btn-full kmz-btn">📍 Exportar KMZ</button>
+        <button id="exportKmzBtn" class="btn-full kmz-btn">
+          📍 Exportar KMZ
+        </button>
       </div>
     </aside>
 

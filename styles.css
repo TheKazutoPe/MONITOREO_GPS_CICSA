@@ -293,6 +293,37 @@ body {
   color: #bbbbbb;
 }
 
+/* AUTOCOMPLETE SITES */
+
+.suggestions-box {
+  position: absolute;
+  top: 37px;
+  left: 0;
+  width: 100%;
+  background: #1f1f1f;
+  border: 1px solid #333;
+  border-radius: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: none;
+  z-index: 9999;
+}
+
+.suggestion-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #2c2c2c;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item:hover {
+  background: #2b2b2b;
+}
+
 /* KMZ */
 
 .kmz-box {

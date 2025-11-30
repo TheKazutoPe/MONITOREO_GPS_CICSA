@@ -22,6 +22,7 @@ const ui = {
   btnRefresh: document.getElementById("btnRefresh"),
   btnToggleCluster: document.getElementById("btnToggleCluster"),
   siteSearch: document.getElementById("siteSearch"),
+  siteSuggestions: document.getElementById("siteSuggestions"),
   btnBuscarSite: document.getElementById("btnBuscarSite"),
   routesPanel: document.getElementById("routesPanel")
 };
@@ -47,7 +48,6 @@ const MAX_MM_POINTS = 40;
 const MAX_MATCH_INPUT = 90;
 const MAX_DIST_RATIO = 0.35;
 const ENDPOINT_TOL = 25;
-const CONFIDENCE_MIN = 0.7;
 
 const GAP_MINUTES = 8;
 const GAP_JUMP_METERS = 800;
@@ -187,9 +187,7 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS) {
   for (let i = 1; i < points.length; i++) {
     const prev = out[out.length - 1];
     const cur = points[i];
-    if (distMeters(prev, cur) >= minMeters) {
-      out.push(cur);
-    }
+    if (distMeters(prev, cur) >= minMeters) out.push(cur);
   }
   return out;
 }
@@ -266,7 +264,7 @@ async function mapMatchBlockSafe(seg) {
   const m = j?.matchings?.[0];
   if (
     !m?.geometry?.coordinates ||
-    (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)
+    (typeof m.confidence === "number" && m.confidence < 0.7)
   ) {
     if (dense.length > 24) {
       const mid = Math.floor(dense.length / 2);
@@ -431,7 +429,8 @@ function initMap() {
 
   // Vista global ON
   state.map.addLayer(state.plainLayer);
-  if (ui.btnToggleCluster) ui.btnToggleCluster.textContent = "🌐 Vista global (ON)";
+  if (ui.btnToggleCluster)
+    ui.btnToggleCluster.textContent = "🌐 Vista global (ON)";
 
   // Cambiar icono (punto/carro) según zoom
   state.map.on("zoomend", () => {
@@ -548,7 +547,6 @@ function populateFilterOptionsFromData(rows) {
     if (r.contrata) contratas.add(r.contrata.trim());
   });
 
-  // Zona
   const currentZona = ui.filterZona.value || "";
   ui.filterZona.innerHTML = '<option value="">Zona: todas</option>';
   Array.from(zonas)
@@ -561,7 +559,6 @@ function populateFilterOptionsFromData(rows) {
     });
   if (currentZona) ui.filterZona.value = currentZona;
 
-  // Contrata
   const currentContrata = ui.filterContrata.value || "";
   ui.filterContrata.innerHTML =
     '<option value="">Contrata: todas</option>';
@@ -707,7 +704,6 @@ async function fetchInitial(clearList) {
       return;
     }
 
-    // llenar combos zona/contrata
     populateFilterOptionsFromData(data || []);
 
     const brigFilter = (ui.brigada?.value || "").trim().toLowerCase();
@@ -720,7 +716,6 @@ async function fetchInitial(clearList) {
     const perUser = 100;
 
     for (const r of data) {
-      // filtros de brigada / zona / contrata aplicados a mapa + lista
       if (
         brigFilter &&
         !(r.brigada || "").toLowerCase().includes(brigFilter)
@@ -781,7 +776,6 @@ async function fetchInitial(clearList) {
       addOrUpdateUserInList(last, statusCode);
     });
 
-    // eliminar usuarios que ya no están activos en este filtro
     for (const [uid, u] of state.users.entries()) {
       if (!activeUids.has(uid)) {
         state.cluster.removeLayer(u.marker);
@@ -800,37 +794,81 @@ async function fetchInitial(clearList) {
   }
 }
 
-// ====== Búsqueda de Site en Supabase ======
-async function fetchSiteByName(siteName) {
-  if (!siteName || !siteName.trim()) return null;
-
-  const term = siteName.trim();
+// ====== Autocomplete Sites (Supabase) ======
+async function searchSites(query) {
+  if (!query || query.length < 2) return [];
 
   const { data, error } = await supa
     .from("sites_nacional_tabla")
     .select('"Site ID*", "Site Name*", "Latitude", "Longitude"')
-    .ilike('"Site Name*"', `%${term}%`);
+    .ilike('"Site Name*"', `%${query}%`)
+    .limit(15);
 
   if (error) {
-    console.error("Error buscando site:", error);
-    return null;
+    console.error("Error buscando sites:", error);
+    return [];
   }
-  if (!data || data.length === 0) return null;
 
-  const row = data[0];
-
-  const lat = parseFloat(row["Latitude"]);
-  const lng = parseFloat(row["Longitude"]);
-
-  if (!isFinite(lat) || !isFinite(lng)) return null;
-
-  return {
-    id: row["Site ID*"],
-    name: row["Site Name*"],
-    lat,
-    lng
-  };
+  return data
+    .map(row => ({
+      id: row["Site ID*"],
+      name: row["Site Name*"],
+      lat: parseFloat(row["Latitude"]),
+      lng: parseFloat(row["Longitude"])
+    }))
+    .filter(s => isFinite(s.lat) && isFinite(s.lng));
 }
+
+function showSiteSuggestions(list) {
+  const box = ui.siteSuggestions;
+  box.innerHTML = "";
+
+  if (!list.length) {
+    box.style.display = "none";
+    return;
+  }
+
+  list.forEach(site => {
+    const div = document.createElement("div");
+    div.className = "suggestion-item";
+    div.textContent = site.name;
+    div.onclick = () => {
+      ui.siteSearch.value = site.name;
+      ui.siteSuggestions.style.display = "none";
+      handleBuscarSite(site);
+    };
+    box.appendChild(div);
+  });
+
+  box.style.display = "block";
+}
+
+let siteTypingTimer = null;
+ui.siteSearch.addEventListener("input", () => {
+  clearTimeout(siteTypingTimer);
+
+  const text = ui.siteSearch.value.trim();
+
+  if (text.length < 2) {
+    ui.siteSuggestions.style.display = "none";
+    return;
+  }
+
+  siteTypingTimer = setTimeout(async () => {
+    const results = await searchSites(text);
+    showSiteSuggestions(results);
+  }, 250);
+});
+
+// Cerrar sugerencias al hacer click fuera
+document.addEventListener("click", e => {
+  if (
+    !ui.siteSearch.contains(e.target) &&
+    !ui.siteSuggestions.contains(e.target)
+  ) {
+    ui.siteSuggestions.style.display = "none";
+  }
+});
 
 // ====== Rutas brigadas más cercanas a Site ======
 function formatMinutes(m) {
@@ -853,11 +891,9 @@ async function calcularRutasBrigadasCercanas(site) {
     return;
   }
 
-  // Limpiar rutas previas
   state.routeLayer.clearLayers();
   ui.routesPanel.innerHTML = "";
 
-  // Armar array de brigadas con su última posición
   const brigadas = [];
   for (const [uid, u] of state.users.entries()) {
     if (!u.lastRow) continue;
@@ -883,9 +919,8 @@ async function calcularRutasBrigadasCercanas(site) {
     return;
   }
 
-  // Ordenar por distancia directa y quedarnos con las más cercanas
   brigadas.sort((a, b) => a.dist - b.dist);
-  const candidatos = brigadas.slice(0, 5); // por ejemplo, 5 más cercanas
+  const candidatos = brigadas.slice(0, 5);
 
   const resultados = [];
 
@@ -916,7 +951,6 @@ async function calcularRutasBrigadasCercanas(site) {
         geometry: route.geometry
       });
 
-      // Pintar ruta real de Mapbox
       const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
 
       L.polyline(coords, {
@@ -937,10 +971,8 @@ async function calcularRutasBrigadasCercanas(site) {
     return;
   }
 
-  // Ordenar por tiempo estimado
   resultados.sort((a, b) => a.duration - b.duration);
 
-  // Mostrar ranking en el panel
   const titulo = document.createElement("h3");
   titulo.textContent = `Rutas hacia: ${site.name}`;
   ui.routesPanel.appendChild(titulo);
@@ -961,7 +993,6 @@ async function calcularRutasBrigadasCercanas(site) {
     ui.routesPanel.appendChild(item);
   });
 
-  // Enfocar mapa al conjunto de rutas + site
   const bounds = state.routeLayer.getBounds();
   if (bounds.isValid()) {
     state.map.fitBounds(bounds, { padding: [50, 50] });
@@ -970,24 +1001,25 @@ async function calcularRutasBrigadasCercanas(site) {
   }
 }
 
-// ====== Handler principal: buscar site y calcular rutas ======
-async function handleBuscarSite() {
-  const name = ui.siteSearch?.value || "";
-  if (!name.trim()) {
-    alert("Ingresa el nombre del Site.");
-    return;
-  }
+// ====== Handler principal: buscar site ======
+async function handleBuscarSite(siteFromAutocomplete = null) {
+  let site = siteFromAutocomplete;
 
-  setStatus("Buscando site…", "gray");
-
-  const site = await fetchSiteByName(name);
   if (!site) {
-    setStatus("Site no encontrado", "yellow");
-    alert("No se encontró el Site o no tiene coordenadas válidas.");
-    return;
+    const name = ui.siteSearch?.value || "";
+    if (!name.trim()) {
+      alert("Ingresa el nombre del Site.");
+      return;
+    }
+
+    const results = await searchSites(name);
+    if (!results.length) {
+      alert("No se encontró ningún Site con ese nombre.");
+      return;
+    }
+    site = results[0];
   }
 
-  // Marcar el site en el mapa
   if (state.siteMarker) {
     state.map.removeLayer(state.siteMarker);
   }
@@ -1008,11 +1040,11 @@ async function handleBuscarSite() {
     .openPopup();
 
   await calcularRutasBrigadasCercanas(site);
-
   setStatus("Conectado", "green");
+  ui.siteSuggestions.style.display = "none";
 }
 
-// ====== Exportar KMZ ======
+// ====== Exportar KMZ (trazado limpio) ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
@@ -1181,4 +1213,5 @@ async function exportKMZFromState() {
 // ====== Arranque ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
-setInterval(() => fetchInitial(false), 30000); // opcional
+// Si quieres refresco auto:
+// setInterval(() => fetchInitial(false), 30000);
