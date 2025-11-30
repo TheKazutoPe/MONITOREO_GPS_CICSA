@@ -1090,7 +1090,7 @@ async function calcularRutasBrigadasCercanas(site) {
   brigadas.sort((a, b) => a.dist - b.dist);
   const candidatos = brigadas.slice(0, 3); // 3 brigadas más cercanas
 
-  const routeColors = ["#00e676", "#ffc857", "#ff5252"];
+  const routeColors = ["#00e676", "#4fc3f7", "#ff5252"];
 
   const resultados = [];
 
