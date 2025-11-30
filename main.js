@@ -794,7 +794,7 @@ async function fetchInitial(clearList) {
   }
 }
 
-// ====== Autocomplete Sites (Supabase) ======
+// ====== Autocomplete Sites (Supabase con nueva tabla) ======
 async function searchSites(query) {
   query = (query || "").trim();
   if (query.length < 2) return [];
@@ -804,15 +804,16 @@ async function searchSites(query) {
   const { data, error } = await supa
     .from("sites_nacional_tabla")
     .select(`
-      "Site ID*",
-      "Site Name*",
+      "Site_ID",
+      "Site_Name",
       "Latitude",
       "Longitude",
       "DISTRITO",
       "Departamento",
       "Provincia"
     `)
-    .ilike('"Site Name*"', `%${query}%`)   // <-- ESTA ES LA CLAVE CORRECTA
+    // columna con mayúsculas: hay que referenciarla entre comillas
+    .ilike('"Site_Name"', `%${query}%`)
     .limit(20);
 
   if (error) {
@@ -827,23 +828,22 @@ async function searchSites(query) {
 
   return data
     .map(row => {
-      const lat = parseFloat(row["Latitude"]);
-      const lng = parseFloat(row["Longitude"]);
+      const lat = parseFloat(row.Latitude ?? row["Latitude"]);
+      const lng = parseFloat(row.Longitude ?? row["Longitude"]);
       if (!isFinite(lat) || !isFinite(lng)) return null;
 
       return {
-        id: row["Site ID*"],
-        name: row["Site Name*"],
+        id: row.Site_ID ?? row["Site_ID"],
+        name: row.Site_Name ?? row["Site_Name"],
         lat,
         lng,
-        distrito: row["DISTRITO"],
-        provincia: row["Provincia"],
-        departamento: row["Departamento"]
+        distrito: row.DISTRITO ?? row["DISTRITO"],
+        provincia: row.Provincia ?? row["Provincia"],
+        departamento: row.Departamento ?? row["Departamento"]
       };
     })
     .filter(Boolean);
 }
-
 
 function showSiteSuggestions(list) {
   const box = ui.siteSuggestions;
@@ -857,7 +857,8 @@ function showSiteSuggestions(list) {
   list.forEach(site => {
     const div = document.createElement("div");
     div.className = "suggestion-item";
-    div.textContent = site.name;
+    // mostramos ID + nombre para identificar mejor
+    div.textContent = `${site.id} - ${site.name}`;
     div.onclick = () => {
       ui.siteSearch.value = site.name;
       ui.siteSuggestions.style.display = "none";
@@ -1240,4 +1241,4 @@ async function exportKMZFromState() {
 setStatus("Cargando...", "gray");
 fetchInitial(true);
 // Si quieres refresco auto:
-// setInterval(() => fetchInitial(false), 30000);
+setInterval(() => fetchInitial(false), 30000);
