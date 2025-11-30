@@ -1,352 +1,372 @@
-/* ===== RESETEO BÁSICO ===== */
-*,
-*::before,
-*::after {
+/* ========================= */
+/* ESTILO GENERAL            */
+/* ========================= */
+
+* {
   box-sizing: border-box;
+}
+
+body {
   margin: 0;
-  padding: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #101010;
+  color: #eaeaea;
 }
 
-html,
-body {
-  height: 100%;
-}
+/* ========================= */
+/* TOPBAR                    */
+/* ========================= */
 
-body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  background: #020617;
-  color: #e5e7eb;
-}
-
-/* ===== CABECERA ===== */
-.header {
-  height: 56px;
+.topbar {
+  height: 60px;
+  background: #171717;
+  border-bottom: 1px solid #262626;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  background: #020617;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 0 18px;
 }
 
-.header-left {
+.topbar-left {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.logo {
-  height: 28px;
-  object-fit: contain;
+.top-logo {
+  height: 34px;
 }
 
-.header-title h1 {
-  font-size: 18px;
-  font-weight: 700;
-  color: #f9fafb;
-  line-height: 1.1;
-}
-
-.header-subtitle {
-  font-size: 11px;
-  color: #9ca3af;
-}
-
-/* Estado de conexión */
-.status-badge {
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
+.topbar h1 {
+  margin: 0;
+  font-size: 19px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  border: 1px solid transparent;
+}
+.topbar h1 span {
+  color: #ff4a4a;
+  font-weight: 500;
 }
 
-.status-badge.gray {
-  background: #111827;
-  color: #e5e7eb;
-  border-color: #4b5563;
-}
-
-.status-badge.green {
-  background: #064e3b;
-  color: #bbf7d0;
-  border-color: #22c55e;
-}
-
-.status-badge.red {
-  background: #7f1d1d;
-  color: #fecaca;
-  border-color: #ef4444;
-}
-
-/* ===== LAYOUT PRINCIPAL ===== */
-.main-container {
+.topbar-right {
   display: flex;
-  height: calc(100vh - 56px - 32px); /* header + footer */
-}
-
-/* ===== SIDEBAR ===== */
-.sidebar {
-  width: 280px;
-  max-width: 280px;
-  background: #020617;
-  border-right: 1px solid rgba(148, 163, 184, 0.25);
-  display: flex;
-  flex-direction: column;
-  padding: 10px 8px;
   gap: 8px;
 }
 
-.sidebar-header h2 {
-  font-size: 14px;
-  font-weight: 700;
-  color: #f9fafb;
-  margin-bottom: 6px;
+.btn-small {
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #333;
+  background: #222;
+  color: #eee;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn-small:hover {
+  background: #2f2f2f;
+  transform: translateY(-1px);
 }
 
-/* Filtros */
-.filter-box {
-  margin-bottom: 6px;
+/* ========================= */
+/* BADGE DE ESTADO           */
+/* ========================= */
+
+.status-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid transparent;
 }
 
-.filter-box input[type="text"],
-.filter-box input[type="date"],
-.filter-box select {
+.status-badge.green {
+  background: #093615;
+  color: #7bff9b;
+  border-color: #1b8c3a;
+}
+
+.status-badge.yellow {
+  background: #3c2a02;
+  color: #ffc857;
+  border-color: #c08b1f;
+}
+
+.status-badge.gray {
+  background: #242424;
+  color: #b3b3b3;
+  border-color: #333;
+}
+
+/* ========================= */
+/* LAYOUT PRINCIPAL          */
+/* ========================= */
+
+.main-layout {
+  display: flex;
+  height: calc(100vh - 60px);
+}
+
+/* ========================= */
+/* SIDEBAR                   */
+/* ========================= */
+
+.sidebar {
+  width: 320px;
+  min-width: 280px;
+  background: #151515;
+  border-right: 1px solid #242424;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-title {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+}
+
+.filter-group {
+  background: #1d1d1d;
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 0 0 1px #232323;
+}
+
+.filter-group input,
+.filter-group select {
   width: 100%;
-  padding: 6px 8px;
-  border-radius: 4px;
-  border: 1px solid #4b5563;
-  background: #020617;
-  color: #e5e7eb;
+  margin-bottom: 8px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px solid #2c2c2c;
+  background: #151515;
+  color: #f2f2f2;
   font-size: 13px;
 }
 
-.filter-box input::placeholder {
-  color: #6b7280;
+.filter-group input::placeholder {
+  color: #666;
 }
 
-.filter-box input:focus,
-.filter-box select:focus {
-  outline: none;
-  border-color: #3b82f6;
-}
-
-.filter-label {
-  display: block;
-  font-size: 11px;
-  color: #9ca3af;
-  margin-bottom: 2px;
-}
-
-.filter-box button,
-#applyFilters {
-  margin-top: 4px;
-}
-
-/* Botón aplicar */
-#applyFilters {
-  width: 100%;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-size: 13px;
-  font-weight: 600;
-  background: #3b82f6;
-  color: #f9fafb;
+.filter-group select {
   cursor: pointer;
 }
 
-#applyFilters:hover {
-  background: #2563eb;
+/* Botón ancho */
+.btn-full {
+  width: 100%;
+  padding: 9px;
+  border-radius: 8px;
+  border: none;
+  background: #ff4040;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 2px;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn-full:hover {
+  background: #ff5858;
+  transform: translateY(-1px);
 }
 
-/* Lista de brigadas */
+/* ========================= */
+/* LISTA DE BRIGADAS         */
+/* ========================= */
+
 .brigada-list {
+  margin-top: 10px;
   flex: 1;
-  margin-top: 4px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 .brigada-item {
-  padding: 6px 6px;
-  margin-bottom: 4px;
-  border-radius: 6px;
-  background: #020617;
-  border: 1px solid rgba(55, 65, 81, 0.9);
+  background: #1d1d1d;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  padding: 10px 10px;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s, border-color 0.15s;
+  border-left: 4px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 
 .brigada-item:hover {
-  background: #0b1120;
+  background: #232323;
   transform: translateY(-1px);
-  border-color: #3b82f6;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.35);
 }
 
-.brigada-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 6px;
+/* colores por estado */
+.brig-online {
+  border-left-color: #46ff7f;
+}
+.brig-mid {
+  border-left-color: #ffc857;
+}
+.brig-off {
+  border-left-color: #777;
 }
 
-.brigada-info {
+/* contenido interno */
+.brig-main {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .brig-name {
-  font-size: 13px;
-  color: #f9fafb;
+  font-weight: 600;
+  font-size: 14px;
 }
 
-.brigada-sub {
-  font-size: 11px;
-  color: #9ca3af;
+.brig-sub {
+  font-size: 12px;
+  color: #aaa;
 }
 
-.brigada-hora {
-  font-size: 11px;
-  color: #9ca3af;
-  white-space: nowrap;
+.brig-meta {
+  font-size: 12px;
+  text-align: right;
+  color: #ccc;
 }
 
-.brigada-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
+/* LED circular */
+.brig-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-bottom: 6px;
+}
+.brig-led.online {
+  background: #46ff7f;
+}
+.brig-led.mid {
+  background: #ffc857;
+}
+.brig-led.off {
+  background: #777;
 }
 
-/* Colores por estado */
-.text-green {
-  border-color: #16a34a;
-}
-
-.text-yellow {
-  border-color: #eab308;
-}
-
-.text-gray {
-  border-color: #4b5563;
-}
-
-/* Animación leve al actualizar */
-.marker-pulse {
-  animation: pulse 0.6s ease-out;
-}
-
-@keyframes pulse {
+/* ANIMACIÓN PULSE AL ACTUALIZAR */
+@keyframes cardPulse {
   0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.25);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(255, 255, 255, 0);
   }
   100% {
-    transform: scale(1.02);
-    box-shadow: 0 0 0 12px rgba(59, 130, 246, 0);
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
   }
 }
+.marker-pulse {
+  animation: cardPulse 0.6s ease-out;
+}
 
-/* Botón exportar */
-.export-btn {
-  margin-top: 6px;
+/* ========================= */
+/* SECCIÓN KMZ               */
+/* ========================= */
+
+.kmz-box {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #1d1d1d;
+  box-shadow: 0 0 0 1px #232323;
+}
+
+.kmz-box label {
+  font-size: 12px;
+  color: #ccc;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.kmz-box input[type="date"] {
   width: 100%;
-  padding: 7px 10px;
-  border-radius: 999px;
-  border: none;
-  background: #1d4ed8;
-  color: #f9fafb;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+  padding: 7px;
+  border-radius: 8px;
+  border: 1px solid #2c2c2c;
+  background: #151515;
+  color: #f2f2f2;
+  margin-bottom: 8px;
 }
 
-.export-btn:hover {
-  background: #1e40af;
+.kmz-btn {
+  background: #ff6b35;
+}
+.kmz-btn:hover {
+  background: #ff824f;
 }
 
-/* ===== MAPA ===== */
-.map-container {
-  position: relative;
+/* ========================= */
+/* MAPA                      */
+/* ========================= */
+
+.map-wrapper {
   flex: 1;
+  position: relative;
+  background: #000;
 }
 
-/* El div real que crea Leaflet (se inyecta dentro) */
-#map {
+.map-container {
   width: 100%;
   height: 100%;
 }
 
-/* Panel de estadísticas flotante */
-.map-stats {
+/* Controles flotantes */
+.map-controls {
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 1000;
   display: flex;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-  pointer-events: none; /* el mapa sigue siendo clickeable */
+  flex-direction: column;
+  gap: 6px;
+  z-index: 999;
 }
 
-.stat-card {
-  min-width: 120px;
-  padding: 6px 10px;
+.ctrl {
+  padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  pointer-events: auto;
+  border: 1px solid #333;
+  background: #191919;
+  color: #eee;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.1s;
+}
+.ctrl:hover {
+  background: #272727;
+  transform: translateY(-1px);
 }
 
-.stat-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #9ca3af;
-  margin-bottom: 3px;
-}
+/* ========================= */
+/* FOOTER                    */
+/* ========================= */
 
-.stat-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: #f9fafb;
-  line-height: 1.1;
-}
-
-.stat-hint {
-  font-size: 11px;
-  color: #9ca3af;
-}
-
-/* ===== FOOTER ===== */
 .footer {
-  height: 32px;
+  height: 38px;
+  background: #111;
+  border-top: 1px solid #242424;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #020617;
-  border-top: 1px solid rgba(148, 163, 184, 0.25);
-  font-size: 11px;
-  color: #9ca3af;
+  font-size: 12px;
+  color: #777;
 }
 
-/* Scrollbar fino para la lista */
-.brigada-list::-webkit-scrollbar {
-  width: 5px;
+/* SCROLLBAR DEL SIDEBAR */
+.sidebar ::-webkit-scrollbar {
+  width: 6px;
 }
-
-.brigada-list::-webkit-scrollbar-track {
-  background: transparent;
+.sidebar ::-webkit-scrollbar-track {
+  background: #141414;
 }
-
-.brigada-list::-webkit-scrollbar-thumb {
-  background: #4b5563;
-  border-radius: 999px;
+.sidebar ::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
 }
