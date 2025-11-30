@@ -6,7 +6,7 @@ const supa = supabase.createClient(
 );
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
-// ====== UI refs (mismos IDs que tu HTML) ======
+// ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("filterBrigada"), // filtro principal de brigada
@@ -17,7 +17,7 @@ const ui = {
   filterStatus: document.getElementById("filterStatus"),
   btnCenter: document.getElementById("btnCenter"),
   btnShowAll: document.getElementById("btnShowAll"),
-  btnToggleLabels: document.getElementById("btnToggleLabels"),
+  mapStyleSelect: document.getElementById("mapStyleSelect"),
   btnRefresh: document.getElementById("btnRefresh")
 };
 
@@ -25,36 +25,36 @@ const ui = {
 const state = {
   map: null,
   baseLayers: {},
-  currentBase: "osm",
+  currentBase: "streets",
   cluster: null,
   users: new Map(), // uid -> { marker, lastRow }
   pointsByUser: new Map()
 };
 
-// ====== Ajustes de trazado / matching (igual que antes) ======
-const CLEAN_MIN_METERS = 6; // suaviza “dientes”
-const DENSIFY_STEP = 10; // curvatura urbana más real
-const MAX_MM_POINTS = 40; // tamaño de bloque crudo
-const MAX_MATCH_INPUT = 90; // límite duro para URL GET del Matching
-const MAX_DIST_RATIO = 0.35; // tolerancia matching vs crudo
-const ENDPOINT_TOL = 25; // tolerancia de puntas (m)
-const CONFIDENCE_MIN = 0.7; // confianza mínima Mapbox (0..1)
+// ====== Ajustes trazado / matching ======
+const CLEAN_MIN_METERS = 6;
+const DENSIFY_STEP = 10;
+const MAX_MM_POINTS = 40;
+const MAX_MATCH_INPUT = 90;
+const MAX_DIST_RATIO = 0.35;
+const ENDPOINT_TOL = 25;
+const CONFIDENCE_MIN = 0.7;
 
-// Gaps / “teleport” (evitar uniones falsas)
-const GAP_MINUTES = 8; // gap de tiempo → nuevo segmento
-const GAP_JUMP_METERS = 800; // salto espacial brusco → nuevo segmento
+// Gaps / “teleport”
+const GAP_MINUTES = 8;
+const GAP_JUMP_METERS = 800;
 
-// Puentes por carretera (Directions) con plausibilidad
-const BRIDGE_MAX_METERS = 800; // tope de puente
-const DIRECTIONS_HOP_METERS = 300; // hops cuando el puente es largo
-const MAX_BRIDGE_SPEED_KMH = 70; // si la unión implica >70 km/h = NO unir
-const MIN_BRIDGE_SPEED_KMH = 3; // si implica <3 km/h en gap corto = ruido
-const DIRECTIONS_PROFILE = "driving"; // o "driving-traffic"
+// Puentes por carretera
+const BRIDGE_MAX_METERS = 800;
+const DIRECTIONS_HOP_METERS = 300;
+const MAX_BRIDGE_SPEED_KMH = 70;
+const MIN_BRIDGE_SPEED_KMH = 3;
+const DIRECTIONS_PROFILE = "driving";
 
-// Ritmo de llamadas para no saturar API
+// Ritmo de llamadas
 const PER_BLOCK_DELAY = 150;
 
-// ====== Iconos/estética (como tu base) ======
+// ====== Iconos ======
 const ICONS = {
   green: L.icon({
     iconUrl: "assets/carro-green.png",
@@ -134,7 +134,7 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ====== limitar puntos (evita URL enorme del Matching) ======
+// ====== limitar puntos ======
 function downsamplePoints(arr, maxN) {
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
@@ -185,31 +185,26 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   return groups;
 }
 
-// ====== Radio adaptativo por punto (usa 'acc' si existe) ======
+// ====== Radio adaptativo ======
 function adaptiveRadius(p) {
   const acc = p && p.acc != null ? Number(p.acc) : NaN;
-  const base = isFinite(acc) ? acc + 5 : 25; // leve holgura
-  return Math.max(10, Math.min(50, base)); // 10–50 m
+  const base = isFinite(acc) ? acc + 5 : 25;
+  return Math.max(10, Math.min(50, base));
 }
 
-// ====== Map Matching (timestamps + radiuses + downsample) ======
+// ====== Map Matching ======
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
   if (seg.length > MAX_MM_POINTS) return null;
 
-  // densificar para curvatura real
   const dense0 = densifySegment(seg, DENSIFY_STEP);
-
-  // limitar puntos para no exceder URL GET
   const dense = downsamplePoints(dense0, MAX_MATCH_INPUT);
 
-  // distancia cruda (validación)
   let rawDist = 0;
   for (let i = 0; i < dense.length - 1; i++)
     rawDist += distMeters(dense[i], dense[i + 1]);
 
-  // parámetros con timestamps y radiuses ADAPTATIVOS
   const coords = dense.map(p => `${p.lng},${p.lat}`).join(";");
   const tsArr = dense
     .map(p => Math.floor(new Date(p.timestamp).getTime() / 1000))
@@ -238,7 +233,6 @@ async function mapMatchBlockSafe(seg) {
 
   const j = await r.json().catch(() => null);
   const m = j?.matchings?.[0];
-  // Confianza mínima + fallback partiendo el bloque
   if (
     !m?.geometry?.coordinates ||
     (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)
@@ -254,7 +248,6 @@ async function mapMatchBlockSafe(seg) {
 
   const matched = m.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
 
-  // validaciones anti-teleport
   let mmDist = 0;
   for (let i = 0; i < matched.length - 1; i++)
     mmDist += distMeters(matched[i], matched[i + 1]);
@@ -267,7 +260,6 @@ async function mapMatchBlockSafe(seg) {
   if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL)
     return null;
 
-  // timestamps aproximados (opcional)
   for (let i = 0; i < matched.length; i++) {
     matched[i].timestamp =
       dense[Math.min(i, dense.length - 1)].timestamp;
@@ -276,7 +268,7 @@ async function mapMatchBlockSafe(seg) {
   return matched;
 }
 
-// ====== Directions con plausibilidad (distancia / duración / velocidad) ======
+// ====== Directions / Bridges ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
 
@@ -300,15 +292,13 @@ async function directionsBetween(a, b) {
   const j = await r.json().catch(() => null);
   const route = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
-  const meters = route?.distance ?? 0; // m
-  const secs = route?.duration ?? 0; // s
+  const meters = route?.distance ?? 0;
+  const secs = route?.duration ?? 0;
   if (!coords.length || meters <= 0) return null;
 
-  // coherencia espacial al inicio del puente
   const first = { lat: coords[0][1], lng: coords[0][0] };
   if (distMeters(a, first) > 80) return null;
 
-  // coherencia temporal: ¿da el tiempo para recorrer esa distancia?
   const dt = Math.max(
     1,
     (new Date(b.timestamp) - new Date(a.timestamp)) / 1000
@@ -324,7 +314,6 @@ async function directionsBetween(a, b) {
   }));
 }
 
-// ====== Bridge en varios “hops” y con cancelación si un tramo no es plausible ======
 async function smartBridge(a, b) {
   const d = distMeters(a, b);
   if (d > BRIDGE_MAX_METERS) return null;
@@ -347,7 +336,7 @@ async function smartBridge(a, b) {
       ).toISOString()
     };
     const seg = await directionsBetween(prev, mid);
-    if (!seg) return null; // si un hop no pasa validaciones, NO unimos
+    if (!seg) return null;
     out.push(...seg.slice(1));
     prev = mid;
     await sleep(60);
@@ -375,31 +364,41 @@ function animateMarker(marker, fromLatLng, toLatLng, duration = 900) {
   requestAnimationFrame(step);
 }
 
+// ====== MAPBOX TILE LAYERS para Leaflet ======
+function createMapboxLayer(styleId) {
+  return L.tileLayer(
+    `https://api.mapbox.com/styles/v1/mapbox/${styleId}/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`,
+    {
+      maxZoom: 20,
+      tileSize: 256,
+      zoomOffset: 0,
+      attribution:
+        '© <a href="https://www.openstreetmap.org/">OpenStreetMap</a> ' +
+        '© <a href="https://www.mapbox.com/">Mapbox</a>'
+    }
+  );
+}
+
 // ====== Mapa / Lista ======
 function initMap() {
+  // Capas base
+  state.baseLayers.streets = createMapboxLayer("streets-v12");
+  state.baseLayers.dark = createMapboxLayer("dark-v11");
+  state.baseLayers.satellite = createMapboxLayer("satellite-streets-v12");
   state.baseLayers.osm = L.tileLayer(
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {
-      maxZoom: 20,
-      attribution: "&copy; OpenStreetMap contributors"
-    }
+    { maxZoom: 20 }
   );
 
-  state.baseLayers.dark = L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    {
-      maxZoom: 20,
-      attribution: "&copy; OpenStreetMap &copy; CARTO"
-    }
-  );
-
+  // Streets-v12 por defecto
   state.map = L.map("map", {
     center: [-12.0464, -77.0428],
-    zoom: 12,
-    layers: [state.baseLayers.osm]
+    zoom: 6,
+    layers: [state.baseLayers.streets]
   });
-  state.currentBase = "osm";
+  state.currentBase = "streets";
 
+  // Clúster
   state.cluster = L.markerClusterGroup({
     disableClusteringAtZoom: 16
   });
@@ -408,7 +407,6 @@ function initMap() {
   // Eventos de UI
   if (ui.apply) {
     ui.apply.onclick = () => {
-      // El filtro de brigada ya está en ui.brigada
       fetchInitial(true);
     };
   }
@@ -419,7 +417,7 @@ function initMap() {
 
   if (ui.btnCenter) {
     ui.btnCenter.onclick = () => {
-      state.map.setView([-12.0464, -77.0428], 12, { animate: true });
+      state.map.setView([-12.0464, -77.0428], 10, { animate: true });
     };
   }
 
@@ -430,20 +428,15 @@ function initMap() {
     };
   }
 
-  if (ui.btnToggleLabels) {
-    ui.btnToggleLabels.onclick = () => {
-      if (!state.map) return;
-      if (state.currentBase === "osm") {
-        state.map.removeLayer(state.baseLayers.osm);
-        state.baseLayers.dark.addTo(state.map);
-        state.currentBase = "dark";
-        ui.btnToggleLabels.textContent = "🏷 Mapa claro";
-      } else {
-        state.map.removeLayer(state.baseLayers.dark);
-        state.baseLayers.osm.addTo(state.map);
-        state.currentBase = "osm";
-        ui.btnToggleLabels.textContent = "🏷 Mapa oscuro";
-      }
+  if (ui.mapStyleSelect) {
+    ui.mapStyleSelect.onchange = () => {
+      const chosen = ui.mapStyleSelect.value; // streets | dark | satellite | osm
+      if (chosen === state.currentBase) return;
+      const currentLayer = state.baseLayers[state.currentBase];
+      const newLayer = state.baseLayers[chosen];
+      if (currentLayer) state.map.removeLayer(currentLayer);
+      if (newLayer) state.map.addLayer(newLayer);
+      state.currentBase = chosen;
     };
   }
 
@@ -495,11 +488,13 @@ function addOrUpdateUserInList(row, statusCode) {
       <div class="brig-sub">${brig}</div>
     </div>
     <div class="brig-meta">
-      <div class="brig-led ${statusCode === "online"
-        ? "online"
-        : statusCode === "mid"
-        ? "mid"
-        : "off"}"></div>
+      <div class="brig-led ${
+        statusCode === "online"
+          ? "online"
+          : statusCode === "mid"
+          ? "mid"
+          : "off"
+      }"></div>
       <div>${hora}</div>
       <div>${mins} min</div>
     </div>
@@ -564,7 +559,7 @@ function applyListFilters() {
   });
 }
 
-// ====== Últimas 24h (carga y actualización con animación) ======
+// ====== Carga de datos (últimas 24h) ======
 async function fetchInitial(clearList) {
   try {
     setStatus("Cargando…", "gray");
@@ -601,7 +596,6 @@ async function fetchInitial(clearList) {
       grouped.get(uid).push(r);
     }
 
-    // Limpia cluster, pero mantenemos los marcadores en state.users
     state.cluster.clearLayers();
 
     const activeUids = new Set();
@@ -656,7 +650,6 @@ async function fetchInitial(clearList) {
 }
 
 // ============================= EXPORTAR KMZ =============================
-// (igual que tu versión previa, solo adaptado al nuevo ui.brigada)
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
@@ -696,12 +689,11 @@ async function exportKMZFromState() {
       return;
     }
 
-    // === DÍA COMPLETO EN ORDEN LOCAL ===
     const all = (data || [])
       .map(r => ({
         lat: +r.latitud,
         lng: +r.longitud,
-        timestamp: r.timestamp_pe || r.timestamp, // usar hora local del día
+        timestamp: r.timestamp_pe || r.timestamp,
         acc: r.acc ?? null,
         spd: r.spd ?? null
       }))
@@ -717,14 +709,10 @@ async function exportKMZFromState() {
       return;
     }
 
-    // 1) limpiar puntitos pegados (conserva el primer punto del día)
     const rows1 = [all[0], ...cleanClosePoints(all.slice(1), CLEAN_MIN_METERS)];
-
-    // 2) cortar por huecos/“saltos”
     const segments = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
 
-    // 3) procesar cada segmento con matching + unir con bridges plausibles
-    const renderedSegments = []; // cada elemento será un Placemark
+    const renderedSegments = [];
     for (const seg of segments) {
       if (seg.length < 2) continue;
 
@@ -733,10 +721,8 @@ async function exportKMZFromState() {
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i];
 
-        // default por si falla matching: densificado
         let finalBlock = densifySegment(block, DENSIFY_STEP);
 
-        // Map Matching pegado a pista (con timestamps + radiuses adaptativos)
         try {
           const mm = await mapMatchBlockSafe(block);
           if (mm && mm.length >= 2) finalBlock = mm;
@@ -759,7 +745,6 @@ async function exportKMZFromState() {
               }
             }
             if (!appended) {
-              // no hay unión plausible -> cerramos tramo y comenzamos uno nuevo
               if (current.length > 1) renderedSegments.push(current);
               current = [...finalBlock];
               await sleep(PER_BLOCK_DELAY);
@@ -779,7 +764,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // 4) Exportar KML/KMZ: un Placemark por tramo (sin diagonales)
     let kml =
       '<?xml version="1.0" encoding="UTF-8"?>' +
       '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>' +
@@ -787,9 +771,7 @@ async function exportKMZFromState() {
       '<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>';
 
     for (const seg of renderedSegments) {
-      const coordsStr = seg
-        .map(p => `${p.lng},${p.lat},0`)
-        .join(" ");
+      const coordsStr = seg.map(p => `${p.lng},${p.lat},0`).join(" ");
       kml += `
         <Placemark>
           <name>${brig} (${ymd})</name>
@@ -800,7 +782,6 @@ async function exportKMZFromState() {
 
     kml += "</Document></kml>";
 
-    // 5) Generar KMZ
     if (!window.JSZip) {
       try {
         await import(
@@ -837,5 +818,5 @@ async function exportKMZFromState() {
 // ====== Arranque ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
-// si quieres actualización automática, descomenta:
-setInterval(() => fetchInitial(false), 30000);
+// Si quieres auto-actualización, descomenta:
+// setInterval(() => fetchInitial(false), 30000);

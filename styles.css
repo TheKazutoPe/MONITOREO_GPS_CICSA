@@ -344,6 +344,11 @@ body {
   transform: translateY(-1px);
 }
 
+/* select de estilos de mapa */
+.ctrl-select {
+  padding-right: 26px;
+}
+
 /* ========================= */
 /* FOOTER                    */
 /* ========================= */

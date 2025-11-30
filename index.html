@@ -36,7 +36,6 @@
 
     <div class="topbar-right">
       <button id="btnRefresh" class="btn-small">⟳ Actualizar</button>
-      <!-- Aquí podrías poner usuario / logout -->
       <button class="btn-small">⚙ Configuración</button>
     </div>
   </header>
@@ -80,7 +79,13 @@
       <div class="map-controls">
         <button class="ctrl" id="btnCenter">🎯 Centrar Lima</button>
         <button class="ctrl" id="btnShowAll">👁 Ver todos</button>
-        <button class="ctrl" id="btnToggleLabels">🏷 Mapa oscuro</button>
+
+        <select id="mapStyleSelect" class="ctrl ctrl-select">
+          <option value="streets">Mapa: Streets</option>
+          <option value="dark">Mapa: Dark</option>
+          <option value="satellite">Mapa: Satélite</option>
+          <option value="osm">Mapa: OSM</option>
+        </select>
       </div>
     </main>
   </div>
