@@ -796,13 +796,20 @@ async function fetchInitial(clearList) {
 
 // ====== Autocomplete Sites (Supabase) ======
 async function searchSites(query) {
-  // mínimo 2 letras
-  if (!query || query.length < 2) return [];
+  // normalizamos el texto
+  query = (query || "").trim();
+
+  // mínimo 2 caracteres
+  if (query.length < 2) return [];
+
+  console.log("Buscando sites para:", query);
 
   const { data, error } = await supa
     .from("sites_nacional_tabla")
-    .select("*") // más robusto con nombres de columna con *
-    .ilike('"Site Name*"', `%${query}%`)
+    // traemos solo las columnas que usamos
+    .select('"Site ID*","Site Name*","Latitude","Longitude","DISTRITO","Provincia","Departamento"')
+    // OJO: aquí va SIN comillas internas
+    .ilike('Site Name*', `%${query}%`)
     .limit(20);
 
   if (error) {
@@ -811,8 +818,11 @@ async function searchSites(query) {
     return [];
   }
 
+  console.log("Sites encontrados:", data?.length || 0, data);
+
   if (!data || data.length === 0) return [];
 
+  // mapeamos a un formato limpio
   return data
     .map(row => {
       const lat = parseFloat(row["Latitude"]);
