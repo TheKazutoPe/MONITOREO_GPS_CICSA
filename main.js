@@ -2,8 +2,9 @@
 // Usa CONFIG y supabase globales cargados en index.html
 const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
+const AUTO_REFRESH_MS = 15000; // refresco automático cada 15s
 
-// ====== UI refs (mismos IDs que tu HTML) ======
+// ====== UI refs ======
 const ui = {
   status: document.getElementById("status"),
   brigada: document.getElementById("brigadaFilter"),
@@ -23,27 +24,24 @@ const state = {
   pointsByUser: new Map(), // uid -> [rows]
 };
 
-// ====== Ajustes de trazado / matching ======
-const CLEAN_MIN_METERS      = 6;     // suaviza “dientes”
-const DENSIFY_STEP          = 10;    // curvatura urbana más real
-const MAX_MM_POINTS         = 40;    // tamaño de bloque crudo
-const MAX_MATCH_INPUT       = 90;    // límite duro para URL GET del Matching
-const MAX_DIST_RATIO        = 0.35;  // tolerancia matching vs crudo
-const ENDPOINT_TOL          = 25;    // tolerancia de puntas (m)
-const CONFIDENCE_MIN        = 0.70;  // confianza mínima Mapbox (0..1)
+// ====== Ajustes de trazado / matching (KMZ) ======
+const CLEAN_MIN_METERS      = 6;
+const DENSIFY_STEP          = 10;
+const MAX_MM_POINTS         = 40;
+const MAX_MATCH_INPUT       = 90;
+const MAX_DIST_RATIO        = 0.35;
+const ENDPOINT_TOL          = 25;
+const CONFIDENCE_MIN        = 0.70;
 
-// Gaps / “teleport” (evitar uniones falsas)
-const GAP_MINUTES           = 8;     // gap de tiempo → nuevo segmento
-const GAP_JUMP_METERS       = 800;   // salto espacial brusco → nuevo segmento
+const GAP_MINUTES           = 8;
+const GAP_JUMP_METERS       = 800;
 
-// Puentes por carretera (Directions) con plausibilidad
-const BRIDGE_MAX_METERS     = 800;   // tope de puente
-const DIRECTIONS_HOP_METERS = 300;   // hops cuando el puente es largo
-const MAX_BRIDGE_SPEED_KMH  = 70;    // si la unión implica >70 km/h = NO unir
-const MIN_BRIDGE_SPEED_KMH  = 3;     // si implica <3 km/h en gap corto = ruido
-const DIRECTIONS_PROFILE    = "driving"; // o "driving-traffic"
+const BRIDGE_MAX_METERS     = 800;
+const DIRECTIONS_HOP_METERS = 300;
+const MAX_BRIDGE_SPEED_KMH  = 70;
+const MIN_BRIDGE_SPEED_KMH  = 3;
+const DIRECTIONS_PROFILE    = "driving";
 
-// Ritmo de llamadas para no saturar API
 const PER_BLOCK_DELAY       = 150;
 
 // ====== Iconos/estética ======
@@ -68,16 +66,11 @@ function getIconFor(row) {
 function statusMatches(row) {
   const mode = ui.statusFilter ? ui.statusFilter.value : "all";
   const mins = getMinutesSince(row);
-
   switch (mode) {
-    case "active":
-      return mins <= 5;
-    case "recent":
-      return mins <= 120; // 2 horas
-    case "offline":
-      return mins > 30;
-    default:
-      return true;
+    case "active":  return mins <= 5;
+    case "recent":  return mins <= 120; // 2 horas
+    case "offline": return mins > 30;
+    default:        return true;
   }
 }
 
@@ -130,7 +123,7 @@ function densifySegment(points, step = DENSIFY_STEP) {
   return out;
 }
 
-// ====== limitar puntos (evita URL enorme del Matching) ======
+// ====== limitar puntos ======
 function downsamplePoints(arr, maxN) {
   if (!arr || arr.length <= maxN) return arr || [];
   const out = [];
@@ -150,14 +143,11 @@ function cleanClosePoints(points, minMeters = CLEAN_MIN_METERS) {
   const out = [points[0]];
   for (let i = 1; i < points.length; i++) {
     const prev = out[out.length - 1];
-    const cur = points[i];
-    if (distMeters(prev, cur) >= minMeters) {
-      out.push(cur);
-    }
+    const cur  = points[i];
+    if (distMeters(prev, cur) >= minMeters) out.push(cur);
   }
   return out;
 }
-
 function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS) {
   const groups = [];
   let cur = [];
@@ -178,30 +168,84 @@ function splitOnGaps(points, maxGapMin = GAP_MINUTES, maxJumpM = GAP_JUMP_METERS
   return groups;
 }
 
-// ====== Radio adaptativo por punto (usa 'acc' si existe) ======
-function adaptiveRadius(p) {
-  const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
-  const base = isFinite(acc) ? acc + 5 : 25; // leve holgura
-  return Math.max(10, Math.min(50, base));   // 10–50 m
+// ====== Bearing y animación ======
+function getBearing(a, b) {
+  const toRad = deg => deg * Math.PI / 180;
+  const toDeg = rad => rad * 180 / Math.PI;
+  const dLon = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) -
+            Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  let br = toDeg(Math.atan2(y, x));
+  if (br < 0) br += 360;
+  return br;
 }
 
-// ====== Map Matching (timestamps + radiuses + downsample) ======
+// Animación suave + rotación
+function animateMarker(marker, fromRow, toRow, baseDuration = 2000) {
+  if (!marker || !fromRow || !toRow) return;
+
+  const startLatLng = marker.getLatLng();
+  const endLatLng   = L.latLng(toRow.latitud, toRow.longitud);
+
+  // distancia para ajustar duración / evitar teletransportes
+  const d = distMeters(
+    { lat: startLatLng.lat, lng: startLatLng.lng },
+    { lat: endLatLng.lat,   lng: endLatLng.lng }
+  );
+  if (!isFinite(d) || d < 3 || d > 3000) {
+    // demasiado cerca o muy lejos: mover directo sin animar
+    marker.setLatLng(endLatLng);
+    return;
+  }
+
+  const duration = Math.min(4000, Math.max(800, (d / 10) * 100)); // 0.8–4s aprox
+  const startTime = performance.now();
+
+  const bearing = getBearing(
+    { lat: startLatLng.lat, lng: startLatLng.lng },
+    { lat: endLatLng.lat,   lng: endLatLng.lng }
+  );
+
+  function frame(now) {
+    const elapsed = now - startTime;
+    const t = Math.min(elapsed / duration, 1);
+    const lat = startLatLng.lat + (endLatLng.lat - startLatLng.lat) * t;
+    const lng = startLatLng.lng + (endLatLng.lng - startLatLng.lng) * t;
+    marker.setLatLng([lat, lng]);
+
+    if (marker._icon) {
+      marker._icon.style.transformOrigin = "center";
+      marker._icon.style.transform = `rotate(${bearing}deg)`;
+    }
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ====== Radio adaptativo (matching) ======
+function adaptiveRadius(p) {
+  const acc = (p && p.acc != null) ? Number(p.acc) : NaN;
+  const base = isFinite(acc) ? acc + 5 : 25;
+  return Math.max(10, Math.min(50, base));
+}
+
+// ====== Map Matching ======
 async function mapMatchBlockSafe(seg) {
   if (!MAPBOX_TOKEN) return null;
   if (!seg || seg.length < 2) return null;
   if (seg.length > MAX_MM_POINTS) return null;
 
-  // densificar para curvatura real
   const dense0 = densifySegment(seg, DENSIFY_STEP);
+  const dense  = downsamplePoints(dense0, MAX_MATCH_INPUT);
 
-  // limitar puntos para no exceder URL GET
-  const dense = downsamplePoints(dense0, MAX_MATCH_INPUT);
-
-  // distancia cruda (validación)
   let rawDist = 0;
-  for (let i = 0; i < dense.length - 1; i++) rawDist += distMeters(dense[i], dense[i + 1]);
+  for (let i = 0; i < dense.length - 1; i++) {
+    rawDist += distMeters(dense[i], dense[i + 1]);
+  }
 
-  // parámetros con timestamps y radiuses ADAPTATIVOS
   const coords = dense.map(p => `${p.lng},${p.lat}`).join(";");
   const tsArr  = dense.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(";");
   const radArr = dense.map(p => adaptiveRadius(p)).join(";");
@@ -225,10 +269,10 @@ async function mapMatchBlockSafe(seg) {
   const j = await r.json().catch(() => null);
   const m = j?.matchings?.[0];
 
-  // Confianza mínima + fallback partiendo el bloque
-  if (!m?.geometry?.coordinates || (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)) {
+  if (!m?.geometry?.coordinates ||
+      (typeof m.confidence === "number" && m.confidence < CONFIDENCE_MIN)) {
     if (dense.length > 24) {
-      const mid = Math.floor(dense.length / 2);
+      const mid  = Math.floor(dense.length / 2);
       const left  = await mapMatchBlockSafe(dense.slice(0, mid));
       const right = await mapMatchBlockSafe(dense.slice(mid - 1));
       if (left && right) return left.concat(right.slice(1));
@@ -237,15 +281,14 @@ async function mapMatchBlockSafe(seg) {
   }
 
   const matched = m.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-
-  // validaciones anti-teleport
   let mmDist = 0;
-  for (let i = 0; i < matched.length - 1; i++) mmDist += distMeters(matched[i], matched[i + 1]);
+  for (let i = 0; i < matched.length - 1; i++) {
+    mmDist += distMeters(matched[i], matched[i + 1]);
+  }
   if ((Math.abs(mmDist - rawDist) / Math.max(rawDist, 1)) > MAX_DIST_RATIO) return null;
   if (distMeters(dense[0], matched[0]) > ENDPOINT_TOL) return null;
   if (distMeters(dense.at(-1), matched.at(-1)) > ENDPOINT_TOL) return null;
 
-  // timestamps aproximados (opcional)
   for (let i = 0; i < matched.length; i++) {
     matched[i].timestamp = dense[Math.min(i, dense.length - 1)].timestamp;
     matched[i].acc = dense[Math.min(i, dense.length - 1)].acc;
@@ -253,10 +296,9 @@ async function mapMatchBlockSafe(seg) {
   return matched;
 }
 
-// ====== Directions con plausibilidad ======
+// ====== Directions / bridge ======
 async function directionsBetween(a, b) {
   if (!MAPBOX_TOKEN) return null;
-
   const direct = distMeters(a, b);
   if (direct > BRIDGE_MAX_METERS) return null;
 
@@ -271,11 +313,11 @@ async function directionsBetween(a, b) {
   if (!r.ok) return null;
 
   const j = await r.json().catch(() => null);
-  const route = j?.routes?.[0];
+  const route  = j?.routes?.[0];
   const coords = route?.geometry?.coordinates || [];
-  const meters = route?.distance ?? 0;   // m
-  const secs   = route?.duration ?? 0;   // s
-  if (!coords.length || meters <= 0) return null;
+  const meters = route?.distance ?? 0;
+  const secs   = route?.duration ?? 0;
+  if (!coords.length || meters <= 0 || secs <= 0) return null;
 
   const first = { lat: coords[0][1], lng: coords[0][0] };
   if (distMeters(a, first) > 80) return null;
@@ -288,7 +330,6 @@ async function directionsBetween(a, b) {
   return coords.map(([lng, lat]) => ({ lat, lng, timestamp: a.timestamp }));
 }
 
-// ====== Bridge multi-hop ======
 async function smartBridge(a, b) {
   const d = distMeters(a, b);
   if (d > BRIDGE_MAX_METERS) return null;
@@ -298,8 +339,8 @@ async function smartBridge(a, b) {
   }
 
   const hops = Math.ceil(d / DIRECTIONS_HOP_METERS);
-  const out = [a];
-  let prev = a;
+  const out  = [a];
+  let prev   = a;
   for (let i = 1; i <= hops; i++) {
     const t = i / hops;
     const mid = {
@@ -331,7 +372,6 @@ function initMap() {
     layers: [state.baseLayers.osm],
   });
 
-  // clustering mejorado
   state.cluster = L.markerClusterGroup({
     disableClusteringAtZoom: 17,
     maxClusterRadius: 45,
@@ -343,7 +383,7 @@ function initMap() {
 
   ui.apply.onclick = () => fetchInitial(true);
   ui.exportKmz.onclick = () => exportKMZFromState();
-  if (ui.timeRange) ui.timeRange.onchange = () => fetchInitial(true);
+  if (ui.timeRange)   ui.timeRange.onchange   = () => fetchInitial(true);
   if (ui.statusFilter) ui.statusFilter.onchange = () => fetchInitial(true);
 }
 initMap();
@@ -364,18 +404,18 @@ function focusOnUser(uid) {
 function buildPopup(r) {
   const acc = Math.round(r.acc || 0);
   const spd = (r.spd || 0).toFixed(1);
-  const ts = new Date(r.timestamp).toLocaleString();
+  const ts  = new Date(r.timestamp).toLocaleString();
   return `<div><b>${r.tecnico || "Sin nombre"}</b><br>Brigada: ${r.brigada || "-"}<br>Acc: ${acc} m · Vel: ${spd} m/s<br>${ts}</div>`;
 }
 
 function addOrUpdateUserInList(row) {
-  const uid = String(row.usuario_id || "0");
-  let el = document.getElementById(`u-${uid}`);
+  const uid  = String(row.usuario_id || "0");
+  let el     = document.getElementById(`u-${uid}`);
   const mins = getMinutesSince(row);
   const brig = row.brigada || "-";
   const hora = new Date(row.timestamp).toLocaleTimeString();
   const ledColor = mins <= 2 ? "#4ade80" : mins <= 5 ? "#eab308" : "#777";
-  const cls = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
+  const cls  = mins <= 2 ? "text-green" : mins <= 5 ? "text-yellow" : "text-gray";
   const html = `
     <div class="brigada-header">
       <div style="display:flex;gap:6px;align-items:flex-start;">
@@ -403,7 +443,7 @@ function addOrUpdateUserInList(row) {
   }
 }
 
-// Actualiza panel de estadísticas nacionales
+// Panel de estadísticas nacionales
 function updateGlobalStats({ onlineNow, totalBrigadas, lastTs, hoursWindow }) {
   const elOnline  = document.getElementById("statOnline");
   const elTotal   = document.getElementById("statTotal");
@@ -416,12 +456,12 @@ function updateGlobalStats({ onlineNow, totalBrigadas, lastTs, hoursWindow }) {
   if (elRange)   elRange.textContent   = `Últimas ${hoursWindow} h`;
 }
 
-// ====== Carga inicial (rango dinámico + stats) ======
+// ====== Carga / refresco con animación ======
 async function fetchInitial(clear) {
   setStatus("Cargando…", "gray");
   if (clear) ui.userList.innerHTML = "";
 
-  const hours = ui.timeRange ? Number(ui.timeRange.value || 24) : 24;
+  const hours   = ui.timeRange ? Number(ui.timeRange.value || 24) : 24;
   const sinceIso = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
   const { data, error } = await supa
@@ -440,17 +480,15 @@ async function fetchInitial(clear) {
     state.pointsByUser.clear();
     state.cluster.clearLayers();
     state.users.clear();
-    updateGlobalStats({
-      onlineNow: 0,
-      totalBrigadas: 0,
-      lastTs: null,
-      hoursWindow: hours,
-    });
+    updateGlobalStats({ onlineNow: 0, totalBrigadas: 0, lastTs: null, hoursWindow: hours });
     setStatus("Sin datos", "gray");
     return;
   }
 
-  // === Estadísticas nacionales (todos los registros en el rango) ===
+  // Guardamos estado anterior para animar
+  const prevUsers = new Map(state.users);
+
+  // === Stats nacionales ===
   const idsSet = new Set();
   let onlineNow = 0;
   for (const r of data) {
@@ -466,7 +504,7 @@ async function fetchInitial(clear) {
     hoursWindow: hours,
   });
 
-  // === Agrupado por usuario con filtros de brigada + estado ===
+  // === Agrupado con filtros ===
   const brigFilter = (ui.brigada.value || "").trim().toLowerCase();
   const grouped = new Map();
   const perUser = 100;
@@ -481,22 +519,39 @@ async function fetchInitial(clear) {
     grouped.get(uid).push(r);
   }
 
-  state.pointsByUser.clear();
+  // limpiamos cluster, pero conservamos markers en prevUsers para reusar/animar
   state.cluster.clearLayers();
-  state.users.clear();
+  state.pointsByUser = new Map();
+  const newUsers = new Map();
 
   grouped.forEach((rows, uid) => {
     const last = rows[0];
-    const marker = L.marker([last.latitud, last.longitud], { icon: getIconFor(last) })
-      .bindPopup(buildPopup(last));
+    const prev = prevUsers.get(uid);
+    let marker;
 
-    state.cluster.addLayer(marker);
-    state.users.set(uid, { marker, lastRow: last });
+    if (prev && prev.marker) {
+      marker = prev.marker;
+      marker.setIcon(getIconFor(last));
+      marker.setPopupContent(buildPopup(last));
+
+      // animar desde lastRow anterior a última posición nueva
+      animateMarker(marker, prev.lastRow, last);
+      state.cluster.addLayer(marker);
+    } else {
+      marker = L.marker([last.latitud, last.longitud], { icon: getIconFor(last) })
+        .bindPopup(buildPopup(last));
+      state.cluster.addLayer(marker);
+    }
+
+    newUsers.set(uid, { marker, lastRow: last });
     state.pointsByUser.set(uid, rows);
     addOrUpdateUserInList(last);
   });
 
-  if (state.cluster.getLayers().length > 0) {
+  state.users = newUsers;
+
+  // Solo centramos el mapa cuando es carga manual / inicial
+  if (clear && state.cluster.getLayers().length > 0) {
     state.map.fitBounds(state.cluster.getBounds(), {
       padding: [40, 40],
       maxZoom: 12,
@@ -544,7 +599,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // === DÍA COMPLETO EN ORDEN LOCAL ===
     const all = (data || [])
       .map(r => ({
         lat: +r.latitud,
@@ -561,7 +615,7 @@ async function exportKMZFromState() {
       return;
     }
 
-    const rows1 = [all[0], ...cleanClosePoints(all.slice(1), CLEAN_MIN_METERS)];
+    const rows1    = [all[0], ...cleanClosePoints(all.slice(1), CLEAN_MIN_METERS)];
     const segments = splitOnGaps(rows1, GAP_MINUTES, GAP_JUMP_METERS);
 
     const renderedSegments = [];
@@ -615,7 +669,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // 4) Exportar KML/KMZ
     let kml =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<kml xmlns="http://www.opengis.net/kml/2.2"><Document>` +
@@ -637,7 +690,7 @@ async function exportKMZFromState() {
     if (!window.JSZip) {
       try { await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"); } catch (_) {}
     }
-    const zip = new JSZip();
+    const zip  = new JSZip();
     zip.file("doc.kml", kml);
     const blob = await zip.generateAsync({
       type: "blob",
@@ -664,3 +717,4 @@ async function exportKMZFromState() {
 // ====== Arranque ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
+setInterval(() => fetchInitial(false), AUTO_REFRESH_MS);
