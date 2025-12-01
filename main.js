@@ -811,7 +811,7 @@ async function fetchInitial(clearList) {
   }
 }
 
-// ====== Exportar KMZ ======
+// ====== Exportar KMZ (modificado: Directions punto a punto cada 10 min) ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
@@ -871,7 +871,7 @@ async function exportKMZFromState() {
       return;
     }
 
-    // === NUEVO: muestreo por intervalo de tiempo (10 min aprox) ===
+    // === Muestreo por intervalo de tiempo (10 min aprox) ===
     const KMZ_INTERVAL_MIN = 10;
     const sampled = (() => {
       const out = [];
@@ -908,63 +908,55 @@ async function exportKMZFromState() {
       return;
     }
 
-    // Limpieza espacial sobre los puntos muestreados
-    const rows1 = [
-      sampled[0],
-      ...cleanClosePoints(sampled.slice(1), CLEAN_MIN_METERS)
-    ];
+    // === Helper: ruta entre dos puntos usando Mapbox Directions ===
+    async function routeBetweenPoints(a, b) {
+      if (!MAPBOX_TOKEN) return null;
+      const url =
+        `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+        `${a.lng},${a.lat};${b.lng},${b.lat}` +
+        `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
 
-    // Usamos un gap de 30 min para no cortar cada 10 min
-    const segments = splitOnGaps(rows1, 30, GAP_JUMP_METERS);
-
-    const renderedSegments = [];
-    for (const seg of segments) {
-      if (seg.length < 2) continue;
-
-      const blocks = chunk(seg, MAX_MM_POINTS);
-      let current = [];
-      for (let i = 0; i < blocks.length; i++) {
-        const block = blocks[i];
-
-        let finalBlock = densifySegment(block, DENSIFY_STEP);
-
-        try {
-          const mm = await mapMatchBlockSafe(block);
-          if (mm && mm.length >= 2) finalBlock = mm;
-        } catch (_) {}
-
-        if (!current.length) {
-          current.push(...finalBlock);
-        } else {
-          const last = current[current.length - 1];
-          const first = finalBlock[0];
-          const gapM = distMeters(last, first);
-
-          if (gapM > 5) {
-            let appended = false;
-            if (gapM <= BRIDGE_MAX_METERS) {
-              const bridge = await smartBridge(last, first);
-              if (bridge?.length) {
-                current.push(...bridge.slice(1));
-                appended = true;
-              }
-            }
-            if (!appended) {
-              if (current.length > 1) renderedSegments.push(current);
-              current = [...finalBlock];
-              await sleep(PER_BLOCK_DELAY);
-              continue;
-            }
-          }
-          current.push(...finalBlock.slice(1));
-        }
-
-        await sleep(PER_BLOCK_DELAY);
+      try {
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        const j = await r.json();
+        const route = j?.routes?.[0];
+        const coords = route?.geometry?.coordinates;
+        if (!coords || !coords.length) return null;
+        return coords.map(c => ({ lng: c[0], lat: c[1] }));
+      } catch (e) {
+        console.error("Error Directions (KMZ):", e);
+        return null;
       }
-      if (current.length > 1) renderedSegments.push(current);
     }
 
-    if (!renderedSegments.length) {
+    // === Construir ruta completa pegada a pistas con Directions ===
+    const finalRoute = [];
+    for (let i = 0; i < sampled.length - 1; i++) {
+      const A = sampled[i];
+      const B = sampled[i + 1];
+
+      const route = await routeBetweenPoints(A, B);
+      if (route && route.length) {
+        if (!finalRoute.length) {
+          finalRoute.push(...route);
+        } else {
+          // evitar duplicar el primer punto del siguiente tramo
+          finalRoute.push(...route.slice(1));
+        }
+      } else {
+        // fallback: línea recta simple si Directions falla
+        if (!finalRoute.length) {
+          finalRoute.push({ lng: A.lng, lat: A.lat });
+        }
+        finalRoute.push({ lng: B.lng, lat: B.lat });
+      }
+
+      // pequeña pausa para no saturar la API
+      await sleep(120);
+    }
+
+    if (finalRoute.length < 2) {
       alert("No se generó traza válida.");
       return;
     }
@@ -973,17 +965,15 @@ async function exportKMZFromState() {
       '<?xml version="1.0" encoding="UTF-8"?>' +
       '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>' +
       `<name>${brig} - ${ymd}</name>` +
-      '<Style id="routeStyle"><LineStyle><color>ffFF0000</color><width>4</width></LineStyle></Style>';
+      '<Style id="routeStyle"><LineStyle><color>ff0000ff</color><width>4</width></LineStyle></Style>';
 
-    for (const seg of renderedSegments) {
-      const coordsStr = seg.map(p => `${p.lng},${p.lat},0`).join(" ");
-      kml += `
-        <Placemark>
-          <name>${brig} (${ymd})</name>
-          <styleUrl>#routeStyle</styleUrl>
-          <LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>
-        </Placemark>`;
-    }
+    const coordsStr = finalRoute.map(p => `${p.lng},${p.lat},0`).join(" ");
+    kml += `
+      <Placemark>
+        <name>${brig} (${ymd})</name>
+        <styleUrl>#routeStyle</styleUrl>
+        <LineString><tessellate>1</tessellate><coordinates>${coordsStr}</coordinates></LineString>
+      </Placemark>`;
 
     kml += "</Document></kml>";
 
@@ -1009,7 +999,7 @@ async function exportKMZFromState() {
     URL.revokeObjectURL(a.href);
 
     alert(
-      `✅ KMZ listo (cada ${KMZ_INTERVAL_MIN} min): ${brig} (${ymd}) — ${renderedSegments.length} tramo(s) plausibles`
+      `✅ KMZ listo (cada ${KMZ_INTERVAL_MIN} min): ${brig} (${ymd}) — ${finalRoute.length} puntos`
     );
   } catch (e) {
     console.error(e);
@@ -1162,7 +1152,7 @@ async function calcularRutasBrigadasCercanas(site) {
         lng
       ]);
 
-      const line = L.polyline(coords, {
+      const poly = L.polyline(coords, {
         color,
         weight: i === 0 ? 6 : 4,
         opacity: 0.9,
@@ -1170,7 +1160,7 @@ async function calcularRutasBrigadasCercanas(site) {
         lineJoin: "round"
       }).addTo(state.routeLayer);
 
-      line.bringToFront();
+      poly.bringToFront();
 
       L.circleMarker([b.lat, b.lng], {
         radius: 5,
@@ -1194,7 +1184,7 @@ async function calcularRutasBrigadasCercanas(site) {
         distance: meters,
         duration: minutes,
         color,
-        polyline: line
+        polyline: poly
       });
 
       await sleep(120);
