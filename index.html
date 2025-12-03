@@ -55,79 +55,67 @@
     <aside class="sidebar">
       <h2 class="sidebar-title">Brigadas conectadas</h2>
 
-      <!-- FILTROS -->
-      <div class="filter-group">
-        <input id="filterName" type="text" placeholder="Buscar técnico..." />
-        <input id="filterBrigada" type="text" placeholder="Buscar brigada..." />
+      <div class="sidebar-inner">
+        <!-- FILTROS -->
+        <div class="filter-group">
+          <div class="filter-group-header">Filtros rápidos</div>
 
-        <!-- NUEVOS: zona y contrata -->
-        <select id="filterZona">
-          <option value="">Zona: todas</option>
-        </select>
+          <input id="filterName" type="text" placeholder="Buscar técnico..." />
+          <input id="filterBrigada" type="text" placeholder="Buscar brigada..." />
 
-        <select id="filterContrata">
-          <option value="">Contrata: todas</option>
-        </select>
+          <!-- NUEVOS: zona y contrata -->
+          <select id="filterZona">
+            <option value="">Zona: todas</option>
+          </select>
 
-        <select id="filterStatus">
-          <option value="">Estado</option>
-          <option value="online">Conectados (≤2 min)</option>
-          <option value="mid">Medio (≤5 min)</option>
-          <option value="off">Inactivos (&gt;5 min)</option>
-        </select>
+          <select id="filterContrata">
+            <option value="">Contrata: todas</option>
+          </select>
 
-        <button id="applyFilters" class="btn-full">Aplicar filtros</button>
-      </div>
+          <select id="filterStatus">
+            <option value="">Estado</option>
+            <option value="online">Conectados (≤2 min)</option>
+            <option value="mid">Medio (≤5 min)</option>
+            <option value="off">Inactivos (&gt;5 min)</option>
+          </select>
 
-      <!-- 🔍 BUSCADOR DE SITE + RUTAS -->
-      <div class="filter-group" style="margin-top: 10px;">
-        <input
-          id="siteSearch"
-          type="text"
-          placeholder="Ingresar nombre de Site..."
-          autocomplete="off"
-        />
+          <button id="applyFilters" class="btn-full">Aplicar filtros</button>
+        </div>
 
-        <!-- Sugerencias simples (clickables) -->
-        <div
-          id="siteSuggestions"
-          style="
-            display:none;
-            margin-top:4px;
-            max-height:160px;
-            overflow-y:auto;
-            font-size:11px;
-            background:#111;
-            border:1px solid #333;
-            border-radius:6px;
-            padding:4px;
-          "
-        ></div>
+        <!-- 🔍 BUSCADOR DE SITE + RUTAS -->
+        <div class="filter-group">
+          <div class="filter-group-header">Rutas a Site</div>
 
-        <button id="btnBuscarSite" class="btn-full" style="margin-top:6px;">
-          🚐 Buscar brigadas cercanas
-        </button>
-      </div>
+          <div class="site-search-wrapper">
+            <input
+              id="siteSearch"
+              type="text"
+              placeholder="Ingresar nombre de Site..."
+              autocomplete="off"
+            />
 
-      <!-- Panel de rutas hacia el Site -->
-      <div
-        id="routesPanel"
-        style="
-          margin-top:8px;
-          max-height:180px;
-          overflow-y:auto;
-          font-size:11px;
-        "
-      ></div>
+            <!-- Sugerencias con clase propia -->
+            <div id="siteSuggestions" class="suggestions-box"></div>
+          </div>
 
-      <!-- LISTA DE BRIGADAS -->
-      <div id="userList" class="brigada-list"></div>
+          <button id="btnBuscarSite" class="btn-full">
+            🚐 Buscar brigadas cercanas
+          </button>
 
-      <!-- KMZ -->
-      <div class="kmz-box">
-        <label for="kmzDate">Fecha para KMZ</label>
-        <input id="kmzDate" type="date" />
-        <button id="exportKmzBtn" class="btn-full kmz-btn">📍 Exportar KMZ</button>
+          <!-- Panel de rutas hacia el Site -->
+          <div id="routesPanel" class="routes-panel"></div>
+        </div>
+
+        <!-- LISTA DE BRIGADAS -->
+        <div class="sidebar-section-title">Listado de brigadas</div>
+        <div id="userList" class="brigada-list"></div>
+
+        <!-- KMZ (siempre al fondo de la barra) -->
+        <div class="kmz-box">
+          <label for="kmzDate">Fecha para KMZ</label>
+          <input id="kmzDate" type="date" />
+          <button id="exportKmzBtn" class="btn-full kmz-btn">📍 Exportar KMZ</button>
+        </div>
       </div>
     </aside>
 

@@ -89,26 +89,44 @@ body {
 /* LAYOUT PRINCIPAL */
 
 .main-layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
   height: calc(100vh - 60px);
 }
 
 /* SIDEBAR */
 
 .sidebar {
-  width: 320px;
-  min-width: 280px;
   background: radial-gradient(circle at top left, #1b1b1b 0, #101010 55%, #080808 100%);
   border-right: 1px solid #1e1e1e;
   padding: 14px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  min-width: 280px;
 }
 
 .sidebar-title {
-  margin: 0 0 12px 0;
+  margin: 0;
   font-size: 18px;
   font-weight: 600;
+}
+
+.sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+/* subtítulos pequeños dentro de la sidebar */
+
+.sidebar-section-title {
+  margin-top: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
 }
 
 /* BLOQUES DE FILTROS / CARDS */
@@ -120,8 +138,12 @@ body {
   box-shadow: 0 0 0 1px #262626;
 }
 
-.filter-group + .filter-group {
-  margin-top: 8px;
+.filter-group-header {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a0a0a0;
+  margin-bottom: 6px;
 }
 
 .filter-group input,
@@ -140,6 +162,12 @@ body {
 }
 .filter-group select {
   cursor: pointer;
+}
+
+/* envoltorio para el buscador de site + sugerencias */
+
+.site-search-wrapper {
+  position: relative;
 }
 
 /* Botones principales */
@@ -170,10 +198,10 @@ body {
 /* CONTENEDOR DE LISTA DE BRIGADAS */
 
 .brigada-list {
-  margin-top: 10px;
   flex: 1;
   overflow-y: auto;
   padding-right: 4px;
+  margin-top: 4px;
 }
 
 /* ===== LISTA DE BRIGADAS (nuevo diseño) ===== */
@@ -406,13 +434,11 @@ body {
   min-width: 80px;
 }
 
-/* color de pill se inyecta con style desde JS */
-
 /* AUTOCOMPLETE SITES */
 
 .suggestions-box {
   position: absolute;
-  top: 37px;
+  top: 38px;
   left: 0;
   width: 100%;
   background: #161616;
@@ -423,12 +449,12 @@ body {
   display: none;
   z-index: 9999;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.65);
+  font-size: 12px;
 }
 
 .suggestion-item {
   padding: 7px 10px;
   cursor: pointer;
-  font-size: 13px;
   border-bottom: 1px solid #262626;
 }
 .suggestion-item strong {
@@ -444,7 +470,7 @@ body {
 /* KMZ */
 
 .kmz-box {
-  margin-top: 10px;
+  margin-top: 4px;
   padding: 10px;
   border-radius: 12px;
   background: #171717;
@@ -475,10 +501,10 @@ body {
 /* MAPA */
 
 .map-wrapper {
-  flex: 1;
   position: relative;
   background: #000;
 }
+
 .map-container {
   width: 100%;
   height: 100%;
@@ -595,4 +621,30 @@ body {
 
 .marker-dot-green {
   animation: dotPulse 1.8s infinite;
+}
+
+/* ===== RESPONSIVE ===== */
+
+@media (max-width: 900px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(260px, 1fr);
+  }
+
+  .sidebar {
+    order: 2;
+    width: 100%;
+    border-right: none;
+    border-top: 1px solid #1e1e1e;
+  }
+
+  .map-wrapper {
+    order: 1;
+    min-height: 260px;
+  }
+
+  .map-controls {
+    top: 10px;
+    right: 10px;
+  }
 }
