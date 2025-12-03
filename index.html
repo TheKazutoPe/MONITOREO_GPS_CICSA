@@ -34,11 +34,11 @@
 </head>
 
 <body>
-  <!-- BARRA SUPERIOR -->
+  <!-- TOPBAR -->
   <header class="topbar">
     <div class="topbar-left">
-      <span class="brand">carso</span>
-      <span class="topbar-title">Monitoreo GPS <span class="accent">- Brigadas</span></span>
+      <img src="assets/logo_carso.png" alt="CARSO" class="top-logo" />
+      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
     </div>
 
     <div id="status" class="status-badge gray">Cargando...</div>
@@ -49,17 +49,18 @@
     </div>
   </header>
 
-  <!-- LAYOUT PRINCIPAL -->
+  <!-- CONTENEDOR PRINCIPAL -->
   <div class="main-layout">
-    <!-- SIDEBAR IZQUIERDA -->
+    <!-- SIDEBAR -->
     <aside class="sidebar">
-      <!-- FILTROS -->
-      <section class="card">
-        <h2 class="card-title">Filtros</h2>
+      <h2 class="sidebar-title">Brigadas conectadas</h2>
 
+      <!-- FILTROS -->
+      <div class="filter-group">
         <input id="filterName" type="text" placeholder="Buscar técnico..." />
         <input id="filterBrigada" type="text" placeholder="Buscar brigada..." />
 
+        <!-- NUEVOS: zona y contrata -->
         <select id="filterZona">
           <option value="">Zona: todas</option>
         </select>
@@ -75,47 +76,64 @@
           <option value="off">Inactivos (&gt;5 min)</option>
         </select>
 
-        <button id="applyFilters" class="btn-main">Aplicar filtros</button>
-      </section>
+        <button id="applyFilters" class="btn-full">Aplicar filtros</button>
+      </div>
 
-      <!-- RUTAS A SITE -->
-      <section class="card">
-        <h2 class="card-title">Rutas</h2>
+      <!-- 🔍 BUSCADOR DE SITE + RUTAS -->
+      <div class="filter-group" style="margin-top: 10px;">
+        <input
+          id="siteSearch"
+          type="text"
+          placeholder="Ingresar nombre de Site..."
+          autocomplete="off"
+        />
 
-        <div class="site-search-wrapper">
-          <input
-            id="siteSearch"
-            type="text"
-            placeholder="Ingresar Site..."
-            autocomplete="off"
-          />
-          <div id="siteSuggestions" class="suggestions-box"></div>
-        </div>
+        <!-- Sugerencias simples (clickables) -->
+        <div
+          id="siteSuggestions"
+          style="
+            display:none;
+            margin-top:4px;
+            max-height:160px;
+            overflow-y:auto;
+            font-size:11px;
+            background:#111;
+            border:1px solid #333;
+            border-radius:6px;
+            padding:4px;
+          "
+        ></div>
 
-        <button id="btnBuscarSite" class="btn-main btn-secondary">
+        <button id="btnBuscarSite" class="btn-full" style="margin-top:6px;">
           🚐 Buscar brigadas cercanas
         </button>
+      </div>
 
-        <div id="routesPanel" class="routes-panel"></div>
-      </section>
+      <!-- Panel de rutas hacia el Site -->
+      <div
+        id="routesPanel"
+        style="
+          margin-top:8px;
+          max-height:180px;
+          overflow-y:auto;
+          font-size:11px;
+        "
+      ></div>
 
       <!-- LISTA DE BRIGADAS -->
-      <section class="card card-list">
-        <h2 class="card-title">Listado de brigadas</h2>
-        <div id="userList" class="brigadas-box"></div>
-      </section>
+      <div id="userList" class="brigada-list"></div>
 
       <!-- KMZ -->
-      <section class="card">
-        <h2 class="card-title">KMZ</h2>
+      <div class="kmz-box">
+        <label for="kmzDate">Fecha para KMZ</label>
         <input id="kmzDate" type="date" />
-        <button id="exportKmzBtn" class="btn-main btn-kmz">📍 Exportar KMZ</button>
-      </section>
+        <button id="exportKmzBtn" class="btn-full kmz-btn">📍 Exportar KMZ</button>
+      </div>
     </aside>
 
-    <!-- ZONA DEL MAPA -->
+    <!-- MAPA -->
     <main class="map-wrapper">
-      <div id="map"></div>
+      <div id="map" class="map-container"></div>
 
       <!-- CONTROLES FLOTANTES DEL MAPA -->
       <div class="map-controls">
@@ -129,13 +147,14 @@
           <option value="osm">Mapa: OSM</option>
         </select>
 
+        <!-- Vista global por defecto ON -->
         <button class="ctrl" id="btnToggleCluster">🌐 Vista global (ON)</button>
       </div>
     </main>
   </div>
 
   <footer class="footer">
-    © 2025 CARSO - Plataforma de Monitoreo GPS
+    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
   </footer>
 
   <!-- Config + lógica -->
