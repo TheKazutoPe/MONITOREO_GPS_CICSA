@@ -1,650 +1,223 @@
+/* ======== RESET ======== */
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
-
 body {
-  margin: 0;
-  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #090909;
-  color: #eaeaea;
+    margin: 0;
+    background: #0e0e0f;
+    font-family: 'Segoe UI', sans-serif;
+    color: #e7e7e7;
 }
 
-/* TOPBAR */
-
-.topbar {
-  height: 60px;
-  background: #111;
-  border-bottom: 1px solid #222;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 18px;
+/* ======== TOPBAR ======== */
+header {
+    height: 58px;
+    background: #141414;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 15px;
+    border-bottom: 1px solid #222;
+}
+header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+header span {
+    color: #ff4747;
 }
 
-.topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.top-logo {
-  height: 32px;
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 600;
-}
-.topbar h1 span {
-  color: #ff4a4a;
-  font-weight: 500;
-}
-
-.topbar-right {
-  display: flex;
-  gap: 8px;
-}
-
-.btn-small {
-  padding: 6px 10px;
-  font-size: 13px;
-  border-radius: 999px;
-  border: 1px solid #333;
-  background: #1e1e1e;
-  color: #eee;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.08s, box-shadow 0.15s;
-}
-.btn-small:hover {
-  background: #262626;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
-}
-
-/* BADGE ESTADO */
-
-.status-badge {
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  border: 1px solid transparent;
-}
-.status-badge.green {
-  background: #0b3b15;
-  color: #7bff9b;
-  border-color: #1b8c3a;
-}
-.status-badge.yellow {
-  background: #413000;
-  color: #ffc857;
-  border-color: #c08b1f;
-}
-.status-badge.gray {
-  background: #242424;
-  color: #b3b3b3;
-  border-color: #333;
-}
-
-/* LAYOUT PRINCIPAL */
-
+/* ======== LAYOUT ======== */
 .main-layout {
-  display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
-  height: calc(100vh - 60px);
+    display: grid;
+    grid-template-columns: 330px 1fr;
+    height: calc(100vh - 58px);
 }
 
-/* SIDEBAR */
-
+/* ======== SIDEBAR ======== */
 .sidebar {
-  background: radial-gradient(circle at top left, #1b1b1b 0, #101010 55%, #080808 100%);
-  border-right: 1px solid #1e1e1e;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 280px;
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 14px;
+    overflow: hidden;
+    border-right: 1px solid #1f1f1f;
 }
 
-.sidebar-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+/* CARD GENERAL */
+.card {
+    background: #181818;
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid #262626;
 }
 
-.sidebar-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  height: 100%;
+/* Titulos */
+.card-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #a5a5a5;
+    margin-bottom: 10px;
 }
 
-/* subtítulos pequeños dentro de la sidebar */
-
-.sidebar-section-title {
-  margin-top: 4px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #888;
+/* Inputs */
+.card input,
+.card select {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid #2d2d2d;
+    background: #101010;
+    color: #eee;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+.card input::placeholder {
+    color: #666;
 }
 
-/* BLOQUES DE FILTROS / CARDS */
-
-.filter-group {
-  background: #181818;
-  border-radius: 12px;
-  padding: 10px;
-  box-shadow: 0 0 0 1px #262626;
+/* Botón principal */
+.btn-main {
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #ff5338, #ff8538);
+    border: none;
+    border-radius: 999px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: .15s;
 }
-
-.filter-group-header {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #a0a0a0;
-  margin-bottom: 6px;
-}
-
-.filter-group input,
-.filter-group select {
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px 9px;
-  border-radius: 8px;
-  border: 1px solid #2c2c2c;
-  background: #101010;
-  color: #f2f2f2;
-  font-size: 13px;
-}
-.filter-group input::placeholder {
-  color: #666;
-}
-.filter-group select {
-  cursor: pointer;
-}
-
-/* envoltorio para el buscador de site + sugerencias */
-
-.site-search-wrapper {
-  position: relative;
-}
-
-/* Botones principales */
-
-.btn-full {
-  width: 100%;
-  padding: 9px;
-  border-radius: 999px;
-  border: none;
-  background: linear-gradient(135deg, #ff4b3b, #ff8a3b);
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  margin-top: 2px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  transition:
-    transform 0.08s,
-    box-shadow 0.15s,
-    filter 0.15s;
-}
-.btn-full:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.05);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
-}
-
-/* CONTENEDOR DE LISTA DE BRIGADAS */
-
-.brigada-list {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 4px;
-  margin-top: 4px;
-}
-
-/* ===== LISTA DE BRIGADAS (nuevo diseño) ===== */
-
-.brigada-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-  background: #191919;
-  border-radius: 11px;
-  padding: 9px 10px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  border: 1px solid #262626;
-  transition:
-    background 0.13s,
-    transform 0.08s,
-    box-shadow 0.15s,
-    border-color 0.15s;
-}
-
-.brigada-item:hover {
-  background: #222;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
-  border-color: #444;
-}
-
-.brig-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.brig-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.brig-sub {
-  font-size: 12px;
-  color: #b8b8b8;
-  margin-top: 2px;
-}
-
-.brig-extra {
-  font-size: 11px;
-  color: #8f8f8f;
-  margin-top: 3px;
-  line-height: 1.3;
-}
-
-.brig-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  font-size: 11px;
-  color: #aaa;
-  gap: 2px;
-}
-
-/* Indicador circular de estado */
-
-.brig-led {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-bottom: 3px;
-  box-shadow: 0 0 8px rgba(0, 0, 0, 0.7);
-}
-
-.brig-led.online {
-  background: #46ff7f;
-}
-.brig-led.mid {
-  background: #ffc857;
-}
-.brig-led.off {
-  background: #7a7a7a;
-}
-
-/* Efecto cuando se actualiza un item */
-
-.marker-pulse {
-  animation: cardPulse 0.6s ease-out;
-}
-
-@keyframes cardPulse {
-  0% {
-    box-shadow: 0 0 0 rgba(255, 255, 255, 0);
-    transform: translateY(0);
-  }
-  40% {
-    box-shadow: 0 0 16px rgba(255, 255, 255, 0.16);
+.btn-main:hover {
     transform: translateY(-1px);
-  }
-  100% {
-    box-shadow: 0 0 0 rgba(255, 255, 255, 0);
-    transform: translateY(0);
-  }
+    filter: brightness(1.06);
 }
 
-/* (compat: si se siguen usando .user-item) */
-
-.user-item {
-  background: #191919;
-  border-radius: 10px;
-  padding: 10px;
-  margin-bottom: 8px;
-  cursor: pointer;
-  border-left: 4px solid #444;
-  transition: background 0.13s, transform 0.08s, box-shadow 0.15s;
-}
-.user-item:hover {
-  background: #232323;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
-}
-.status-online {
-  border-left-color: #46ff7f;
-}
-.status-mid {
-  border-left-color: #ffc857;
-}
-.status-off {
-  border-left-color: #777;
-}
-.user-main {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 4px;
-}
-.user-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-.user-brigada {
-  font-size: 12px;
-  color: #aaa;
-}
-.user-sub {
-  font-size: 12px;
-  color: #bbb;
-  display: flex;
-  justify-content: space-between;
-  margin-top: 2px;
+/* ======== LISTA DE BRIGADAS ======== */
+.brigadas-box {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 6px;
 }
 
-/* Ocultar por filtro */
-
-.hidden {
-  display: none !important;
+/* Items */
+.brigada-item {
+    background: #1b1b1b;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    border: 1px solid #262626;
+    cursor: pointer;
+    transition: .15s;
+}
+.brigada-item:hover {
+    background: #242424;
+    transform: translateY(-1px);
 }
 
-/* ===== PANEL DE RUTAS HACIA SITE ===== */
-
-.routes-panel {
-  margin-top: 8px;
-  max-height: 190px;
-  overflow-y: auto;
-  background: #141414;
-  border-radius: 12px;
-  padding: 8px;
-  box-shadow: 0 0 0 1px #272727;
-  font-size: 12px;
+.brigada-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+.brigada-sub {
+    font-size: 12px;
+    color: #b3b3b3;
+    margin-top: 3px;
+}
+.brigada-meta {
+    font-size: 11px;
+    margin-top: 4px;
+    color: #8a8a8a;
 }
 
-.routes-panel:empty {
-  padding: 0;
-  margin-top: 0;
-  box-shadow: none;
-  max-height: 0;
-  overflow: hidden;
+/* Estado LED */
+.led {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-bottom: 5px;
+}
+.led.online {
+    background: #28ff76;
+}
+.led.mid {
+    background: #ffbe47;
+}
+.led.off {
+    background: #898989;
 }
 
-.routes-panel-title {
-  margin: 0 0 6px 0;
-  font-size: 13px;
-  color: #f5f5f5;
-  font-weight: 600;
+/* ======== KMZ ======== */
+.kmz-box input {
+    margin-bottom: 10px !important;
 }
 
-/* tarjeta de ruta */
-
-.route-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 7px;
-  border-radius: 9px;
-  margin-bottom: 4px;
-  cursor: pointer;
-  background: #1c1c1c;
-  border: 1px solid #252525;
-  transition:
-    background 0.12s,
-    transform 0.08s,
-    box-shadow 0.15s,
-    border-color 0.15s;
-}
-
-.route-item:hover {
-  background: #232323;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
-  border-color: #444;
-}
-
-.route-item-left {
-  flex: 1;
-  min-width: 0;
-}
-
-.route-item-main {
-  font-weight: 600;
-  font-size: 12px;
-}
-
-.route-item-sub {
-  font-size: 11px;
-  color: #bbbbbb;
-}
-
-.route-item-pill {
-  padding: 3px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  text-align: right;
-  min-width: 80px;
-}
-
-/* AUTOCOMPLETE SITES */
-
-.suggestions-box {
-  position: absolute;
-  top: 38px;
-  left: 0;
-  width: 100%;
-  background: #161616;
-  border: 1px solid #333;
-  border-radius: 10px;
-  max-height: 220px;
-  overflow-y: auto;
-  display: none;
-  z-index: 9999;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.65);
-  font-size: 12px;
-}
-
-.suggestion-item {
-  padding: 7px 10px;
-  cursor: pointer;
-  border-bottom: 1px solid #262626;
-}
-.suggestion-item strong {
-  color: #ff9d57;
-}
-.suggestion-item:last-child {
-  border-bottom: none;
-}
-.suggestion-item:hover {
-  background: #232323;
-}
-
-/* KMZ */
-
-.kmz-box {
-  margin-top: 4px;
-  padding: 10px;
-  border-radius: 12px;
-  background: #171717;
-  box-shadow: 0 0 0 1px #262626;
-}
-.kmz-box label {
-  font-size: 12px;
-  color: #ccc;
-  display: block;
-  margin-bottom: 4px;
-}
-.kmz-box input[type="date"] {
-  width: 100%;
-  padding: 7px;
-  border-radius: 8px;
-  border: 1px solid #2c2c2c;
-  background: #101010;
-  color: #f2f2f2;
-  margin-bottom: 8px;
-}
 .kmz-btn {
-  background: linear-gradient(135deg, #ff6b35, #ff9c35);
-}
-.kmz-btn:hover {
-  filter: brightness(1.06);
+    background: linear-gradient(135deg, #ff7a00, #ffaa00);
 }
 
-/* MAPA */
-
+/* ======== MAPA ======== */
 .map-wrapper {
-  position: relative;
-  background: #000;
+    position: relative;
+}
+#map {
+    width: 100%;
+    height: 100%;
 }
 
-.map-container {
-  width: 100%;
-  height: 100%;
-}
-
-/* Controles flotantes */
-
+/* ======== CONTROLES FLOTANTES ======== */
 .map-controls {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 999;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 999;
 }
 
 .ctrl {
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid #333;
-  background: #171717;
-  color: #eee;
-  cursor: pointer;
-  font-size: 13px;
-  white-space: nowrap;
-  transition: background 0.15s, transform 0.08s, box-shadow 0.15s;
+    background: #181818;
+    border: 1px solid #333;
+    border-radius: 999px;
+    padding: 8px 12px;
+    color: #eee;
+    font-size: 13px;
+    cursor: pointer;
+    transition: .15s;
 }
 .ctrl:hover {
-  background: #262626;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+    background: #262626;
+    transform: translateY(-1px);
 }
+
+/* Select */
 .ctrl-select {
-  padding-right: 26px;
+    padding-right: 26px;
 }
 
-/* FOOTER */
-
-.footer {
-  height: 38px;
-  background: #090909;
-  border-top: 1px solid #1f1f1f;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  color: #777;
-}
-
-/* Scrollbar sidebar */
-
+/* ======== SCROLL ======== */
 .sidebar ::-webkit-scrollbar {
-  width: 6px;
-}
-.sidebar ::-webkit-scrollbar-track {
-  background: #111;
+    width: 6px;
 }
 .sidebar ::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
+    background: #333;
+    border-radius: 3px;
 }
 
-/* ===== PUNTOS EN EL MAPA (seguimos igual) ===== */
-
-.marker-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  position: relative;
-  border: 2px solid #ffffff;
-  box-shadow:
-    0 0 3px rgba(0, 0, 0, 0.9),
-    0 0 8px rgba(0, 0, 0, 0.6);
-}
-
-.marker-dot::after {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.marker-dot-green {
-  background: #13c94f;
-}
-
-.marker-dot-yellow {
-  background: #e5a100;
-}
-
-.marker-dot-gray {
-  background: #666666;
-}
-
-@keyframes dotPulse {
-  0% {
-    box-shadow:
-      0 0 3px rgba(0, 0, 0, 0.9),
-      0 0 8px rgba(0, 0, 0, 0.6);
-  }
-  50% {
-    box-shadow:
-      0 0 3px rgba(0, 0, 0, 0.9),
-      0 0 14px rgba(19, 201, 79, 0.8);
-  }
-  100% {
-    box-shadow:
-      0 0 3px rgba(0, 0, 0, 0.9),
-      0 0 8px rgba(0, 0, 0, 0.6);
-  }
-}
-
-.marker-dot-green {
-  animation: dotPulse 1.8s infinite;
-}
-
-/* ===== RESPONSIVE ===== */
-
+/* ======== RESPONSIVE ======== */
 @media (max-width: 900px) {
-  .main-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(260px, 1fr);
-  }
-
-  .sidebar {
-    order: 2;
-    width: 100%;
-    border-right: none;
-    border-top: 1px solid #1e1e1e;
-  }
-
-  .map-wrapper {
-    order: 1;
-    min-height: 260px;
-  }
-
-  .map-controls {
-    top: 10px;
-    right: 10px;
-  }
+    .main-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+    }
+    .sidebar {
+        height: 330px;
+        overflow-y: auto;
+    }
 }

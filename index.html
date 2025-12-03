@@ -1,152 +1,57 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monitoreo GPS - Brigadas</title>
+<div class="main-layout">
 
-  <!-- Estilos propios -->
-  <link rel="stylesheet" href="styles.css" />
-
-  <!-- Leaflet Core -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- MarkerCluster -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-  />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-  />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-
-  <!-- Supabase -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-
-  <!-- JSZip para KMZ -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.7.1/dist/jszip.min.js"></script>
-</head>
-
-<body>
-  <!-- TOPBAR -->
-  <header class="topbar">
-    <div class="topbar-left">
-      <img src="assets/logo_carso.png" alt="CARSO" class="top-logo" />
-      <h1>Monitoreo GPS <span>- Brigadas</span></h1>
-    </div>
-
-    <div id="status" class="status-badge gray">Cargando...</div>
-
-    <div class="topbar-right">
-      <button id="btnRefresh" class="btn-small">⟳ Actualizar</button>
-      <button class="btn-small">⚙ Configuración</button>
-    </div>
-  </header>
-
-  <!-- CONTENEDOR PRINCIPAL -->
-  <div class="main-layout">
     <!-- SIDEBAR -->
     <aside class="sidebar">
-      <h2 class="sidebar-title">Brigadas conectadas</h2>
 
-      <div class="sidebar-inner">
-        <!-- FILTROS -->
-        <div class="filter-group">
-          <div class="filter-group-header">Filtros rápidos</div>
-
-          <input id="filterName" type="text" placeholder="Buscar técnico..." />
-          <input id="filterBrigada" type="text" placeholder="Buscar brigada..." />
-
-          <!-- NUEVOS: zona y contrata -->
-          <select id="filterZona">
-            <option value="">Zona: todas</option>
-          </select>
-
-          <select id="filterContrata">
-            <option value="">Contrata: todas</option>
-          </select>
-
-          <select id="filterStatus">
-            <option value="">Estado</option>
-            <option value="online">Conectados (≤2 min)</option>
-            <option value="mid">Medio (≤5 min)</option>
-            <option value="off">Inactivos (&gt;5 min)</option>
-          </select>
-
-          <button id="applyFilters" class="btn-full">Aplicar filtros</button>
+        <div class="card">
+            <div class="card-title">Filtros</div>
+            <input id="filterName" placeholder="Buscar técnico...">
+            <input id="filterBrigada" placeholder="Buscar brigada...">
+            <select id="filterZona"></select>
+            <select id="filterContrata"></select>
+            <select id="filterStatus">
+                <option value="">Estado</option>
+                <option value="online">Conectados</option>
+                <option value="mid">Medio</option>
+                <option value="off">Inactivos</option>
+            </select>
+            <button id="applyFilters" class="btn-main">Aplicar filtros</button>
         </div>
 
-        <!-- 🔍 BUSCADOR DE SITE + RUTAS -->
-        <div class="filter-group">
-          <div class="filter-group-header">Rutas a Site</div>
-
-          <div class="site-search-wrapper">
-            <input
-              id="siteSearch"
-              type="text"
-              placeholder="Ingresar nombre de Site..."
-              autocomplete="off"
-            />
-
-            <!-- Sugerencias con clase propia -->
-            <div id="siteSuggestions" class="suggestions-box"></div>
-          </div>
-
-          <button id="btnBuscarSite" class="btn-full">
-            🚐 Buscar brigadas cercanas
-          </button>
-
-          <!-- Panel de rutas hacia el Site -->
-          <div id="routesPanel" class="routes-panel"></div>
+        <div class="card">
+            <div class="card-title">Rutas</div>
+            <input id="siteSearch" placeholder="Ingresar Site...">
+            <button id="btnBuscarSite" class="btn-main">Buscar brigadas cercanas</button>
+            <div id="routesPanel"></div>
         </div>
 
-        <!-- LISTA DE BRIGADAS -->
-        <div class="sidebar-section-title">Listado de brigadas</div>
-        <div id="userList" class="brigada-list"></div>
+        <div class="card brigadas-box" id="userList"></div>
 
-        <!-- KMZ (siempre al fondo de la barra) -->
-        <div class="kmz-box">
-          <label for="kmzDate">Fecha para KMZ</label>
-          <input id="kmzDate" type="date" />
-          <button id="exportKmzBtn" class="btn-full kmz-btn">📍 Exportar KMZ</button>
+        <div class="card kmz-box">
+            <div class="card-title">KMZ</div>
+            <input id="kmzDate" type="date">
+            <button id="exportKmzBtn" class="btn-main kmz-btn">Exportar KMZ</button>
         </div>
-      </div>
+
     </aside>
 
     <!-- MAPA -->
     <main class="map-wrapper">
-      <div id="map" class="map-container"></div>
+        <div id="map"></div>
 
-      <!-- CONTROLES FLOTANTES DEL MAPA -->
-      <div class="map-controls">
-        <button class="ctrl" id="btnCenter">🎯 Centrar Lima</button>
-        <button class="ctrl" id="btnShowAll">👁 Ver todos</button>
+        <div class="map-controls">
+            <button id="btnCenter" class="ctrl">Centrar Lima</button>
+            <button id="btnShowAll" class="ctrl">Ver todos</button>
 
-        <select id="mapStyleSelect" class="ctrl ctrl-select">
-          <option value="streets">Mapa: Streets</option>
-          <option value="dark">Mapa: Dark</option>
-          <option value="satellite">Mapa: Satélite</option>
-          <option value="osm">Mapa: OSM</option>
-        </select>
+            <select id="mapStyleSelect" class="ctrl ctrl-select">
+                <option value="streets">Mapa Streets</option>
+                <option value="dark">Dark</option>
+                <option value="satellite">Satélite</option>
+                <option value="osm">OSM</option>
+            </select>
 
-        <!-- Vista global por defecto ON -->
-        <button class="ctrl" id="btnToggleCluster">🌐 Vista global (ON)</button>
-      </div>
+            <button id="btnToggleCluster" class="ctrl">Vista global</button>
+        </div>
     </main>
-  </div>
 
-  <footer class="footer">
-    <span>© 2025 CARSO Infraestructura y Construcción — Plataforma de Monitoreo GPS</span>
-  </footer>
-
-  <!-- Config + lógica -->
-  <script src="config.js"></script>
-  <script src="main.js"></script>
-</body>
-</html>
+</div>
