@@ -45,7 +45,11 @@ const state = {
   pointsByUser: new Map(),
 
   routeLayer: null,
-  siteMarker: null
+  siteMarker: null,
+
+  // capas para AVERÍA
+  incidentLayer: null,
+  incidentSiteMarker: null
 };
 
 // ====== Parámetros de limpieza y matching ======
@@ -147,6 +151,12 @@ function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+function formatDateTime(d) {
+  if (!d) return "-";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d);
+  return dt.toLocaleString();
 }
 
 // ====== Limpieza / densificación ======
@@ -437,6 +447,7 @@ function initMap() {
   });
   state.plainLayer = L.layerGroup();
   state.routeLayer = L.layerGroup().addTo(state.map);
+  state.incidentLayer = L.layerGroup().addTo(state.map);
 
   // Vista global ON por defecto
   state.map.addLayer(state.plainLayer);
@@ -758,6 +769,7 @@ async function fetchInitial(clearList) {
     state.cluster.clearLayers();
     state.plainLayer.clearLayers();
     if (state.routeLayer) state.routeLayer.clearLayers();
+    // 👉 NO limpiamos incidentLayer, así el recorrido de avería se mantiene
 
     const activeUids = new Set();
 
@@ -811,7 +823,7 @@ async function fetchInitial(clearList) {
   }
 }
 
-// ====== Exportar KMZ (modificado: Directions punto a punto cada 10 min) ======
+// ====== Exportar KMZ (Directions cada ~10 min) ======
 async function exportKMZFromState() {
   let prevDisabled = false;
   try {
@@ -871,7 +883,7 @@ async function exportKMZFromState() {
       return;
     }
 
-    // === Muestreo por intervalo de tiempo (10 min aprox) ===
+    // Muestreo por intervalo (10 min)
     const KMZ_INTERVAL_MIN = 10;
     const sampled = (() => {
       const out = [];
@@ -889,14 +901,12 @@ async function exportKMZFromState() {
           lastTime = t;
         }
       }
-      // asegurar último punto del día
       if (
         out.length &&
         out[out.length - 1].timestamp !== all[all.length - 1].timestamp
       ) {
         out.push(all[all.length - 1]);
       }
-      // fallback raro: si quedó vacío, usamos todo
       if (!out.length) return all;
       return out;
     })();
@@ -908,7 +918,6 @@ async function exportKMZFromState() {
       return;
     }
 
-    // === Helper: ruta entre dos puntos usando Mapbox Directions ===
     async function routeBetweenPoints(a, b) {
       if (!MAPBOX_TOKEN) return null;
       const url =
@@ -930,7 +939,6 @@ async function exportKMZFromState() {
       }
     }
 
-    // === Construir ruta completa pegada a pistas con Directions ===
     const finalRoute = [];
     for (let i = 0; i < sampled.length - 1; i++) {
       const A = sampled[i];
@@ -941,18 +949,14 @@ async function exportKMZFromState() {
         if (!finalRoute.length) {
           finalRoute.push(...route);
         } else {
-          // evitar duplicar el primer punto del siguiente tramo
           finalRoute.push(...route.slice(1));
         }
       } else {
-        // fallback: línea recta simple si Directions falla
         if (!finalRoute.length) {
           finalRoute.push({ lng: A.lng, lat: A.lat });
         }
         finalRoute.push({ lng: B.lng, lat: B.lat });
       }
-
-      // pequeña pausa para no saturar la API
       await sleep(120);
     }
 
@@ -1287,6 +1291,298 @@ async function handleBuscarSite(siteFromAutocomplete = null) {
   await calcularRutasBrigadasCercanas(site);
 }
 
+/* ===========================================================
+   MODO AVERÍA / BITÁCORA
+   - Input + botón en sidebar
+   - Busca bitácora por código/SOT/INC/TAS
+   - Pinta recorrido de brigadas oficiales en ese rango de tiempo
+   =========================================================== */
+
+// Inyecta controles de avería en el sidebar (sin tocar index.html)
+function injectIncidentControls() {
+  if (document.getElementById("incidentSearch")) return;
+
+  const sidebar = document.querySelector(".sidebar");
+  if (!sidebar) return;
+
+  const firstFilter = sidebar.querySelector(".filter-group");
+  const refNode = firstFilter ? firstFilter.nextSibling : sidebar.firstChild;
+
+  const group = document.createElement("div");
+  group.className = "filter-group";
+  group.style.marginTop = "10px";
+  group.innerHTML = `
+    <input
+      id="incidentSearch"
+      type="text"
+      placeholder="Código / SOT / INC / TAS..."
+      autocomplete="off"
+    />
+    <button id="btnIncidentSearch" class="btn-full" style="margin-top:6px;">
+      🔎 Buscar avería
+    </button>
+  `;
+
+  const info = document.createElement("div");
+  info.id = "incidentInfo";
+  info.style.marginTop = "8px";
+  info.style.padding = "8px";
+  info.style.borderRadius = "10px";
+  info.style.background = "#181818";
+  info.style.fontSize = "12px";
+  info.style.maxHeight = "210px";
+  info.style.overflowY = "auto";
+  info.style.border = "1px solid #262626";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "600";
+  title.style.fontSize = "13px";
+  title.style.marginBottom = "4px";
+  title.textContent = "Resumen de avería";
+
+  info.appendChild(title);
+  const content = document.createElement("div");
+  content.id = "incidentInfoBody";
+  content.style.fontSize = "11px";
+  content.style.color = "#ccc";
+  content.textContent =
+    "Ingresa un código, SOT, INC o TAS para ver el recorrido.";
+  info.appendChild(content);
+
+  sidebar.insertBefore(group, refNode);
+  sidebar.insertBefore(info, group.nextSibling);
+
+  const input = document.getElementById("incidentSearch");
+  const btn = document.getElementById("btnIncidentSearch");
+  if (btn && input) {
+    btn.addEventListener("click", async () => {
+      const term = input.value || "";
+      if (!term.trim()) {
+        alert("Ingresa un código, SOT, INC o TAS.");
+        return;
+      }
+      await handleIncidentSearch(term.trim());
+    });
+  }
+}
+
+// Buscar bitácora por código/SOT/INC/TAS
+async function fetchBitacoraBySearchTerm(term) {
+  const t = term.trim();
+  if (!t) return null;
+
+  const isNumeric = /^\d+$/.test(t);
+  const orParts = [];
+
+  if (isNumeric) {
+    orParts.push(`codigo_bd.eq.${t}`);
+  }
+  const safe = t.replace(/,/g, " ");
+  orParts.push(`nrosot_bd.eq.${safe}`);
+  orParts.push(`nroincidencia_bd.eq.${safe}`);
+  orParts.push(`nrotas_bd.eq.${safe}`);
+
+  const { data, error } = await supa
+    .from("bitacoras")
+    .select("*")
+    .or(orParts.join(","))
+    .order("fechainicial_bd", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("Error buscando bitácora:", error);
+    alert("Error buscando avería: " + error.message);
+    return null;
+  }
+  return data && data.length ? data[0] : null;
+}
+
+function getBitacoraTimeWindow(b) {
+  const inicio =
+    b.est_01 ||
+    (b.fechainicial_bd ? b.fechainicial_bd + "T00:00:00" : null);
+  const fin =
+    b.fecha_cierre ||
+    b.ultima_actualizacion ||
+    new Date().toISOString();
+  return { inicio, fin };
+}
+
+function getBitacoraBrigadas(b) {
+  const names = [
+    b.bri1_oficial || b.bri1_bd,
+    b.bri2_oficial || b.bri2_bd,
+    b.bri3_oficial || b.bri3_bd,
+    b.bri4_oficial || b.bri4_bd,
+    b.bri5_oficial || b.bri5_bd
+  ].filter(Boolean);
+  return Array.from(new Set(names));
+}
+
+async function fetchGpsForBitacora(b, brigadas, inicio, fin) {
+  if (!brigadas.length || !inicio || !fin) return [];
+
+  const { data, error } = await supa
+    .from("ubicaciones_brigadas")
+    .select(
+      "latitud,longitud,timestamp,brigada,tecnico,usuario,contrata,zona,cargo"
+    )
+    .in("brigada", brigadas)
+    .eq("zona", b.zona_bd)
+    .gte("timestamp", inicio)
+    .lte("timestamp", fin)
+    .order("timestamp", { ascending: true });
+
+  if (error) {
+    console.error("Error trayendo GPS de brigadas:", error);
+    alert("Error obteniendo recorrido de brigadas: " + error.message);
+    return [];
+  }
+  return data || [];
+}
+
+function drawIncidentOnMap(b, gpsRows) {
+  state.incidentLayer.clearLayers();
+
+  // marker del sitio de la avería
+  if (
+    b.lat_bd != null &&
+    b.lon_bd != null &&
+    isFinite(Number(b.lat_bd)) &&
+    isFinite(Number(b.lon_bd))
+  ) {
+    const lat = Number(b.lat_bd);
+    const lng = Number(b.lon_bd);
+
+    if (!state.incidentSiteMarker) {
+      state.incidentSiteMarker = L.marker([lat, lng], {
+        icon: L.icon({
+          iconUrl:
+            "https://docs.mapbox.com/help/demos/custom-markers-gl-js/mapbox-icon.png",
+          iconSize: [30, 40],
+          iconAnchor: [15, 40]
+        })
+      }).addTo(state.incidentLayer);
+    } else {
+      state.incidentSiteMarker.setLatLng([lat, lng]);
+      state.incidentLayer.addLayer(state.incidentSiteMarker);
+    }
+
+    state.incidentSiteMarker.bindPopup(
+      `<b>${b.nombresite_bd || "Sitio sin nombre"}</b><br>` +
+        `Código: ${b.codigo_bd || "-"}<br>` +
+        `Zona: ${b.zona_bd || "-"}`
+    );
+  }
+
+  const byBrig = new Map();
+  for (const r of gpsRows) {
+    const name = r.brigada || "SIN_BRIGADA";
+    if (!byBrig.has(name)) byBrig.set(name, []);
+    byBrig.get(name).push(r);
+  }
+
+  const colors = ["#ff5252", "#00e676", "#40c4ff", "#ffa726", "#ce93d8"];
+  const bounds = [];
+
+  let idx = 0;
+  for (const [brigName, rows] of byBrig.entries()) {
+    if (!rows.length) continue;
+    const color = colors[idx % colors.length];
+    idx++;
+
+    const latlngs = rows
+      .map(r => [Number(r.latitud), Number(r.longitud)])
+      .filter(([lat, lng]) => isFinite(lat) && isFinite(lng));
+
+    if (latlngs.length < 2) continue;
+
+    const poly = L.polyline(latlngs, {
+      color,
+      weight: 4,
+      opacity: 0.9
+    }).addTo(state.incidentLayer);
+
+    bounds.push(poly.getBounds());
+
+    const first = latlngs[0];
+    const last = latlngs[latlngs.length - 1];
+
+    L.circleMarker(first, {
+      radius: 5,
+      color,
+      fillColor: "#000",
+      fillOpacity: 1
+    })
+      .addTo(state.incidentLayer)
+      .bindPopup(`<b>${brigName}</b><br>Inicio recorrido`);
+
+    L.circleMarker(last, {
+      radius: 5,
+      color,
+      fillColor: "#fff",
+      fillOpacity: 1
+    })
+      .addTo(state.incidentLayer)
+      .bindPopup(`<b>${brigName}</b><br>Fin recorrido`);
+  }
+
+  if (bounds.length) {
+    let total = bounds[0];
+    for (let i = 1; i < bounds.length; i++) {
+      total = total.extend(bounds[i]);
+    }
+    state.map.fitBounds(total, { padding: [40, 40] });
+  }
+}
+
+function showIncidentSummary(b, brigadas, gpsRows, inicio, fin) {
+  const box = document.getElementById("incidentInfoBody");
+  if (!box) return;
+
+  const totalPuntos = gpsRows.length;
+  const brigList = brigadas.length ? brigadas.join(", ") : "Sin brigadas";
+
+  box.innerHTML = `
+    <b>Avería ${b.codigo_bd || ""}</b><br>
+    <b>Tipo:</b> ${b.tipoaveria_bd || "-"}<br>
+    <b>Cliente:</b> ${b.nombrecliente_bd || "-"}<br>
+    <b>Site:</b> ${b.nombresite_bd || "-"}<br>
+    <b>Zona:</b> ${b.zona_bd || "-"}<br>
+    <b>Brigadas:</b> ${brigList}<br>
+    <b>Inicio:</b> ${formatDateTime(inicio)}<br>
+    <b>Fin:</b> ${formatDateTime(fin)}<br>
+    <b>Estado:</b> ${b.estado_trabajo || b.estado_bd || "-"}<br>
+    <b>SLA total:</b> ${b.sla_total || "-"} (${b.cumplio_SLA || "-"})<br>
+    <b>Puntos GPS:</b> ${totalPuntos}
+  `;
+}
+
+async function handleIncidentSearch(term) {
+  setStatus("Buscando avería...", "gray");
+
+  const bit = await fetchBitacoraBySearchTerm(term);
+  if (!bit) {
+    setStatus("Conectado", "green");
+    const box = document.getElementById("incidentInfoBody");
+    if (box) {
+      box.innerHTML =
+        "<span>No se encontró avería para ese dato.</span>";
+    }
+    state.incidentLayer.clearLayers();
+    return;
+  }
+
+  const { inicio, fin } = getBitacoraTimeWindow(bit);
+  const brigadas = getBitacoraBrigadas(bit);
+  const gpsRows = await fetchGpsForBitacora(bit, brigadas, inicio, fin);
+
+  drawIncidentOnMap(bit, gpsRows);
+  showIncidentSummary(bit, brigadas, gpsRows, inicio, fin);
+
+  setStatus("Conectado", "green");
+}
+
 // ====== Arranque + eventos ======
 setStatus("Cargando...", "gray");
 fetchInitial(true);
@@ -1324,3 +1620,24 @@ document.addEventListener("click", e => {
     ui.siteSuggestions.style.display = "none";
   }
 });
+
+// Filtros de lista
+if (ui.filterName) ui.filterName.addEventListener("input", applyListFilters);
+if (ui.filterStatus)
+  ui.filterStatus.addEventListener("change", applyListFilters);
+
+// Zona / contrata cambian dataset (refetch)
+if (ui.filterZona)
+  ui.filterZona.addEventListener("change", () => fetchInitial(true));
+if (ui.filterContrata)
+  ui.filterContrata.addEventListener("change", () => fetchInitial(true));
+
+// Inyectar controles de AVERÍA
+injectIncidentControls();
+
+// Helper público por consola, por si quieres probar:
+//   mostrarRecorridoAveria("123456");
+async function mostrarRecorridoAveria(identificador) {
+  await handleIncidentSearch(String(identificador || "").trim());
+}
+window.mostrarRecorridoAveria = mostrarRecorridoAveria;
