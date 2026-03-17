@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CICSA CONNECT PRO - Centro de Operaciones</title>
+  <title>CICSA CONNECT PRO - Centro de Control</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
@@ -23,60 +23,56 @@
     </div>
     <div id="status" class="status-badge gray">Iniciando...</div>
     <div class="topbar-right">
-      <button onclick="location.reload()" class="btn-icon">⟳</button>
+      <button onclick="location.reload()" class="btn-icon">⟳ Actualizar</button>
     </div>
   </header>
 
   <div class="main-layout">
-    <main class="map-wrapper">
-      <div id="map"></div>
-      
-      <aside class="sidebar">
-        <div class="sidebar-stats">
-            <div class="stat-box"><span id="countOnline">0</span><small>Online</small></div>
-            <div class="stat-box warn"><span id="countMid">0</span><small>Alerta</small></div>
-            <div class="stat-box off"><span id="countOff">0</span><small>Inactivos</small></div>
-        </div>
-
-        <div class="sidebar-scrollable">
-          <div class="control-section">
-            <h3 class="section-label">Ruteo de Alta Precisión</h3>
-            <div class="search-wrapper">
-              <input id="siteSearch" type="text" class="premium-input" placeholder="📍 Site o Lat, Lng..." autocomplete="off" />
-              <button id="btnClearRoute" class="btn-clear-search">✕</button>
-              <div id="siteSuggestions" class="suggestions-box"></div>
-            </div>
-            <div id="routesPanel" class="routes-panel"></div>
-          </div>
-
-          <div class="control-section">
-            <h3 class="section-label">Filtros Operativos</h3>
-            <input id="filterBrigada" type="text" class="premium-input" placeholder="🔍 Nombre de Brigada..." />
-            <div class="inputs-row">
-                <select id="filterZona" class="premium-input"><option value="">Zonas: Todas</option></select>
-                <select id="filterStatus" class="premium-input">
-                    <option value="">Estados: Todos</option>
-                    <option value="online">🟢 Online</option>
-                    <option value="mid">🟠 Alerta</option>
-                    <option value="off">⚫ Offline</option>
-                </select>
-            </div>
-          </div>
-
-          <div class="control-section"><h3 class="section-label">Estado de Brigadas</h3><div id="userList" class="brigada-list"></div></div>
-        </div>
-      </aside>
-
-      <div class="map-controls-island">
-        <button class="island-btn" id="btnCenter">🎯</button>
-        <div class="island-divider"></div>
-        <select id="mapStyleSelect" class="island-select">
-          <option value="osm" selected>🌍 Capa Gratis</option>
-          <option value="streets">🏙️ Mapbox Calles</option>
-          <option value="satellite">🛰️ Satelital Pro</option>
-        </select>
+    <div id="map"></div>
+    <aside class="sidebar">
+      <div class="sidebar-stats">
+          <div class="stat-box"><span id="countOnline">0</span><small>Online</small></div>
+          <div class="stat-box warn"><span id="countMid">0</span><small>Alerta</small></div>
+          <div class="stat-box off"><span id="countOff">0</span><small>Inactivos</small></div>
       </div>
-    </main>
+      <div class="sidebar-scrollable">
+        <div class="control-section">
+          <h3 class="section-label">Calculadora de Rutas</h3>
+          <div class="search-box-container">
+            <input id="siteSearch" type="text" class="premium-input" placeholder="📍 Site o Lat, Lng..." autocomplete="off" />
+            <button id="btnClearRoute" class="btn-clear-map" title="Limpiar Mapa">✕</button>
+            <div id="siteSuggestions" class="suggestions-box"></div>
+          </div>
+          <div id="routesPanel" class="routes-panel"></div>
+        </div>
+        <div class="control-section">
+          <h3 class="section-label">Filtros Operativos</h3>
+          <input id="filterBrigada" type="text" class="premium-input" placeholder="🔍 Filtrar Brigada..." />
+          <div class="inputs-row">
+              <select id="filterZona" class="premium-input"><option value="">Todas las Zonas</option></select>
+              <select id="filterStatus" class="premium-input">
+                  <option value="">Estado: Todos</option>
+                  <option value="online">🟢 Online</option>
+                  <option value="mid">🟠 Alerta</option>
+                  <option value="off">⚫ Offline</option>
+              </select>
+          </div>
+        </div>
+        <div class="control-section">
+          <h3 class="section-label">Estado de Brigadas</h3>
+          <div id="userList" class="brigada-list"></div>
+        </div>
+      </div>
+    </aside>
+    <div class="map-controls-island">
+      <button class="island-btn" id="btnCenter">🎯</button>
+      <div class="island-divider"></div>
+      <select id="mapStyleSelect" class="island-select">
+        <option value="osm" selected>🌍 Capa Gratis</option>
+        <option value="streets">🏙️ Mapbox Calles</option>
+        <option value="satellite">🛰️ Satelital</option>
+      </select>
+    </div>
   </div>
   <script src="config.js"></script>
   <script src="main.js"></script>

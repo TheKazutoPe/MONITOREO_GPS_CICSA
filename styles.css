@@ -13,10 +13,9 @@ body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #080
 .status-badge { padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; border: 1px solid #333; }
 .status-badge.green { color: #10b981; border-color: #10b981; background: rgba(16, 185, 129, 0.1); }
 
-/* SIDEBAR MISION CONTROL */
-.sidebar { position: absolute; top: 16px; left: 16px; bottom: 16px; width: 390px; background: rgba(20, 20, 22, 0.98); backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; display: flex; flex-direction: column; z-index: 1000; box-shadow: 0 30px 60px rgba(0,0,0,0.9); }
+/* SIDEBAR HUD */
+.sidebar { position: absolute; top: 16px; left: 16px; bottom: 16px; width: 390px; background: rgba(22, 22, 25, 0.98); backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; display: flex; flex-direction: column; z-index: 1000; box-shadow: 0 30px 60px rgba(0,0,0,0.9); }
 .sidebar-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; padding: 20px; border-bottom: 1px solid #2a2a2c; background: rgba(0,0,0,0.2); border-radius: 20px 20px 0 0; }
-.stat-box { text-align: center; }
 .stat-box span { display: block; font-size: 22px; font-weight: 900; color: #10b981; }
 .stat-box.warn span { color: #f59e0b; }
 .stat-box.off span { color: #71717a; }
@@ -26,34 +25,37 @@ body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #080
 .section-label { font-size: 10px; text-transform: uppercase; color: #ff3b30; font-weight: 900; margin-bottom: 15px; letter-spacing: 1px; }
 .premium-input { width: 100%; height: 44px; padding: 0 15px; border-radius: 12px; border: 1px solid #3f3f46; background: #121214; color: #fff; font-size: 13px; margin-bottom: 12px; outline: none; transition: 0.3s; }
 
-/* LISTA DE BRIGADAS */
+/* BRIGADAS FORMATO FINO */
 .brigada-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; margin-bottom: 12px; cursor: pointer; transition: 0.3s; }
+.brigada-item:hover { background: rgba(255, 255, 255, 0.05); border-color: #ff3b30; transform: translateY(-3px); }
 .brig-name { font-size: 17px; font-weight: 900; color: #ffffff; display: block; }
 .brig-sub { font-size: 11px; color: #ff3b30; font-weight: 800; text-transform: uppercase; margin-top: 4px; display: block; }
 .brig-info { font-size: 10px; color: #71717a; font-weight: 700; margin-top: 10px; text-transform: uppercase; }
-
 .brig-led { width: 12px; height: 12px; border-radius: 50%; margin-top: 5px; }
 .brig-led.online { background: #10b981; box-shadow: 0 0 12px #10b981; }
 .brig-led.mid { background: #f59e0b; box-shadow: 0 0 10px #f59e0b; }
 .brig-led.off { background: #52525b; }
 
 /* PODIO RUTAS NEON */
-.route-card { padding: 15px; border-radius: 15px; border: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 12px; }
+.routes-panel { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.route-card { padding: 15px; border-radius: 15px; border: 1px solid #333; background: rgba(0,0,0,0.2); }
 .route-card.rank-1 { border-left: 6px solid #00FF41; background: rgba(0, 255, 65, 0.05); }
 .route-card.rank-2 { border-left: 6px solid #00E5FF; }
 .route-card.rank-3 { border-left: 6px solid #FF00F7; }
 
 /* MAPA */
 .main-layout { position: relative; top: 65px; height: calc(100vh - 65px); width: 100%; display: flex; }
-.map-wrapper { flex: 1; position: relative; height: 100%; }
-#map { width: 100%; height: 100%; background: #000; outline: none; }
-.leaflet-interactive { stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 5px rgba(0,0,0,0.5)); }
+#map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; background: #000; outline: none; }
+.leaflet-interactive { stroke-linejoin: round; stroke-linecap: round; filter: drop-shadow(0 0 8px rgba(0,0,0,0.6)); }
 
+/* DOTS CON PULSO */
 .marker-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 6px #000; }
 .marker-dot-online { background-color: #10b981; animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
 
-.search-wrapper { position: relative; }
-.btn-clear-search { position: absolute; right: 12px; top: 12px; background: #333; border: none; color: #fff; border-radius: 50%; width: 20px; height: 20px; font-size: 10px; cursor: pointer; display: none; z-index: 10; }
-.suggestions-box { background: #18181b; border: 1px solid #3f3f46; border-radius: 12px; position: absolute; width: 100%; z-index: 1100; display: none; max-height: 250px; overflow-y: auto; }
+/* BUSCADOR SUGERENCIAS */
+.search-box-container { position: relative; }
+.suggestions-box { background: #18181b; border: 1px solid #3f3f46; border-radius: 12px; position: absolute; width: 100%; z-index: 1100; display: none; max-height: 250px; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
 .suggestion-item { padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #27272a; font-size: 13px; color: #d1d5db; }
+.suggestion-item:hover { background: #ff3b30 !important; color: #fff !important; }
+.btn-clear-map { position: absolute; right: 12px; top: 12px; background: #333; border: none; color: #fff; border-radius: 50%; width: 20px; height: 20px; font-size: 10px; cursor: pointer; display: none; z-index: 10; }

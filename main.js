@@ -31,21 +31,32 @@ function initMap() {
   state.map = L.map("map", { center: [-12.04, -77.02], zoom: 6, layers: [state.baseLayers.osm], zoomControl: false });
   state.routeLayer = L.layerGroup().addTo(state.map);
 
-  state.map.on('zoomend', () => applyFilters());
+  // Asegurar renderizado correcto del mapa
+  setTimeout(() => state.map.invalidateSize(), 500);
 
-  ui.mapStyleSelect.onchange = () => {
-    const chosen = ui.mapStyleSelect.value;
-    if (chosen === "osm") updateMapLayer("osm");
-    else {
-      const p = prompt("Acceso Restringido - Contraseña:");
-      if (p === ADMIN_PASS) updateMapLayer(chosen);
-      else { ui.mapStyleSelect.value = "osm"; updateMapLayer("osm"); }
-    }
-  };
-
+  // --- DETECTOR INTELIGENTE DE COORDENADAS ---
   ui.siteSearch.oninput = async (e) => {
-    const q = e.target.value; 
+    const q = e.target.value.trim(); 
+    
+    // Regex para detectar coordenadas: latitud, longitud
+    const coordRegex = /^([-+]?\d+\.\d+)\s*,\s*([-+]?\d+\.\d+)$/;
+    const match = q.match(coordRegex);
+
+    if (match) {
+        const lat = parseFloat(match[1]);
+        const lng = parseFloat(match[2]);
+        ui.siteSuggestions.innerHTML = `
+            <div class="suggestion-item" style="background: #ff3b30; color: #fff; font-weight: 800;" 
+                 onclick="selSite(${lng},${lat},'Coord. Manual')">
+                📍 IR A COORDENADA: ${lat}, ${lng}
+            </div>`;
+        ui.siteSuggestions.style.display="block"; 
+        return;
+    }
+
     if (q.length < 3) { ui.siteSuggestions.style.display = "none"; return; }
+    
+    // Búsqueda normal por Site Name en base de datos
     const { data } = await supa.from("sites_nacional_tabla").select("*").ilike("Site_Name", `%${q}%`).limit(15);
     if (data) {
       ui.siteSuggestions.innerHTML = data.map(s => `<div class="suggestion-item" onclick="selSite(${s.Longitude},${s.Latitude},'${s.Site_Name}')">🏢 ${s.Site_Name}</div>`).join("");
@@ -75,7 +86,6 @@ async function calcularRutas(slat, slng) {
     ui.routesPanel.innerHTML = "<div class='status-badge green' style='width:100%'>⚡ Trazado de alta precisión...</div>";
     state.routeLayer.clearLayers();
     
-    // Filtrar candidatos con coordenadas válidas (Lógica código antiguo)
     const candidates = Array.from(state.users.values())
         .map(u => u.lastRow)
         .filter(r => r && isFinite(r.latitud) && isFinite(r.longitud))
@@ -84,7 +94,6 @@ async function calcularRutas(slat, slng) {
 
     const colors = ["#00FF41", "#00E5FF", "#FF00F7"];
     
-    // PETICIONES EN PARALELO CON OVERVIEW=FULL (FIX PRECISION)
     const fetchPromises = candidates.map(async (u) => {
         const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${u.longitud},${u.latitud};${slng},${slat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
         try {
@@ -101,11 +110,7 @@ async function calcularRutas(slat, slng) {
     const top3 = results.slice(0, 3);
     
     ui.routesPanel.innerHTML = top3.map((r, i) => {
-        // Renderizado detallado sin simplificación
-        L.geoJSON(r.geo, { 
-            style: { color: colors[i], weight: i === 0 ? 8 : 6, opacity: 0.9, smoothFactor: 0 } 
-        }).addTo(state.routeLayer);
-        
+        L.geoJSON(r.geo, { style: { color: colors[i], weight: 8, opacity: 0.9, smoothFactor: 0 } }).addTo(state.routeLayer);
         return `<div class="route-card rank-${i+1}"><div style="display:flex; justify-content:space-between"><b>${i+1}° ${r.b}</b><b style="color:${colors[i]}">${r.t} MIN</b></div><small style="color:#71717a">Distancia: ${r.d} KM</small></div>`;
     }).join("");
 
@@ -176,10 +181,11 @@ function addOrUpdateUserInList(row) {
 }
 
 window.selSite = (lng, lat, nom) => {
-  ui.siteSearch.value = nom; ui.siteSuggestions.style.display = "none"; ui.btnClearRoute.style.display = "block";
+  ui.siteSearch.value = (nom === 'Coord. Manual') ? `${lat}, ${lng}` : nom; 
+  ui.siteSuggestions.style.display = "none"; ui.btnClearRoute.style.display = "block";
   if (state.siteMarker) state.map.removeLayer(state.siteMarker);
   state.siteMarker = L.marker([lat, lng], { icon: L.icon({ iconUrl: 'https://docs.mapbox.com/help/demos/custom-markers-gl-js/mapbox-icon.png', iconSize: [30, 40] }) }).addTo(state.map);
-  state.map.setView([lat, lng], 14);
+  state.map.setView([lat, lng], 15);
   calcularRutas(lat, lng);
 };
 
