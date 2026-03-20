@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,6 +12,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 </head>
+
 <body>
   <header class="topbar">
     <div class="topbar-left">
@@ -23,23 +25,26 @@
     </div>
     <div id="status" class="status-badge gray">Iniciando...</div>
     <div class="topbar-right">
+      <button id="btnExportCSV" class="btn-icon">📥 Reporte</button>
       <button onclick="location.reload()" class="btn-icon">⟳ Actualizar</button>
     </div>
   </header>
 
   <div class="main-layout">
     <div id="map"></div>
-    <aside class="sidebar">
+    <aside class="sidebar" id="mainSidebar">
+      <button id="btnToggleSidebar" class="btn-toggle-sidebar" title="Ocultar Panel">◀</button>
       <div class="sidebar-stats">
-          <div class="stat-box"><span id="countOnline">0</span><small>Online</small></div>
-          <div class="stat-box warn"><span id="countMid">0</span><small>Alerta</small></div>
-          <div class="stat-box off"><span id="countOff">0</span><small>Inactivos</small></div>
+        <div class="stat-box"><span id="countOnline">0</span><small>Online</small></div>
+        <div class="stat-box warn"><span id="countMid">0</span><small>Alerta</small></div>
+        <div class="stat-box off"><span id="countOff">0</span><small>Inactivos</small></div>
       </div>
       <div class="sidebar-scrollable">
         <div class="control-section">
           <h3 class="section-label">Calculadora de Rutas</h3>
           <div class="search-box-container">
-            <input id="siteSearch" type="text" class="premium-input" placeholder="📍 Site o Lat, Lng..." autocomplete="off" />
+            <input id="siteSearch" type="text" class="premium-input" placeholder="📍 Site o Lat, Lng..."
+              autocomplete="off" />
             <button id="btnClearRoute" class="btn-clear-map" title="Limpiar Mapa">✕</button>
             <div id="siteSuggestions" class="suggestions-box"></div>
           </div>
@@ -49,13 +54,15 @@
           <h3 class="section-label">Filtros Operativos</h3>
           <input id="filterBrigada" type="text" class="premium-input" placeholder="🔍 Filtrar Brigada..." />
           <div class="inputs-row">
-              <select id="filterZona" class="premium-input"><option value="">Todas las Zonas</option></select>
-              <select id="filterStatus" class="premium-input">
-                  <option value="">Estado: Todos</option>
-                  <option value="online">🟢 Online</option>
-                  <option value="mid">🟠 Alerta</option>
-                  <option value="off">⚫ Offline</option>
-              </select>
+            <select id="filterZona" class="premium-input">
+              <option value="">Todas las Zonas</option>
+            </select>
+            <select id="filterStatus" class="premium-input">
+              <option value="">Estado: Todos</option>
+              <option value="online">🟢 Online</option>
+              <option value="mid">🟠 Alerta</option>
+              <option value="off">⚫ Offline</option>
+            </select>
           </div>
         </div>
         <div class="control-section">
@@ -74,7 +81,9 @@
       </select>
     </div>
   </div>
+  <div id="toastContainer" class="toast-container"></div>
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>
+
 </html>
