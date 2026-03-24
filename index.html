@@ -25,6 +25,7 @@
     </div>
     <div id="status" class="status-badge gray">Iniciando...</div>
     <div class="topbar-right">
+      <button id="btnExportKML" class="btn-icon" style="background: rgba(16, 185, 129, 0.1); border-color: #10b981; color: #10b981;">🗺️ Rutas (KML)</button>
       <button id="btnExportCSV" class="btn-icon">📥 Reporte</button>
       <button onclick="location.reload()" class="btn-icon">⟳ Actualizar</button>
     </div>
@@ -57,6 +58,9 @@
             <select id="filterZona" class="premium-input">
               <option value="">Todas las Zonas</option>
             </select>
+            <select id="filterContrata" class="premium-input">
+              <option value="">Todas las Contratas</option>
+            </select>
             <select id="filterStatus" class="premium-input">
               <option value="">Estado: Todos</option>
               <option value="online">🟢 Online</option>
@@ -79,6 +83,19 @@
         <option value="streets">🏙️ Mapbox Calles</option>
         <option value="satellite">🛰️ Satelital</option>
       </select>
+    </div>
+  </div>
+  <div id="kmlModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h3 style="margin-top:0; color:#10b981; font-weight: 900; letter-spacing: 1px;">🗺️ Exportar Ruta Diaria</h3>
+      <label>Seleccionar Brigada:</label>
+      <select id="kmlBrigadaSelect" class="premium-input"></select>
+      <label>Día a exportar:</label>
+      <input type="date" id="kmlDateSelect" class="premium-input" />
+      <div style="display: flex; gap: 10px; margin-top: 25px;">
+        <button id="btnGenerateKML" class="btn-icon" style="flex:1; background:#10b981; border-color:#10b981; color:#fff;">Generar KMZ/KML</button>
+        <button id="btnCloseKmlModal" class="btn-icon" style="flex:1;">Cancelar</button>
+      </div>
     </div>
   </div>
   <div id="toastContainer" class="toast-container"></div>

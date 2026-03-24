@@ -12,11 +12,18 @@ const ui = {
   btnClearRoute: document.getElementById("btnClearRoute"),
   filterBrigada: document.getElementById("filterBrigada"),
   filterZona: document.getElementById("filterZona"),
+  filterContrata: document.getElementById("filterContrata"),
   filterStatus: document.getElementById("filterStatus"),
   mainSidebar: document.getElementById("mainSidebar"),
   btnToggleSidebar: document.getElementById("btnToggleSidebar"),
   toastContainer: document.getElementById("toastContainer"),
-  btnExportCSV: document.getElementById("btnExportCSV")
+  btnExportCSV: document.getElementById("btnExportCSV"),
+  btnExportKML: document.getElementById("btnExportKML"),
+  kmlModal: document.getElementById("kmlModal"),
+  kmlBrigadaSelect: document.getElementById("kmlBrigadaSelect"),
+  kmlDateSelect: document.getElementById("kmlDateSelect"),
+  btnGenerateKML: document.getElementById("btnGenerateKML"),
+  btnCloseKmlModal: document.getElementById("btnCloseKmlModal")
 };
 
 const state = { map: null, markers: new Map(), users: new Map(), routeLayer: null, siteMarker: null, currentBase: "osm", baseLayers: {} };
@@ -77,6 +84,7 @@ function initMap() {
 
   ui.filterBrigada.oninput = applyFilters;
   ui.filterZona.onchange = applyFilters;
+  if(ui.filterContrata) ui.filterContrata.onchange = applyFilters;
   ui.filterStatus.onchange = applyFilters;
 
   // Clic Derecho en Mapa para Ruteo Rápido
@@ -101,8 +109,18 @@ function initMap() {
   };
 
   if (ui.btnExportCSV) ui.btnExportCSV.onclick = exportToCSV;
+  if (ui.btnExportKML) {
+    ui.btnExportKML.onclick = () => {
+      const brigs = [...new Set(Array.from(state.users.values()).map(u => u.lastRow.brigada))].sort();
+      ui.kmlBrigadaSelect.innerHTML = brigs.map(b => `<option value="${b}">${b}</option>`).join("");
+      ui.kmlDateSelect.valueAsDate = new Date();
+      ui.kmlModal.style.display = "flex";
+    };
+  }
+  if (ui.btnCloseKmlModal) ui.btnCloseKmlModal.onclick = () => ui.kmlModal.style.display = "none";
+  if (ui.btnGenerateKML) ui.btnGenerateKML.onclick = executeKMLGeneration;
 
-  fetchInitial();
+  syncData();
   initRealtime();
 }
 
@@ -132,6 +150,111 @@ function exportToCSV() {
   link.click();
   document.body.removeChild(link);
   showToast("✅ Reporte CSV descargado con éxito.", "info");
+}
+
+async function executeKMLGeneration() {
+  const brigada = ui.kmlBrigadaSelect.value;
+  const dateStr = ui.kmlDateSelect.value;
+  if (!brigada || !dateStr) { showToast("❌ Selecciona brigada y fecha", "error"); return; }
+  
+  ui.kmlModal.style.display = 'none';
+  showToast(`⏳ Recopilando historial de ${brigada} para el ${dateStr}...`, "warn");
+
+  const [y, m, d] = dateStr.split('-');
+  const startOfDay = new Date(y, m-1, d, 0, 0, 0).toISOString();
+  const endOfDay = new Date(y, m-1, d, 23, 59, 59).toISOString();
+  
+  const { data, error } = await supa.from("ubicaciones_brigadas")
+    .select("usuario_id, brigada, latitud, longitud, timestamp")
+    .eq("brigada", brigada)
+    .gte("timestamp", startOfDay)
+    .lte("timestamp", endOfDay)
+    .order("timestamp", { ascending: true });
+    
+  if (error || !data || data.length === 0) {
+     showToast(`❌ No hay recorridos para ${brigada} el ${dateStr}.`, "error"); return;
+  }
+  
+  let points = data.filter(r => isFinite(r.latitud) && isFinite(r.longitud));
+  const filtered = [];
+  let lastTime = 0;
+  let lastP = null;
+  
+  const calcDist = (lat1, lon1, lat2, lon2) => {
+     const R = 6371e3, p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+     const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
+     const a = Math.sin(dp/2)*Math.sin(dp/2) + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  };
+
+  for (const p of points) {
+     const t = new Date(p.timestamp).getTime();
+     if (t - lastTime >= 60000) { 
+        if (!lastP || calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 80) {
+           filtered.push(p);
+           lastTime = t;
+           lastP = p;
+        }
+     }
+  }
+  
+  if (filtered.length < 2) {
+     showToast("❌ No hay suficientes datos (separados x 1min) para trazar ruta.", "error"); return;
+  }
+
+  showToast(`🗺️ Trazando ruta real en servidores Mapbox para ${brigada}...`, "info");
+  
+  let kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Recorrido ${brigada} - ${dateStr}</name>
+    <Style id="routeStyle"><LineStyle><color>ff0000ff</color><width>5</width></LineStyle></Style>
+    <Style id="startIcon"><IconStyle><scale>2.0</scale><Icon><href>https://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon><hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>1.2</scale></LabelStyle></Style>
+    <Style id="endIcon"><IconStyle><scale>2.0</scale><Icon><href>https://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon><hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>1.2</scale></LabelStyle></Style>
+    <Style id="pointIcon"><IconStyle><scale>0.6</scale><Icon><href>https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><hotSpot x="0.5" y="0.5" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>0.8</scale></LabelStyle></Style>
+    <Folder><name>${brigada}</name>\n`;
+
+  const pStart = points[0];
+  const pEnd = points[points.length - 1];
+  
+  kml += `      <Placemark><name>🚀 INICIO: ${new Date(pStart.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</name><styleUrl>#startIcon</styleUrl><Point><coordinates>${pStart.longitud},${pStart.latitud}</coordinates></Point></Placemark>\n`;
+
+  if (points.length > 1) {
+     kml += `      <Placemark><name>🏁 FIN: ${new Date(pEnd.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</name><styleUrl>#endIcon</styleUrl><Point><coordinates>${pEnd.longitud},${pEnd.latitud}</coordinates></Point></Placemark>\n`;
+  }
+
+  for (let j = 0; j < filtered.length - 1; j += 24) {
+      const chunk = filtered.slice(j, j + 25);
+      if (chunk.length < 2) continue;
+      
+      const coordsPath = chunk.map(p => `${p.longitud},${p.latitud}`).join(';');
+      const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coordsPath}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+      
+      try {
+          const resp = await fetch(url);
+          const json = await resp.json();
+          if (json.routes && json.routes[0]) {
+              const geom = json.routes[0].geometry.coordinates;
+              const kmlCoords = geom.map(c => `${c[0]},${c[1]}`).join(' ');
+              kml += `      <Placemark><name>Tramo ${Math.floor(j/24) + 1}</name><styleUrl>#routeStyle</styleUrl><LineString><tessellate>1</tessellate><coordinates>${kmlCoords}</coordinates></LineString></Placemark>\n`;
+          } else {
+              const kmlCoords = chunk.map(p => `${p.longitud},${p.latitud}`).join(' ');
+              kml += `      <Placemark><name>Tramo (Directo)</name><styleUrl>#routeStyle</styleUrl><LineString><tessellate>1</tessellate><coordinates>${kmlCoords}</coordinates></LineString></Placemark>\n`;
+          }
+      } catch (e) {
+          console.error("Mapbox err", e);
+      }
+  }
+  kml += `    </Folder>\n  </Document>\n</kml>`;
+  
+  const blob = new Blob([kml], {type: 'application/vnd.google-earth.kml+xml;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute('download', `Ruta_${brigada.replace(/[^a-zA-Z0-9_-]/g, '_')}_${dateStr}.kml`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast("✅ ¡Ruta KML generada con éxito!", "info");
 }
 
 async function calcularRutas(slat, slng) {
@@ -179,6 +302,7 @@ function getStatusKey(row) {
 function applyFilters() {
   const bText = ui.filterBrigada.value.toLowerCase();
   const zValue = ui.filterZona.value.trim().toLowerCase();
+  const cValue = ui.filterContrata ? ui.filterContrata.value.trim().toLowerCase() : "";
   const sValue = ui.filterStatus.value;
   const zoom = state.map.getZoom();
 
@@ -186,7 +310,8 @@ function applyFilters() {
     const row = u.lastRow;
     const key = getStatusKey(row);
     const zRow = (row.zona || "").trim().toLowerCase();
-    const matches = (!bText || (row.brigada && row.brigada.toLowerCase().includes(bText))) && (!zValue || zRow === zValue) && (!sValue || key === sValue);
+    const cRow = (row.contrata || "Sin Contrata").trim().toLowerCase();
+    const matches = (!bText || (row.brigada && row.brigada.toLowerCase().includes(bText))) && (!zValue || zRow === zValue) && (!cValue || cRow === cValue) && (!sValue || key === sValue);
     const card = document.getElementById(`u-${uid}`);
     if (card) card.style.display = matches ? "flex" : "none";
     if (u.marker) {
@@ -207,23 +332,54 @@ function updateStats() {
   document.getElementById("countOff").textContent = off;
 }
 
-async function fetchInitial() {
+async function syncData() {
   const { data } = await supa.from("ubicaciones_brigadas").select("*").gte("timestamp", new Date(Date.now() - 86400000).toISOString()).order("timestamp", { ascending: false });
   if (data) {
-    ui.userList.innerHTML = "";
     const grouped = new Map();
     data.forEach(r => { if (!grouped.has(String(r.usuario_id))) grouped.set(String(r.usuario_id), r); });
+    
     grouped.forEach(row => {
       const uid = String(row.usuario_id);
-      if (state.users.has(uid)) return;
-      if (isFinite(row.latitud)) {
-        const m = L.marker([row.latitud, row.longitud]).bindPopup(buildPopup(row));
+      if (!state.users.has(uid)) {
+        let m = null;
+        if (isFinite(row.latitud)) {
+          m = L.marker([row.latitud, row.longitud]).bindPopup(buildPopup(row));
+        }
         state.users.set(uid, { marker: m, lastRow: row });
+      } else {
+        const u = state.users.get(uid);
+        if (new Date(row.timestamp) > new Date(u.lastRow.timestamp)) {
+          u.lastRow = row;
+          if (isFinite(row.latitud)) {
+            if (!u.marker) {
+               u.marker = L.marker([row.latitud, row.longitud]).bindPopup(buildPopup(row));
+            } else {
+               u.marker.setPopupContent(buildPopup(row));
+            }
+          }
+        }
       }
-      addOrUpdateUserInList(row);
+      addOrUpdateUserInList(state.users.get(uid).lastRow);
     });
+
+    const prevZona = ui.filterZona.value;
     const zonas = [...new Set(Array.from(grouped.values()).map(r => (r.zona || "").trim()).filter(Boolean))].sort();
-    ui.filterZona.innerHTML = '<option value="">Todas las Zonas</option>' + zonas.map(z => `<option value="${z}">${z}</option>`).join("");
+    const newZonasHtml = '<option value="">Todas las Zonas</option>' + zonas.map(z => `<option value="${z}">${z}</option>`).join("");
+    if (ui.filterZona.innerHTML !== newZonasHtml) {
+      ui.filterZona.innerHTML = newZonasHtml;
+      ui.filterZona.value = prevZona || "";
+    }
+
+    if (ui.filterContrata) {
+      const prevContrata = ui.filterContrata.value;
+      const contratas = [...new Set(Array.from(grouped.values()).map(r => (r.contrata || "Sin Contrata").trim()).filter(Boolean))].sort();
+      const newContratasHtml = '<option value="">Todas las Contratas</option>' + contratas.map(c => `<option value="${c}">${c}</option>`).join("");
+      if (ui.filterContrata.innerHTML !== newContratasHtml) {
+        ui.filterContrata.innerHTML = newContratasHtml;
+        ui.filterContrata.value = prevContrata || "";
+      }
+    }
+
     applyFilters();
     ui.status.textContent = "Conectado"; ui.status.className = "status-badge green";
   }
@@ -258,16 +414,39 @@ function initRealtime() {
       state.users.set(uid, { marker: m, lastRow: row });
       showToast(`🚀 Nueva brigada en línea: <b>${row.brigada}</b>`, 'info');
     } else {
-      const oldRow = state.users.get(uid).lastRow;
-      state.users.get(uid).lastRow = row;
+      const u = state.users.get(uid);
+      const oldRow = u.lastRow;
+      u.lastRow = row;
+      
+      if (!u.marker) {
+          u.marker = L.marker([row.latitud, row.longitud]).bindPopup(buildPopup(row));
+      } else {
+          u.marker.setPopupContent(buildPopup(row));
+      }
+
       if (getStatusKey(oldRow) === 'off' && getStatusKey(row) !== 'off') {
         showToast(`✅ <b>${row.brigada}</b> ha reconectado.`, 'info');
       }
     }
-    addOrUpdateUserInList(row);
+    
+    // Auto-update Contratas if new one appears gracefully
+    if (ui.filterContrata && row.contrata) {
+      const cLabel = row.contrata.trim();
+      let exists = false;
+      Array.from(ui.filterContrata.options).forEach(opt => { if (opt.value === cLabel) exists = true; });
+      if (!exists && cLabel) {
+        const opt = document.createElement("option");
+        opt.value = cLabel;
+        opt.text = cLabel;
+        ui.filterContrata.appendChild(opt);
+      }
+    }
+
+    addOrUpdateUserInList(state.users.get(uid).lastRow);
     applyFilters();
   }).subscribe();
 }
 
 initMap();
 setInterval(applyFilters, 60000);   // Auto-refrescar estados cada minuto
+setInterval(syncData, 120000);      // Sincronizar datos por si websocket falla (cada 2 min)
