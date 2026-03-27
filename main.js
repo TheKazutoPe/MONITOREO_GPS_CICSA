@@ -468,3 +468,146 @@ function initRealtime() {
 initMap();
 setInterval(applyFilters, 60000);   // Auto-refrescar estados cada minuto
 setInterval(syncData, 120000);      // Sincronizar datos por si websocket falla (cada 2 min)
+
+// ============================================================
+//  DASHBOARD
+// ============================================================
+
+// Validates that a row is a real brigade (not a ghost entry)
+function isValidRow(r) {
+  if (!r) return false;
+  if (!r.brigada || r.brigada.trim() === '') return false;
+  if (!r.contrata || r.contrata.trim() === '' || r.contrata.trim().toLowerCase() === 'sin contrata') return false;
+  if (!r.tecnico || r.tecnico.trim() === '') return false;
+  return true;
+}
+
+function buildDashboard() {
+  const now = new Date();
+
+  // Only valid rows from today
+  const rows = Array.from(state.users.values())
+    .map(u => u.lastRow)
+    .filter(r => r && isHoyElReporte(r) && isValidRow(r));
+
+  // --- KPIs ---
+  let on = 0, mid = 0, off = 0;
+  const contratasSet = new Set(), zonasSet = new Set();
+
+  rows.forEach(r => {
+    const k = getStatusKey(r);
+    if (k === 'online') on++;
+    else if (k === 'mid') mid++;
+    else off++;
+    contratasSet.add(r.contrata.trim());
+    if (r.zona && r.zona.trim()) zonasSet.add(r.zona.trim());
+  });
+
+  const total = rows.length;
+  const connected = on + mid;
+  const pctConn = total > 0 ? Math.round((connected / total) * 100) : 0;
+
+  document.getElementById('dOnline').textContent    = on;
+  document.getElementById('dMid').textContent       = mid;
+  document.getElementById('dOff').textContent       = off;
+  document.getElementById('dContratas').textContent = contratasSet.size;
+  document.getElementById('dZonas').textContent     = zonasSet.size;
+  document.getElementById('dTotal').textContent     = total;
+  document.getElementById('dashDate').textContent   =
+    'Resumen del ' + now.toLocaleDateString('es-PE', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  // Update compliance ring
+  const ring = document.getElementById('dashConnRing');
+  const ringPct = document.getElementById('dashConnPct');
+  if (ring && ringPct) {
+    const circ = 2 * Math.PI * 28;
+    ring.style.strokeDasharray = `${(pctConn / 100) * circ} ${circ}`;
+    ring.style.stroke = pctConn >= 80 ? '#10b981' : pctConn >= 50 ? '#f59e0b' : '#ff3b30';
+    ringPct.textContent = pctConn + '%';
+  }
+
+  // --- Stacked bar: por Contrata ---
+  const byContrata = {};
+  rows.forEach(r => {
+    const c = r.contrata.trim();
+    if (!byContrata[c]) byContrata[c] = { on: 0, mid: 0, off: 0 };
+    const k = getStatusKey(r);
+    byContrata[c][k === 'online' ? 'on' : k === 'mid' ? 'mid' : 'off']++;
+  });
+  renderStackedChart('chartContratas', byContrata);
+
+  // --- Stacked bar: por Zona ---
+  const byZona = {};
+  rows.forEach(r => {
+    const z = (r.zona && r.zona.trim()) ? r.zona.trim() : null;
+    if (!z) return; // skip rows without zone
+    if (!byZona[z]) byZona[z] = { on: 0, mid: 0, off: 0 };
+    const k = getStatusKey(r);
+    byZona[z][k === 'online' ? 'on' : k === 'mid' ? 'mid' : 'off']++;
+  });
+  renderStackedChart('chartZonas', byZona);
+
+  // --- Tabla actividad reciente (valid rows only) ---
+  const sorted = [...rows].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const tbody = document.getElementById('dashTableBody');
+  const labels = { online: 'Online', mid: 'Alerta', off: 'Offline' };
+  tbody.innerHTML = sorted.map(r => {
+    const k = getStatusKey(r);
+    const t = new Date(r.timestamp).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    return `<tr>
+      <td><b>${r.brigada}</b></td>
+      <td>${r.tecnico}</td>
+      <td>${r.contrata}</td>
+      <td>${r.zona || '—'}</td>
+      <td><span class="dash-badge ${k}">${labels[k]}</span></td>
+      <td>${t}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderStackedChart(containerId, dataObj) {
+  const container = document.getElementById(containerId);
+  const entries = Object.entries(dataObj)
+    .map(([label, d]) => ({ label, total: d.on + d.mid + d.off, ...d }))
+    .sort((a, b) => b.total - a.total);
+
+  const maxTotal = entries[0]?.total || 1;
+
+  container.innerHTML = entries.map(({ label, total, on, mid, off }) => {
+    const pctConn = Math.round(((on + mid) / total) * 100);
+    const connColor = pctConn >= 80 ? '#10b981' : pctConn >= 50 ? '#f59e0b' : '#ff3b30';
+    const wOn  = Math.round((on  / maxTotal) * 100);
+    const wMid = Math.round((mid / maxTotal) * 100);
+    const wOff = Math.round((off / maxTotal) * 100);
+    return `<div class="bar-row">
+      <span class="bar-label" title="${label}">${label}</span>
+      <div class="bar-track stacked">
+        <div class="bar-seg seg-on"  style="width:0%" data-target="${wOn}%"  title="Online: ${on}"></div>
+        <div class="bar-seg seg-mid" style="width:0%" data-target="${wMid}%" title="Alerta: ${mid}"></div>
+        <div class="bar-seg seg-off" style="width:0%" data-target="${wOff}%" title="Offline: ${off}"></div>
+      </div>
+      <span class="bar-conn" style="color:${connColor}" title="${on+mid} conectadas / ${total}">${pctConn}%</span>
+      <span class="bar-count">${total}</span>
+    </div>`;
+  }).join('');
+
+  // Animate after paint
+  requestAnimationFrame(() => {
+    container.querySelectorAll('.bar-seg').forEach(el => {
+      el.style.width = el.dataset.target;
+    });
+  });
+}
+
+// Wire up dashboard buttons (script loads at end of body — no need for DOMContentLoaded)
+(function wireDashboard() {
+  const btnDash    = document.getElementById('btnDashboard');
+  const modal      = document.getElementById('dashboardModal');
+  const btnClose   = document.getElementById('btnCloseDash');
+  const btnRefresh = document.getElementById('btnRefreshDash');
+
+  if (btnDash)    btnDash.onclick    = () => { buildDashboard(); modal.style.display = 'flex'; };
+  if (btnClose)   btnClose.onclick   = () => { modal.style.display = 'none'; };
+  if (btnRefresh) btnRefresh.onclick = () => buildDashboard();
+  if (modal)      modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+})();

@@ -27,6 +27,7 @@
     <div class="topbar-right">
       <button id="btnExportKML" class="btn-icon" style="background: rgba(16, 185, 129, 0.1); border-color: #10b981; color: #10b981;">🗺️ Rutas (KML)</button>
       <button id="btnExportCSV" class="btn-icon">📥 Reporte</button>
+      <button id="btnDashboard" class="btn-icon" style="background: rgba(139,92,246,0.12); border-color: #8b5cf6; color: #8b5cf6;">📊 Dashboard</button>
       <button onclick="location.reload()" class="btn-icon">⟳ Actualizar</button>
     </div>
   </header>
@@ -85,6 +86,110 @@
       </select>
     </div>
   </div>
+  <!-- DASHBOARD MODAL -->
+  <div id="dashboardModal" class="dashboard-overlay" style="display:none;">
+    <div class="dashboard-panel">
+      <div class="dash-header">
+        <div>
+          <h2 class="dash-title">📊 Dashboard Operativo</h2>
+          <p class="dash-sub" id="dashDate">—</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button id="btnRefreshDash" class="btn-icon" style="border-color:#8b5cf6;color:#8b5cf6;">↺ Actualizar</button>
+          <button id="btnCloseDash" class="dash-close">✕</button>
+        </div>
+      </div>
+
+      <!-- KPI CARDS -->
+      <div class="dash-kpis">
+        <div class="kpi-card green">
+          <span class="kpi-icon">🟢</span>
+          <div>
+            <div class="kpi-val" id="dOnline">0</div>
+            <div class="kpi-lbl">Online ahora</div>
+          </div>
+        </div>
+        <div class="kpi-card amber">
+          <span class="kpi-icon">🟠</span>
+          <div>
+            <div class="kpi-val" id="dMid">0</div>
+            <div class="kpi-lbl">En alerta</div>
+          </div>
+        </div>
+        <div class="kpi-card gray">
+          <span class="kpi-icon">⚫</span>
+          <div>
+            <div class="kpi-val" id="dOff">0</div>
+            <div class="kpi-lbl">Inactivos hoy</div>
+          </div>
+        </div>
+        <div class="kpi-card blue">
+          <span class="kpi-icon">🏢</span>
+          <div>
+            <div class="kpi-val" id="dContratas">0</div>
+            <div class="kpi-lbl">Contratas</div>
+          </div>
+        </div>
+        <div class="kpi-card purple">
+          <span class="kpi-icon">📍</span>
+          <div>
+            <div class="kpi-val" id="dZonas">0</div>
+            <div class="kpi-lbl">Zonas activas</div>
+          </div>
+        </div>
+        <div class="kpi-card red">
+          <span class="kpi-icon">🚗</span>
+          <div>
+            <div class="kpi-val" id="dTotal">0</div>
+            <div class="kpi-lbl">Total brigadas</div>
+          </div>
+        </div>
+        <!-- COMPLIANCE RING -->
+        <div class="dash-ring-wrap">
+          <svg class="ring-svg" width="72" height="72" viewBox="0 0 72 72">
+            <circle class="ring-bg" cx="36" cy="36" r="28"/>
+            <circle id="dashConnRing" class="ring-fill" cx="36" cy="36" r="28"/>
+            <text id="dashConnPct" class="ring-pct" x="36" y="36">0%</text>
+          </svg>
+          <span class="ring-label">Conexión</span>
+        </div>
+      </div>
+
+      <!-- LEYENDA -->
+      <div style="display:flex;gap:20px;padding:0 32px 14px;font-size:10px;font-weight:800;color:#71717a;text-transform:uppercase;letter-spacing:.5px;">
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#10b981;display:inline-block;"></span>Online</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block;"></span>Alerta</span>
+        <span style="display:flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:50%;background:#3f3f46;display:inline-block;"></span>Offline</span>
+        <span style="margin-left:auto;color:#52525b;">% = brigadas conectadas</span>
+      </div>
+
+      <div class="dash-body">
+        <!-- CHART CONTRATAS -->
+        <div class="dash-section">
+          <h3 class="dash-section-title">Brigadas por Contrata</h3>
+          <div id="chartContratas" class="bar-chart-container"></div>
+        </div>
+        <!-- CHART ZONAS -->
+        <div class="dash-section">
+          <h3 class="dash-section-title">Brigadas por Zona</h3>
+          <div id="chartZonas" class="bar-chart-container"></div>
+        </div>
+        <!-- TABLA ACTIVIDAD RECIENTE -->
+        <div class="dash-section" style="grid-column: 1 / -1;">
+          <h3 class="dash-section-title">Actividad Reciente — Últimas conexiones del día</h3>
+          <div class="dash-table-wrap">
+            <table class="dash-table" id="dashTable">
+              <thead>
+                <tr><th>Brigada</th><th>Técnico</th><th>Contrata</th><th>Zona</th><th>Estado</th><th>Último reporte</th></tr>
+              </thead>
+              <tbody id="dashTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="kmlModal" class="modal-overlay" style="display: none;">
     <div class="modal-content">
       <h3 style="margin-top:0; color:#10b981; font-weight: 900; letter-spacing: 1px;">🗺️ Exportar Ruta Diaria</h3>
