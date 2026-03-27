@@ -299,6 +299,14 @@ function getStatusKey(row) {
   return mins <= 2 ? "online" : (mins <= 5 ? "mid" : "off");
 }
 
+function isHoyElReporte(row) {
+  const ahora = new Date();
+  const reporte = new Date(row.timestamp);
+  return reporte.getFullYear() === ahora.getFullYear() &&
+         reporte.getMonth() === ahora.getMonth() &&
+         reporte.getDate() === ahora.getDate();
+}
+
 function applyFilters() {
   const bText = ui.filterBrigada.value.toLowerCase();
   const zValue = ui.filterZona.value.trim().toLowerCase();
@@ -309,6 +317,13 @@ function applyFilters() {
   state.users.forEach((u, uid) => {
     const row = u.lastRow;
     const key = getStatusKey(row);
+    // Ocultar brigadas desconectadas cuyo último reporte sea de un día anterior
+    if (key === 'off' && !isHoyElReporte(row)) {
+      const card = document.getElementById(`u-${uid}`);
+      if (card) card.style.display = "none";
+      if (u.marker) state.map.removeLayer(u.marker);
+      return;
+    }
     const zRow = (row.zona || "").trim().toLowerCase();
     const cRow = (row.contrata || "Sin Contrata").trim().toLowerCase();
     const matches = (!bText || (row.brigada && row.brigada.toLowerCase().includes(bText))) && (!zValue || zRow === zValue) && (!cValue || cRow === cValue) && (!sValue || key === sValue);
@@ -333,7 +348,10 @@ function updateStats() {
 }
 
 async function syncData() {
-  const { data } = await supa.from("ubicaciones_brigadas").select("*").gte("timestamp", new Date(Date.now() - 86400000).toISOString()).order("timestamp", { ascending: false });
+  // Cargar solo desde el inicio del día actual (medianoche hora local)
+  const hoy = new Date();
+  const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
+  const { data } = await supa.from("ubicaciones_brigadas").select("*").gte("timestamp", inicioDelDia).order("timestamp", { ascending: false });
   if (data) {
     const grouped = new Map();
     data.forEach(r => { if (!grouped.has(String(r.usuario_id))) grouped.set(String(r.usuario_id), r); });
