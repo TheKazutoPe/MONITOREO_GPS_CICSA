@@ -109,6 +109,13 @@ function initMap() {
   };
 
   if (ui.btnExportCSV) ui.btnExportCSV.onclick = exportToCSV;
+  
+  const btnExportWP = document.getElementById("btnExportWP");
+  if (btnExportWP) btnExportWP.onclick = generateWhatsAppStatus;
+  
+  const btnCloseWpModal = document.getElementById("btnCloseWpModal");
+  if (btnCloseWpModal) btnCloseWpModal.onclick = () => { document.getElementById("wpModal").style.display = "none"; };
+
   if (ui.btnExportKML) {
     ui.btnExportKML.onclick = () => {
       const brigs = [...new Set(Array.from(state.users.values()).map(u => u.lastRow.brigada))].sort();
@@ -135,21 +142,196 @@ function showToast(msg, type = 'info') {
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 4000);
 }
 
-function exportToCSV() {
-  let csv = "\uFEFFBrigada,Tecnico,Contrata,Zona,Estado,Latitud,Longitud,Ultima_Actualizacion\n";
-  state.users.forEach(u => {
-    const r = u.lastRow;
-    const key = getStatusKey(r);
-    csv += `"${r.brigada}","${r.tecnico}","${r.contrata || 'N/A'}","${r.zona || ''}","${key}","${r.latitud}","${r.longitud}","${new Date(r.timestamp).toISOString()}"\n`;
+function generateWhatsAppStatus() {
+  const wpModal = document.getElementById("wpModal");
+  const wpContainer = document.getElementById("wpContainer");
+  wpModal.style.display = "flex";
+  
+  const rows = Array.from(state.users.values()).map(u => u.lastRow).filter(r => r && r.brigada);
+  const sortWeight = { 'off': 1, 'mid': 2, 'online': 3 };
+  const getStatusText = (key) => key === 'off' ? 'Pendiente (Desconectado)' : key === 'mid' ? 'Alerta (Sin reporte rec.)' : 'Conectado (Online)';
+  const getStatusColor = (key) => key === 'off' ? '#cc0000' : key === 'mid' ? '#b8860b' : '#1b5e20';
+
+  const formatted = rows.map(r => ({
+    zona: (r.zona || 'SIN ZONA').toUpperCase().trim(),
+    contrata: (r.contrata || 'SIN CONTRATA').toUpperCase().trim(),
+    brigada: r.brigada.toUpperCase(),
+    tecnico: r.tecnico || 'N/A',
+    estadoKey: getStatusKey(r),
+    estadoTxt: getStatusText(getStatusKey(r)),
+    estadoColor: getStatusColor(getStatusKey(r)),
+    peso: sortWeight[getStatusKey(r)]
+  }));
+
+  // Agrupar por Zona
+  const grouped = {};
+  formatted.forEach(f => {
+    if (!grouped[f.zona]) grouped[f.zona] = [];
+    grouped[f.zona].push(f);
   });
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+  wpContainer.innerHTML = "";
+
+  Object.keys(grouped).sort().forEach(zona => {
+    grouped[zona].sort((a, b) => {
+      if (a.peso !== b.peso) return a.peso - b.peso;
+      if (a.contrata !== b.contrata) return a.contrata.localeCompare(b.contrata);
+      return a.brigada.localeCompare(b.brigada);
+    });
+
+    const tableId = 'wp-tb-' + zona.replace(/[^a-zA-Z0-9]/g, '');
+    
+    let html = `
+      <div style="background:#222; padding:15px; border-radius:8px; border:1px solid #444;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h4 style="margin:0; color:#fff;">STATUS ${zona}</h4>
+          <button onclick="copyTableImage('${tableId}', '${zona}')" style="background:#25d366; color:#fff; border:none; padding:6px 16px; border-radius:6px; font-weight:bold; cursor:pointer;">📸 Copiar Imagen</button>
+        </div>
+        
+        <div id="${tableId}" style="background:#ffffff; color:#000; font-family:'Calibri', sans-serif; padding:2px; display:inline-block;">
+          <table style="border-collapse: collapse; min-width: 600px; font-size: 13px;">
+            <thead>
+              <tr>
+                <th style="background:#0b1a2a; color:#fff; border:1px solid #ccc; padding:6px; font-size:12px;">ZONA</th>
+                <th style="background:#0b1a2a; color:#fff; border:1px solid #ccc; padding:6px; font-size:12px;">CONTRATA</th>
+                <th style="background:#0b1a2a; color:#fff; border:1px solid #ccc; padding:6px; font-size:12px;">BRIGADA</th>
+                <th style="background:#0b1a2a; color:#fff; border:1px solid #ccc; padding:6px; font-size:12px;">ESTADO ACTUAL</th>
+                <th style="background:#0b1a2a; color:#fff; border:1px solid #ccc; padding:6px; font-size:12px;">TÉCNICO</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    grouped[zona].forEach(r => {
+      html += `
+              <tr>
+                <td style="border:1px solid #ccc; padding:4px 8px; font-weight:bold;">${r.zona}</td>
+                <td style="border:1px solid #ccc; padding:4px 8px;">${r.contrata}</td>
+                <td style="border:1px solid #ccc; padding:4px 8px;"><b>${r.brigada}</b></td>
+                <td style="border:1px solid #ccc; padding:4px 8px; color:${r.estadoColor}; font-weight:bold;">${r.estadoTxt}</td>
+                <td style="border:1px solid #ccc; padding:4px 8px;">${r.tecnico.replace(/[\r\n]+/g, ' ')}</td>
+              </tr>
+      `;
+    });
+
+    html += `</tbody></table></div></div>`;
+    wpContainer.innerHTML += html;
+  });
+}
+
+window.copyTableImage = function(elementId, zonaName) {
+  const el = document.getElementById(elementId);
+  const btn = event.currentTarget;
+  const originalText = btn.innerText;
+  btn.innerText = "⏳ Copiando...";
+  btn.style.opacity = "0.7";
+  
+  html2canvas(el, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
+    canvas.toBlob(blob => {
+      try {
+        navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+        showToast("✅ Imagen de " + zonaName + " copiada. Usa Ctrl+V en WhatsApp.", "info");
+        btn.innerText = "✅ ¡Copiado!";
+        btn.style.background = "#10b981";
+      } catch (err) {
+        showToast("❌ Error copiando imagen. Revisa permisos.", "error");
+        btn.innerText = originalText;
+      }
+      setTimeout(() => {
+         btn.innerText = "📸 Copiar Imagen";
+         btn.style.background = "#25d366";
+         btn.style.opacity = "1";
+      }, 3000);
+    });
+  });
+}
+
+function exportToCSV() {
+  const rows = Array.from(state.users.values())
+    .map(u => u.lastRow)
+    .filter(r => r && r.brigada); // Filtrar data inválida
+
+  const sortWeight = { 'off': 1, 'mid': 2, 'online': 3 };
+  const getStatusText = (key) => key === 'off' ? 'Pendiente (Desconectado)' : key === 'mid' ? 'Alerta (Sin reporte rec.)' : 'Conectado (Online)';
+
+  const formattedRows = rows.map(r => {
+    const key = getStatusKey(r);
+    return {
+      zona: (r.zona || 'SIN ZONA').toUpperCase().trim(),
+      contrata: (r.contrata || 'SIN CONTRATA').toUpperCase().trim(),
+      brigada: r.brigada.toUpperCase(),
+      tecnico: r.tecnico || 'N/A',
+      estadoKey: key,
+      estadoTxt: getStatusText(key),
+      estadoPeso: sortWeight[key],
+      lat: r.latitud || 0,
+      lng: r.longitud || 0,
+      fecha: new Date(r.timestamp).toLocaleString('es-PE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'})
+    };
+  });
+
+  // Ordenar: 1° Zona (A-Z) -> 2° Estado (Pendiente primero) -> 3° Contrata (A-Z) -> 4° Brigada (A-Z)
+  formattedRows.sort((a, b) => {
+    if (a.zona !== b.zona) return a.zona.localeCompare(b.zona);
+    if (a.estadoPeso !== b.estadoPeso) return a.estadoPeso - b.estadoPeso; 
+    if (a.contrata !== b.contrata) return a.contrata.localeCompare(b.contrata);
+    return a.brigada.localeCompare(b.brigada);
+  });
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-PE').replace(/\//g, '-');
+
+  let excelHTML = `
+  <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+  <head>
+    <meta charset="UTF-8">
+    <style>
+      .table { border-collapse: collapse; font-family: Calibri, sans-serif; }
+      .table th { background-color: #0b1a2a; color: #ffffff; font-weight: bold; border: 1px solid #bbbbbb; padding: 10px; font-size: 14px; }
+      .table td { border: 1px solid #bbbbbb; padding: 8px; font-size: 13px; text-align: center; }
+      .zona { font-weight: bold; text-align: left; background-color: #f7f9fc; }
+      .off { background-color: #ffeaea; color: #cc0000; font-weight: bold; }
+      .mid { background-color: #fff8e1; color: #b8860b; font-weight: bold; }
+      .online { background-color: #e8f5e9; color: #1b5e20; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h3>Status Nacional de Brigadas - Generado: ${now.toLocaleString()}</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ZONA</th><th>CONTRATA</th><th>BRIGADA</th><th>ESTADO ACTUAL</th><th>ÚLTIMO REPORTE</th><th>TÉCNICO</th><th>LATITUD</th><th>LONGITUD</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  formattedRows.forEach(f => {
+    const tecClean = String(f.tecnico || '').replace(/[\r\n]+/g, ' ');
+    const briClean = String(f.brigada || '').replace(/[\r\n]+/g, ' ');
+    excelHTML += `
+        <tr>
+          <td class="zona">${f.zona}</td>
+          <td>${f.contrata}</td>
+          <td><b>${briClean}</b></td>
+          <td class="${f.estadoKey}">${f.estadoTxt}</td>
+          <td>${f.fecha}</td>
+          <td style="text-align:left;">${tecClean}</td>
+          <td>${f.lat}</td>
+          <td>${f.lng}</td>
+        </tr>`;
+  });
+
+  excelHTML += `</tbody></table></body></html>`;
+
+  const blob = new Blob([excelHTML], { type: 'application/vnd.ms-excel;charset=utf-8' });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.setAttribute("download", "reporte_brigadas.csv");
+  link.setAttribute("download", `Status_Nacional_Brigadas_${dateStr}.xls`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  showToast("✅ Reporte CSV descargado con éxito.", "info");
+  showToast("✅ Status Nacional EXCEL generado con éxito.", "info");
 }
 
 async function executeKMLGeneration() {

@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 </head>
 
 <body>
@@ -26,7 +27,8 @@
     <div id="status" class="status-badge gray">Iniciando...</div>
     <div class="topbar-right">
       <button id="btnExportKML" class="btn-icon" style="background: rgba(16, 185, 129, 0.1); border-color: #10b981; color: #10b981;">🗺️ Rutas (KML)</button>
-      <button id="btnExportCSV" class="btn-icon">📥 Reporte</button>
+      <button id="btnExportCSV" class="btn-icon">📥 Reporte Excel</button>
+      <button id="btnExportWP" class="btn-icon" style="background: rgba(37, 211, 102, 0.1); border-color: #25d366; color: #25d366;">📱 WhatsApp Copiar</button>
       <button id="btnDashboard" class="btn-icon" style="background: rgba(139,92,246,0.12); border-color: #8b5cf6; color: #8b5cf6;">📊 Dashboard</button>
       <button onclick="location.reload()" class="btn-icon">⟳ Actualizar</button>
     </div>
@@ -203,6 +205,21 @@
       </div>
     </div>
   </div>
+
+  <!-- WHATSAPP MODAL -->
+  <div id="wpModal" class="modal-overlay" style="display: none; z-index: 9999;">
+    <div class="modal-content" style="width: 95%; max-width: 900px; max-height: 90vh; overflow-y: auto; background: #1a1a1a; text-align:left; border: 1px solid #333;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; color:#25d366; font-weight:900;">📱 Copiar Status para WhatsApp</h3>
+        <button id="btnCloseWpModal" class="dash-close" style="color:#fff; border:none; background:none; font-size: 20px; cursor:pointer;">✕</button>
+      </div>
+      <p style="color:#aaa; font-size:13px; margin-bottom: 20px;">Se han generado imágenes de tabla por ZONA (idéntico a tu formato Excel). Simplemente presiona <b style="color:#25d366;">[Copiar Imagen]</b> en la zona deseada y dale 'Pegar' (Ctrl+V) en tu chat de WhatsApp Web.</p>
+      <div id="wpContainer" style="display:flex; flex-direction:column; gap:30px;">
+        <!-- Las tablas por zona se renderizarán aquí -->
+      </div>
+    </div>
+  </div>
+
   <div id="toastContainer" class="toast-container"></div>
   <script src="config.js"></script>
   <script src="main.js"></script>
