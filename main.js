@@ -165,7 +165,7 @@ async function executeKMLGeneration() {
   const endOfDay = new Date(y, m-1, d, 23, 59, 59).toISOString();
   
   const { data, error } = await supa.from("ubicaciones_brigadas")
-    .select("usuario_id, brigada, latitud, longitud, timestamp")
+    .select("usuario_id, brigada, latitud, longitud, timestamp, acc")
     .eq("brigada", brigada)
     .gte("timestamp", startOfDay)
     .lte("timestamp", endOfDay)
@@ -174,11 +174,21 @@ async function executeKMLGeneration() {
   if (error || !data || data.length === 0) {
      showToast(`❌ No hay recorridos para ${brigada} el ${dateStr}.`, "error"); return;
   }
-  
-  let points = data.filter(r => isFinite(r.latitud) && isFinite(r.longitud));
+
+  // ── Filtro 1: coordenadas válidas + precisión GPS aceptable (acc <= 50m)
+  const ACC_MAX = 50;
+  let points = data.filter(r =>
+    isFinite(r.latitud) && isFinite(r.longitud) &&
+    (r.acc == null || r.acc <= ACC_MAX)
+  );
+  showToast(`🔍 ${data.length} puntos brutos → ${points.length} con precisión ≤${ACC_MAX}m`, 'warn');
   const filtered = [];
   let lastTime = 0;
   let lastP = null;
+
+  // Array para puntos por minuto (solo filtro de tiempo, sin restricción de distancia)
+  const minutePoints = [];
+  let lastMinTime = 0;
   
   const calcDist = (lat1, lon1, lat2, lon2) => {
      const R = 6371e3, p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
@@ -187,14 +197,33 @@ async function executeKMLGeneration() {
      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   };
 
+  const MAX_SPEED_KMH = 120; // velocidad máxima realista (km/h)
+  let lastValidP = null;     // último punto aceptado por el filtro de velocidad
+
   for (const p of points) {
      const t = new Date(p.timestamp).getTime();
+
+     // ── Filtro 2: velocidad máxima entre puntos (descarta saltos fantasma)
+     if (lastValidP) {
+        const dt_h = (t - new Date(lastValidP.timestamp).getTime()) / 3600000; // horas
+        const dist_km = calcDist(lastValidP.latitud, lastValidP.longitud, p.latitud, p.longitud) / 1000;
+        const speed = dt_h > 0 ? dist_km / dt_h : 0;
+        if (speed > MAX_SPEED_KMH) continue; // punto imposible, se descarta
+     }
+     lastValidP = p;
+
+     // ── Filtro 3 (ruta): cada 60s Y > 80m de movimiento
      if (t - lastTime >= 60000) { 
         if (!lastP || calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 80) {
            filtered.push(p);
            lastTime = t;
            lastP = p;
         }
+     }
+     // ── Filtro para puntos por minuto: solo cada 60s (sin importar distancia)
+     if (t - lastMinTime >= 60000) {
+        minutePoints.push(p);
+        lastMinTime = t;
      }
   }
   
@@ -212,6 +241,7 @@ async function executeKMLGeneration() {
     <Style id="startIcon"><IconStyle><scale>2.0</scale><Icon><href>https://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon><hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>1.2</scale></LabelStyle></Style>
     <Style id="endIcon"><IconStyle><scale>2.0</scale><Icon><href>https://maps.google.com/mapfiles/kml/paddle/red-circle.png</href></Icon><hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>1.2</scale></LabelStyle></Style>
     <Style id="pointIcon"><IconStyle><scale>0.6</scale><Icon><href>https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon><hotSpot x="0.5" y="0.5" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>0.8</scale></LabelStyle></Style>
+    <Style id="minuteIcon"><IconStyle><scale>1.4</scale><color>ff00aaff</color><Icon><href>https://maps.google.com/mapfiles/kml/paddle/wht-circle.png</href></Icon><hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/></IconStyle><LabelStyle><scale>1.0</scale></LabelStyle></Style>
     <Folder><name>${brigada}</name>\n`;
 
   const pStart = points[0];
@@ -228,7 +258,7 @@ async function executeKMLGeneration() {
       if (chunk.length < 2) continue;
       
       const coordsPath = chunk.map(p => `${p.longitud},${p.latitud}`).join(';');
-      const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coordsPath}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsPath}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
       
       try {
           const resp = await fetch(url);
@@ -245,6 +275,17 @@ async function executeKMLGeneration() {
           console.error("Mapbox err", e);
       }
   }
+
+  // --- Carpeta: Puntos por Minuto ---
+  kml += `    </Folder>\n    <Folder><name>⏱️ Puntos por Minuto (${minutePoints.length})</name>\n`;
+  minutePoints.forEach((p, idx) => {
+    const timeStr = new Date(p.timestamp).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const isFirst = idx === 0;
+    const isLast  = idx === minutePoints.length - 1;
+    const style   = isFirst ? '#startIcon' : isLast ? '#endIcon' : '#minuteIcon';
+    const label   = isFirst ? `🚀 Inicio ${timeStr}` : isLast ? `🏁 Fin ${timeStr}` : `⏱️ ${timeStr}`;
+    kml += `      <Placemark><name>${label}</name><description>Brigada: ${brigada}\nHora: ${timeStr}\nLat: ${p.latitud}\nLon: ${p.longitud}</description><styleUrl>${style}</styleUrl><Point><coordinates>${p.longitud},${p.latitud}</coordinates></Point></Placemark>\n`;
+  });
   kml += `    </Folder>\n  </Document>\n</kml>`;
   
   const blob = new Blob([kml], {type: 'application/vnd.google-earth.kml+xml;charset=utf-8;'});
