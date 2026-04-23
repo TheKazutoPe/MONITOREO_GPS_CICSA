@@ -1,5 +1,6 @@
 const ADMIN_PASS = "cicsaconnect";
-const supa = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const supa = supabase.createClient(CONFIG.SUPABASE_AUTH_URL, CONFIG.SUPABASE_AUTH_KEY);
+const supaGps = supabase.createClient(CONFIG.SUPABASE_GPS_URL, CONFIG.SUPABASE_GPS_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
 const ui = {
@@ -266,7 +267,11 @@ function exportToCSV() {
       estadoPeso: sortWeight[key],
       lat: r.latitud || 0,
       lng: r.longitud || 0,
-      fecha: new Date(r.timestamp).toLocaleString('es-PE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'})
+      fecha: new Date(r.timestamp).toLocaleString('es-PE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}),
+      bat: r.bateria != null ? Math.round(r.bateria) + '%' : 'N/A',
+      cargando: r.cargando ? 'Sí 🔌' : 'No',
+      red: r.red ? r.red.toUpperCase() : 'N/A',
+      ver: r.app_version || '1.0.0'
     };
   });
 
@@ -300,7 +305,7 @@ function exportToCSV() {
     <table class="table">
       <thead>
         <tr>
-          <th>ZONA</th><th>CONTRATA</th><th>BRIGADA</th><th>ESTADO ACTUAL</th><th>ÚLTIMO REPORTE</th><th>TÉCNICO</th><th>LATITUD</th><th>LONGITUD</th>
+    <th>ZONA</th><th>CONTRATA</th><th>BRIGADA</th><th>ESTADO ACTUAL</th><th>ÚLTIMO REPORTE</th><th>TÉCNICO</th><th>LATITUD</th><th>LONGITUD</th><th>BATERÍA</th><th>CARGANDO</th><th>RED</th><th>VERSIÓN</th>
         </tr>
       </thead>
       <tbody>
@@ -319,6 +324,10 @@ function exportToCSV() {
           <td style="text-align:left;">${tecClean}</td>
           <td>${f.lat}</td>
           <td>${f.lng}</td>
+          <td>${f.bat}</td>
+          <td>${f.cargando}</td>
+          <td>${f.red}</td>
+          <td>${f.ver}</td>
         </tr>`;
   });
 
@@ -346,7 +355,7 @@ async function executeKMLGeneration() {
   const startOfDay = new Date(y, m-1, d, 0, 0, 0).toISOString();
   const endOfDay = new Date(y, m-1, d, 23, 59, 59).toISOString();
   
-  const { data, error } = await supa.from("ubicaciones_brigadas")
+  const { data, error } = await supaGps.from("ubicaciones_brigadas")
     .select("usuario_id, brigada, latitud, longitud, timestamp, acc")
     .eq("brigada", brigada)
     .gte("timestamp", startOfDay)
@@ -574,7 +583,7 @@ async function syncData() {
   // Cargar solo desde el inicio del día actual (medianoche hora local)
   const hoy = new Date();
   const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
-  const { data } = await supa.from("ubicaciones_brigadas").select("*").gte("timestamp", inicioDelDia).order("timestamp", { ascending: false });
+  const { data } = await supaGps.from("ubicaciones_brigadas").select("*").gte("timestamp", inicioDelDia).order("timestamp", { ascending: false });
   if (data) {
     const grouped = new Map();
     data.forEach(r => { if (!grouped.has(String(r.usuario_id))) grouped.set(String(r.usuario_id), r); });
@@ -631,7 +640,15 @@ function addOrUpdateUserInList(row) {
   let el = document.getElementById(`u-${uid}`);
   if (!el) { el = document.createElement("div"); el.id = `u-${uid}`; el.className = "brigada-item"; ui.userList.appendChild(el); }
   el.onclick = () => { if (isFinite(row.latitud)) { state.map.setView([row.latitud, row.longitud], 16); state.users.get(uid).marker.openPopup(); } };
-  el.innerHTML = `<div class="brig-main"><span class="brig-name">${row.brigada}</span><span class="brig-sub">${row.tecnico} | 🏢 ${row.contrata || 'Sin Contrata'}</span><div class="brig-info">📍 ${row.zona || '-'} · Reporte: ${new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div><div class="brig-led ${key}"></div>`;
+  
+  let batIndicator = '';
+  if (row.bateria != null) {
+      const bColor = row.bateria <= 20 ? '#ff3b30' : (row.bateria >= 50 ? '#10b981' : '#f59e0b');
+      batIndicator = `<span style="color:${bColor}; font-size: 11px; margin-left: 6px; font-weight: bold;">🔋${Math.round(row.bateria)}%</span>`;
+  }
+  let netBadge = row.red ? `<span style="background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; font-size:10px; margin-left: 4px; color:#a1a1aa;">📶 ${row.red}</span>` : '';
+
+  el.innerHTML = `<div class="brig-main"><span class="brig-name">${row.brigada}${batIndicator}${netBadge}</span><span class="brig-sub">${row.tecnico} | 🏢 ${row.contrata || 'Sin Contrata'}</span><div class="brig-info">📍 ${row.zona || '-'} · Reporte: ${new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div><div class="brig-led ${key}"></div>`;
 }
 
 window.selSite = (lng, lat, nom) => {
@@ -643,9 +660,19 @@ window.selSite = (lng, lat, nom) => {
   calcularRutas(lat, lng);
 };
 
-function buildPopup(r) { return `<div style="min-width:180px;"><b style="color:#ff3b30; font-size:14px;">${r.brigada}</b><br><b>${r.tecnico}</b><br><small>🏢 ${r.contrata || 'Sin Contrata'}</small><hr><small>📍 ZONA: ${r.zona || '-'}</small><br><small>🛰️ Precisión: ${Math.round(r.acc)}m | ⏰ ${new Date(r.timestamp).toLocaleTimeString()}</small></div>`; }
+function buildPopup(r) { 
+  let batStr = '';
+  if (r.bateria != null) {
+      const bColor = r.bateria <= 20 ? '#ff3b30' : (r.bateria >= 50 ? '#10b981' : '#f59e0b');
+      batStr = `<span style="color:${bColor};font-weight:bold;">🔋 ${Math.round(r.bateria)}% ${r.cargando?'⚡':''}</span> | `;
+  }
+  const redStr = r.red ? `📡 ${r.red.toUpperCase()} | ` : '';
+  const verStr = r.app_version ? `📱 v${r.app_version} <br>` : '';
+  
+  return `<div style="min-width:180px;"><b style="color:#ff3b30; font-size:14px;">${r.brigada}</b><br><b>${r.tecnico}</b><br><small>🏢 ${r.contrata || 'Sin Contrata'}</small><hr><small>📍 ZONA: ${r.zona || '-'}</small><br><small>🛰️ Precisión: ${Math.round(r.acc)}m | ⏰ ${new Date(r.timestamp).toLocaleTimeString()}</small><br><small style="margin-top:4px; display:inline-block;">${batStr}${redStr}${verStr}</small></div>`; 
+}
 function initRealtime() {
-  supa.channel('ubicaciones').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, (p) => {
+  supaGps.channel('ubicaciones').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, (p) => {
     const row = p.new;
     if (!isFinite(row.latitud)) return;
     const uid = String(row.usuario_id);
