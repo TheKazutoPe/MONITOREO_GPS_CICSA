@@ -86,9 +86,16 @@ function initMap() {
 
     // Búsqueda normal por Site Name en base de datos
     const { data } = await supa.from("sites_nacional_tabla").select("*").ilike("Site_Name", `%${q}%`).limit(15);
-    if (data) {
-      ui.siteSuggestions.innerHTML = data.map(s => `<div class="suggestion-item" onclick="selSite(${s.Longitude},${s.Latitude},'${s.Site_Name}')">🏢 ${s.Site_Name}</div>`).join("");
+    if (data && data.length > 0) {
+      ui.siteSuggestions.innerHTML = data.map(s => {
+        const lng = parseFloat(String(s.Longitude).replace(',', '.'));
+        const lat = parseFloat(String(s.Latitude).replace(',', '.'));
+        const safeName = s.Site_Name ? s.Site_Name.replace(/'/g, "\\'") : '';
+        return `<div class="suggestion-item" onclick="if(isFinite(${lng}) && isFinite(${lat})) { selSite(${lng},${lat},'${safeName}'); } else { alert('Coordenadas no válidas para este sitio'); }">🏢 ${s.Site_Name}</div>`;
+      }).join("");
       ui.siteSuggestions.style.display = "block";
+    } else {
+      ui.siteSuggestions.style.display = "none";
     }
   };
 
