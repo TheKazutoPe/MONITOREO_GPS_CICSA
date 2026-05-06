@@ -103,6 +103,7 @@ function initMap() {
   ui.filterZona.onchange = applyFilters;
   if(ui.filterContrata) ui.filterContrata.onchange = applyFilters;
   ui.filterStatus.onchange = applyFilters;
+  if(ui.mapStyleSelect) ui.mapStyleSelect.onchange = (e) => updateMapLayer(e.target.value);
 
   // Clic Derecho en Mapa para Ruteo Rápido
   state.map.on('contextmenu', (e) => {
