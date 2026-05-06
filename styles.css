@@ -156,3 +156,21 @@ body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #080
 .dash-badge.online { background: rgba(16,185,129,0.2); color: #10b981; }
 .dash-badge.mid    { background: rgba(245,158,11,0.2); color: #f59e0b; }
 .dash-badge.off    { background: rgba(82,82,91,0.3); color: #71717a; }
+
+/* TRAIL BUTTON */
+.brig-actions { margin-top: 8px; }
+.btn-trail { background: rgba(0, 229, 255, 0.1); border: 1px solid rgba(0, 229, 255, 0.3); color: #00E5FF; font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 6px; cursor: pointer; transition: 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+.btn-trail:hover { background: #00E5FF; color: #000; }
+
+/* ISLAND CONTROLS ENHANCED */
+.map-controls-island { position: absolute; bottom: 30px; right: 30px; z-index: 1000; background: rgba(18,18,20,0.95); backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; display: flex; align-items: center; padding: 6px 12px; gap: 6px; box-shadow: 0 8px 30px rgba(0,0,0,0.7); }
+.island-btn { background: none; border: none; color: #d1d5db; font-size: 16px; cursor: pointer; padding: 6px 8px; border-radius: 8px; transition: 0.2s; }
+.island-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.island-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); }
+.island-select { background: transparent; border: none; color: #d1d5db; font-size: 11px; font-weight: 700; cursor: pointer; padding: 4px; outline: none; }
+.island-select option { background: #18181b; }
+
+/* FULLSCREEN ADJUSTMENTS */
+:fullscreen .topbar { display: none; }
+:fullscreen .main-layout { top: 0; height: 100vh; }
+:fullscreen .sidebar { top: 16px; }

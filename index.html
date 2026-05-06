@@ -26,6 +26,7 @@
     </div>
     <div id="status" class="status-badge gray">Iniciando...</div>
     <div class="topbar-right">
+      <button id="btnFleetPanel" class="btn-icon" style="background: rgba(56, 189, 248, 0.1); border-color: #38bdf8; color: #38bdf8;">📱 Flota</button>
       <button id="btnExportKML" class="btn-icon" style="background: rgba(16, 185, 129, 0.1); border-color: #10b981; color: #10b981;">🗺️ Rutas (KML)</button>
       <button id="btnExportCSV" class="btn-icon">📥 Reporte Excel</button>
       <button id="btnExportWP" class="btn-icon" style="background: rgba(37, 211, 102, 0.1); border-color: #25d366; color: #25d366;">📱 WhatsApp Copiar</button>
@@ -80,6 +81,12 @@
     </aside>
     <div class="map-controls-island">
       <button class="island-btn" id="btnCenter">🎯</button>
+      <div class="island-divider"></div>
+      <button class="island-btn" id="btnClearTrail" title="Borrar recorrido">🗑️</button>
+      <div class="island-divider"></div>
+      <button class="island-btn" id="btnFullscreen" title="Pantalla completa">⛶</button>
+      <div class="island-divider"></div>
+      <button class="island-btn" id="btnToggleSound" title="Sonido de alertas">🔔</button>
       <div class="island-divider"></div>
       <select id="mapStyleSelect" class="island-select">
         <option value="osm" selected>🌍 Capa Gratis</option>
@@ -182,7 +189,7 @@
           <div class="dash-table-wrap">
             <table class="dash-table" id="dashTable">
               <thead>
-                <tr><th>Brigada</th><th>Técnico</th><th>Contrata</th><th>Zona</th><th>Estado</th><th>Último reporte</th></tr>
+                <tr><th>Brigada</th><th>Técnico</th><th>Contrata</th><th>Zona</th><th>Estado</th><th>Último reporte</th><th>Batería</th><th>Versión</th></tr>
               </thead>
               <tbody id="dashTableBody"></tbody>
             </table>
@@ -221,6 +228,29 @@
   </div>
 
   <div id="toastContainer" class="toast-container"></div>
+
+  <!-- FLEET PANEL MODAL -->
+  <div id="fleetModal" class="dashboard-overlay" style="display:none;">
+    <div class="dashboard-panel" style="max-width: 900px;">
+      <div class="dash-header">
+        <div>
+          <h2 class="dash-title">📱 Panel de Flota</h2>
+          <p class="dash-sub" id="fleetSummary">—</p>
+        </div>
+        <button id="btnCloseFleet" class="dash-close">✕</button>
+      </div>
+      <div style="padding: 0 32px 32px;">
+        <div class="dash-table-wrap">
+          <table class="dash-table">
+            <thead>
+              <tr><th>Brigada</th><th>Técnico</th><th>Estado</th><th>Batería</th><th>Red</th><th>Versión</th><th>Último reporte</th></tr>
+            </thead>
+            <tbody id="fleetTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
   <script src="config.js"></script>
   <script src="main.js"></script>
 </body>

@@ -27,7 +27,22 @@ const ui = {
   btnCloseKmlModal: document.getElementById("btnCloseKmlModal")
 };
 
-const state = { map: null, markers: new Map(), users: new Map(), routeLayer: null, siteMarker: null, currentBase: "osm", baseLayers: {} };
+const state = { map: null, markers: new Map(), users: new Map(), routeLayer: null, siteMarker: null, currentBase: "osm", baseLayers: {}, trailLayer: null, alertSoundEnabled: true };
+
+// --- Audio sutil para alertas (beep programático) ---
+function playAlertSound() {
+  if (!state.alertSoundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880; osc.type = 'sine';
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+  } catch (_) {}
+}
 
 const ICONS = {
   online: L.icon({ iconUrl: "assets/carro-green.png", iconSize: [40, 24], iconAnchor: [20, 12], className: '' }),
@@ -42,6 +57,7 @@ function initMap() {
 
   state.map = L.map("map", { center: [-12.04, -77.02], zoom: 6, layers: [state.baseLayers.osm], zoomControl: false });
   state.routeLayer = L.layerGroup().addTo(state.map);
+  state.trailLayer = L.layerGroup().addTo(state.map);
 
   // Asegurar renderizado correcto del mapa
   setTimeout(() => state.map.invalidateSize(), 500);
@@ -528,7 +544,7 @@ async function calcularRutas(slat, slng) {
 
 function getStatusKey(row) {
   const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
-  return mins <= 2 ? "online" : (mins <= 5 ? "mid" : "off");
+  return mins <= 1 ? "online" : (mins <= 4 ? "mid" : "off");
 }
 
 function isHoyElReporte(row) {
@@ -635,6 +651,16 @@ async function syncData() {
   }
 }
 
+function getTimeAgo(timestamp) {
+  const diffMs = Date.now() - new Date(timestamp).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'ahora';
+  if (mins < 60) return `hace ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `hace ${hrs}h ${mins % 60}m`;
+  return `hace ${Math.floor(hrs / 24)}d`;
+}
+
 function addOrUpdateUserInList(row) {
   const uid = String(row.usuario_id), key = getStatusKey(row);
   let el = document.getElementById(`u-${uid}`);
@@ -643,12 +669,14 @@ function addOrUpdateUserInList(row) {
   
   let batIndicator = '';
   if (row.bateria != null) {
-      const bColor = row.bateria <= 20 ? '#ff3b30' : (row.bateria >= 50 ? '#10b981' : '#f59e0b');
+      const bColor = row.bateria <= 15 ? '#ff3b30' : row.bateria <= 30 ? '#f59e0b' : '#10b981';
       batIndicator = `<span style="color:${bColor}; font-size: 11px; margin-left: 6px; font-weight: bold;">🔋${Math.round(row.bateria)}%</span>`;
   }
   let netBadge = row.red ? `<span style="background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; font-size:10px; margin-left: 4px; color:#a1a1aa;">📶 ${row.red}</span>` : '';
+  const timeAgo = getTimeAgo(row.timestamp);
+  const timeColor = key === 'online' ? '#10b981' : key === 'mid' ? '#f59e0b' : '#71717a';
 
-  el.innerHTML = `<div class="brig-main"><span class="brig-name">${row.brigada}${batIndicator}${netBadge}</span><span class="brig-sub">${row.tecnico} | 🏢 ${row.contrata || 'Sin Contrata'}</span><div class="brig-info">📍 ${row.zona || '-'} · Reporte: ${new Date(row.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div><div class="brig-led ${key}"></div>`;
+  el.innerHTML = `<div class="brig-main"><span class="brig-name">${row.brigada}${batIndicator}${netBadge}</span><span class="brig-sub">${row.tecnico} | 🏢 ${row.contrata || 'Sin Contrata'}</span><div class="brig-info">📍 ${row.zona || '-'} · <span style="color:${timeColor};font-weight:800;">${timeAgo}</span></div><div class="brig-actions"><button class="btn-trail" onclick="event.stopPropagation(); showTrail('${uid}', '${row.brigada}')" title="Ver recorrido">🛤️ Trail</button></div></div><div class="brig-led ${key}"></div>`;
 }
 
 window.selSite = (lng, lat, nom) => {
@@ -663,13 +691,15 @@ window.selSite = (lng, lat, nom) => {
 function buildPopup(r) { 
   let batStr = '';
   if (r.bateria != null) {
-      const bColor = r.bateria <= 20 ? '#ff3b30' : (r.bateria >= 50 ? '#10b981' : '#f59e0b');
+      const bColor = r.bateria <= 15 ? '#ff3b30' : r.bateria <= 30 ? '#f59e0b' : '#10b981';
       batStr = `<span style="color:${bColor};font-weight:bold;">🔋 ${Math.round(r.bateria)}% ${r.cargando?'⚡':''}</span> | `;
   }
   const redStr = r.red ? `📡 ${r.red.toUpperCase()} | ` : '';
-  const verStr = r.app_version ? `📱 v${r.app_version} <br>` : '';
+  const ver = r.app_version || '?';
+  const verOk = ver === '1.2.0';
+  const verStr = `<span style="color:${verOk ? '#10b981' : '#ff3b30'};font-weight:bold;">📱 v${ver} ${verOk ? '✓' : '⚠️ DESACTUALIZADO'}</span><br>`;
   
-  return `<div style="min-width:180px;"><b style="color:#ff3b30; font-size:14px;">${r.brigada}</b><br><b>${r.tecnico}</b><br><small>🏢 ${r.contrata || 'Sin Contrata'}</small><hr><small>📍 ZONA: ${r.zona || '-'}</small><br><small>🛰️ Precisión: ${Math.round(r.acc)}m | ⏰ ${new Date(r.timestamp).toLocaleTimeString()}</small><br><small style="margin-top:4px; display:inline-block;">${batStr}${redStr}${verStr}</small></div>`; 
+  return `<div style="min-width:200px;"><b style="color:#ff3b30; font-size:14px;">${r.brigada}</b><br><b>${r.tecnico}</b><br><small>🏢 ${r.contrata || 'Sin Contrata'}</small><hr><small>📍 ZONA: ${r.zona || '-'}</small><br><small>🛰️ Precisión: ${r.acc ? Math.round(r.acc) + 'm' : '—'} | ⏰ ${new Date(r.timestamp).toLocaleTimeString()}</small><br><small style="margin-top:4px; display:inline-block;">${batStr}${redStr}${verStr}</small></div>`; 
 }
 function initRealtime() {
   supaGps.channel('ubicaciones').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, (p) => {
@@ -695,6 +725,12 @@ function initRealtime() {
       if (getStatusKey(oldRow) === 'off' && getStatusKey(row) !== 'off') {
         showToast(`✅ <b>${row.brigada}</b> ha reconectado.`, 'info');
       }
+
+      // Alerta de batería baja (<15%)
+      if (row.bateria != null && row.bateria <= 15 && (oldRow.bateria == null || oldRow.bateria > 15)) {
+        showToast(`🪫 <b>${row.brigada}</b> tiene batería crítica: <b>${Math.round(row.bateria)}%</b>`, 'warn');
+        playAlertSound();
+      }
     }
     
     // Auto-update Contratas if new one appears gracefully
@@ -715,9 +751,133 @@ function initRealtime() {
   }).subscribe();
 }
 
+// --- TRAIL: Mostrar últimas posiciones de una brigada ---
+window.showTrail = async function(uid, brigadaName) {
+  state.trailLayer.clearLayers();
+  showToast(`🛤️ Cargando recorrido de <b>${brigadaName}</b>...`, 'info');
+  
+  const hoy = new Date();
+  const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
+  
+  const { data, error } = await supaGps.from('ubicaciones_brigadas')
+    .select('latitud, longitud, timestamp, acc, bateria')
+    .eq('usuario_id', uid)
+    .gte('timestamp', inicioDelDia)
+    .order('timestamp', { ascending: true });
+  
+  if (error || !data || data.length < 2) {
+    showToast(`❌ No hay suficientes datos para trazar el recorrido de ${brigadaName}.`, 'error');
+    return;
+  }
+  
+  // Filtrar puntos: 1 cada 60s, precisión < 100m
+  const filtered = [];
+  let lastT = 0;
+  for (const p of data) {
+    if (!isFinite(p.latitud) || !isFinite(p.longitud)) continue;
+    if (p.acc && p.acc > 100) continue;
+    const t = new Date(p.timestamp).getTime();
+    if (t - lastT >= 60000) { filtered.push(p); lastT = t; }
+  }
+  
+  if (filtered.length < 2) {
+    showToast(`❌ Pocos puntos con buena precisión para ${brigadaName}.`, 'error');
+    return;
+  }
+  
+  // Dibujar polilínea
+  const latlngs = filtered.map(p => [p.latitud, p.longitud]);
+  const polyline = L.polyline(latlngs, { color: '#00E5FF', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
+  
+  // Inicio y fin
+  const pStart = filtered[0];
+  const pEnd = filtered[filtered.length - 1];
+  L.circleMarker([pStart.latitud, pStart.longitud], { radius: 8, color: '#10b981', fillColor: '#10b981', fillOpacity: 1 })
+    .bindPopup(`<b>🚀 INICIO</b><br>${new Date(pStart.timestamp).toLocaleTimeString()}`).addTo(state.trailLayer);
+  L.circleMarker([pEnd.latitud, pEnd.longitud], { radius: 8, color: '#ff3b30', fillColor: '#ff3b30', fillOpacity: 1 })
+    .bindPopup(`<b>🏁 ÚLTIMO</b><br>${new Date(pEnd.timestamp).toLocaleTimeString()}`).addTo(state.trailLayer);
+  
+  // Puntos intermedios
+  filtered.forEach((p, i) => {
+    if (i === 0 || i === filtered.length - 1) return;
+    L.circleMarker([p.latitud, p.longitud], { radius: 3, color: '#00E5FF', fillColor: '#00E5FF', fillOpacity: 0.6 })
+      .bindPopup(`<small>⏱ ${new Date(p.timestamp).toLocaleTimeString()}<br>🔋 ${p.bateria != null ? Math.round(p.bateria) + '%' : '—'}</small>`)
+      .addTo(state.trailLayer);
+  });
+  
+  state.map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
+  showToast(`✅ Recorrido de <b>${brigadaName}</b>: ${filtered.length} puntos hoy`, 'info');
+}
+
+// --- Botón para limpiar trail ---
+window.clearTrail = function() {
+  if (state.trailLayer) state.trailLayer.clearLayers();
+  showToast('🗑️ Recorrido borrado del mapa.', 'info');
+}
+
+// --- PANEL DE FLOTA (Dispositivos) ---
+function buildFleetPanel() {
+  const modal = document.getElementById('fleetModal');
+  const tbody = document.getElementById('fleetTableBody');
+  
+  const rows = Array.from(state.users.values())
+    .map(u => u.lastRow)
+    .filter(r => r && r.brigada && isHoyElReporte(r));
+  
+  // Ordenar: batería baja primero, luego versión vieja
+  rows.sort((a, b) => {
+    const batA = a.bateria ?? 100, batB = b.bateria ?? 100;
+    return batA - batB;
+  });
+  
+  const outdated = rows.filter(r => (r.app_version || '?') !== '1.2.0').length;
+  const lowBat = rows.filter(r => r.bateria != null && r.bateria <= 20).length;
+  
+  document.getElementById('fleetSummary').innerHTML = `
+    <span>📱 <b>${rows.length}</b> dispositivos hoy</span>
+    <span style="color:#ff3b30;">🪫 <b>${lowBat}</b> batería baja</span>
+    <span style="color:#f59e0b;">⚠️ <b>${outdated}</b> desactualizados</span>
+  `;
+  
+  tbody.innerHTML = rows.map(r => {
+    const bat = r.bateria != null ? Math.round(r.bateria) : null;
+    const batColor = bat != null ? (bat <= 15 ? '#ff3b30' : bat <= 30 ? '#f59e0b' : '#10b981') : '#71717a';
+    const ver = r.app_version || '?';
+    const verOk = ver === '1.2.0';
+    const k = getStatusKey(r);
+    const labels = { online: 'Online', mid: 'Alerta', off: 'Offline' };
+    const redLabel = r.red ? (r.red === 'wifi' ? '📶 WiFi' : r.red === 'datos' ? '📶 4G' : '📶 ' + r.red) : '—';
+    return `<tr>
+      <td><b>${r.brigada}</b></td>
+      <td>${r.tecnico || '—'}</td>
+      <td><span class="dash-badge ${k}">${labels[k]}</span></td>
+      <td style="color:${batColor};font-weight:800;font-size:14px;">${bat != null ? bat + '%' : '—'} ${r.cargando ? '⚡' : ''}</td>
+      <td>${redLabel}</td>
+      <td style="color:${verOk ? '#10b981' : '#ff3b30'};font-weight:700;">v${ver} ${verOk ? '✓' : '⚠️'}</td>
+      <td style="color:#71717a;">${getTimeAgo(r.timestamp)}</td>
+    </tr>`;
+  }).join('');
+  
+  modal.style.display = 'flex';
+}
+
+// --- MODO PANTALLA COMPLETA ---
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
 initMap();
-setInterval(applyFilters, 60000);   // Auto-refrescar estados cada minuto
-setInterval(syncData, 120000);      // Sincronizar datos por si websocket falla (cada 2 min)
+setInterval(applyFilters, 30000);    // Auto-refrescar estados cada 30s (más rápido con threshold de 1min)
+setInterval(syncData, 120000);       // Sincronizar datos por si websocket falla (cada 2 min)
+
+// Actualizar "hace X min" en sidebar cada 15s
+setInterval(() => {
+  state.users.forEach((u) => { addOrUpdateUserInList(u.lastRow); });
+}, 15000);
 
 // ============================================================
 //  DASHBOARD
@@ -804,6 +964,10 @@ function buildDashboard() {
   tbody.innerHTML = sorted.map(r => {
     const k = getStatusKey(r);
     const t = new Date(r.timestamp).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    const bat = r.bateria != null ? Math.round(r.bateria) + '%' : '—';
+    const batColor = r.bateria != null ? (r.bateria <= 15 ? '#ff3b30' : r.bateria <= 30 ? '#f59e0b' : '#10b981') : '#71717a';
+    const ver = r.app_version || '?';
+    const verOk = ver === '1.2.0';
     return `<tr>
       <td><b>${r.brigada}</b></td>
       <td>${r.tecnico}</td>
@@ -811,6 +975,8 @@ function buildDashboard() {
       <td>${r.zona || '—'}</td>
       <td><span class="dash-badge ${k}">${labels[k]}</span></td>
       <td>${t}</td>
+      <td style="color:${batColor};font-weight:600;">${bat}</td>
+      <td style="color:${verOk ? '#10b981' : '#ff3b30'};font-weight:600;">v${ver}</td>
     </tr>`;
   }).join('');
 }
@@ -860,4 +1026,29 @@ function renderStackedChart(containerId, dataObj) {
   if (btnClose)   btnClose.onclick   = () => { modal.style.display = 'none'; };
   if (btnRefresh) btnRefresh.onclick = () => buildDashboard();
   if (modal)      modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+
+  // Fleet Panel
+  const btnFleet = document.getElementById('btnFleetPanel');
+  const fleetModal = document.getElementById('fleetModal');
+  const btnCloseFleet = document.getElementById('btnCloseFleet');
+  if (btnFleet) btnFleet.onclick = () => buildFleetPanel();
+  if (btnCloseFleet) btnCloseFleet.onclick = () => { fleetModal.style.display = 'none'; };
+  if (fleetModal) fleetModal.addEventListener('click', e => { if (e.target === fleetModal) fleetModal.style.display = 'none'; });
+
+  // Fullscreen
+  const btnFS = document.getElementById('btnFullscreen');
+  if (btnFS) btnFS.onclick = toggleFullscreen;
+
+  // Sound toggle
+  const btnSound = document.getElementById('btnToggleSound');
+  if (btnSound) btnSound.onclick = () => {
+    state.alertSoundEnabled = !state.alertSoundEnabled;
+    btnSound.textContent = state.alertSoundEnabled ? '🔔' : '🔕';
+    btnSound.title = state.alertSoundEnabled ? 'Sonido activado' : 'Sonido desactivado';
+    showToast(state.alertSoundEnabled ? '🔔 Alertas sonoras activadas' : '🔕 Alertas sonoras silenciadas', 'info');
+  };
+
+  // Clear trail
+  const btnClearTrail = document.getElementById('btnClearTrail');
+  if (btnClearTrail) btnClearTrail.onclick = clearTrail;
 })();
