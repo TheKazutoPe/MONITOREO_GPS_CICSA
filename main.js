@@ -152,6 +152,10 @@ function initMap() {
   if (ui.btnCloseKmlModal) ui.btnCloseKmlModal.onclick = () => ui.kmlModal.style.display = "none";
   if (ui.btnGenerateKML) ui.btnGenerateKML.onclick = executeKMLGeneration;
 
+  // Auto-Actualización Visual (Zoom Fix & Realtime Colors)
+  state.map.on('zoomend', applyFilters);
+  setInterval(applyFilters, 60000); // 1 minuto de evaluación
+
   syncData();
   initRealtime();
 }
@@ -551,8 +555,8 @@ async function calcularRutas(slat, slng) {
 }
 
 function getStatusKey(row) {
-  const mins = Math.round((Date.now() - new Date(row.timestamp)) / 60000);
-  return mins <= 1 ? "online" : (mins <= 4 ? "mid" : "off");
+  const mins = Math.floor((Date.now() - new Date(row.timestamp)) / 60000);
+  return mins < 5 ? "online" : (mins <= 10 ? "mid" : "off");
 }
 
 function isHoyElReporte(row) {
@@ -704,10 +708,28 @@ function buildPopup(r) {
   }
   const redStr = r.red ? `📡 ${r.red.toUpperCase()} | ` : '';
   const ver = r.app_version || '?';
-  const verOk = ver === '1.2.0';
-  const verStr = `<span style="color:${verOk ? '#10b981' : '#ff3b30'};font-weight:bold;">📱 v${ver} ${verOk ? '✓' : '⚠️ DESACTUALIZADO'}</span><br>`;
+  const verOk = ver.includes('2.0') || ver === '1.2.0';
+  const verStr = `<span style="color:${verOk ? '#10b981' : '#ff3b30'};font-weight:bold; font-size:11px;">📱 v${ver} ${verOk ? '✓' : '⚠️'}</span>`;
   
-  return `<div style="min-width:200px;"><b style="color:#ff3b30; font-size:14px;">${r.brigada}</b><br><b>${r.tecnico}</b><br><small>🏢 ${r.contrata || 'Sin Contrata'}</small><hr><small>📍 ZONA: ${r.zona || '-'}</small><br><small>🛰️ Precisión: ${r.acc ? Math.round(r.acc) + 'm' : '—'} | ⏰ ${new Date(r.timestamp).toLocaleTimeString()}</small><br><small style="margin-top:4px; display:inline-block;">${batStr}${redStr}${verStr}</small></div>`; 
+  return `
+    <div style="min-width:220px; font-family: 'Inter', sans-serif;">
+      <div style="background: #111827; color: white; padding: 10px; border-radius: 6px 6px 0 0; margin: -14px -14px 10px -14px;">
+         <b style="color:#38bdf8; font-size:15px; display:block;">${r.brigada}</b>
+         <span style="font-size:12px; color:#94a3b8;">${r.tecnico}</span>
+      </div>
+      <div style="padding: 0 2px;">
+        <small style="color:#475569; font-weight:bold; text-transform:uppercase;">🏢 ${r.contrata || 'Sin Contrata'}</small><br>
+        <small style="color:#475569; font-weight:bold; text-transform:uppercase;">📍 ZONA: ${r.zona || '-'}</small>
+        <hr style="border:0; border-top:1px solid #e2e8f0; margin: 8px 0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+           <small style="color:#334155;">🛰️ Precisión: <b>${r.acc ? Math.round(r.acc) + 'm' : '—'}</b></small>
+           <small style="color:#334155; font-weight:bold;">⏰ ${new Date(r.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</small>
+        </div>
+        <div style="background: #f8fafc; padding: 6px 8px; border-radius: 4px; border: 1px solid #e2e8f0; font-size:11px; text-align:center;">
+           ${batStr}${redStr}${verStr}
+        </div>
+      </div>
+    </div>`; 
 }
 function initRealtime() {
   supaGps.channel('ubicaciones').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ubicaciones_brigadas' }, (p) => {
