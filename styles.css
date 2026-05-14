@@ -174,3 +174,205 @@ body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #080
 :fullscreen .topbar { display: none; }
 :fullscreen .main-layout { top: 0; height: 100vh; }
 :fullscreen .sidebar { top: 16px; }
+
+/* ================================================
+   RESPONSIVE MÓVIL — < 768px
+   ================================================ */
+@media (max-width: 768px) {
+
+  body { overflow: hidden; }
+
+  /* ── TOPBAR COMPACTO EN UNA SOLA FILA ── */
+  .topbar {
+    height: 52px;
+    min-height: 52px;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    padding: 0 10px;
+    gap: 0;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 2000;
+    overflow: hidden;
+  }
+
+  .topbar-left {
+    flex-shrink: 0;
+    gap: 8px;
+    display: flex;
+    align-items: center;
+  }
+  .top-logo { height: 20px; }
+  .header-divider { display: none; }
+  .header-info h1 { font-size: 11px; letter-spacing: 0.5px; white-space: nowrap; }
+  .header-info small { display: none; }
+
+  #status {
+    font-size: 9px;
+    padding: 3px 8px;
+    flex-shrink: 0;
+    margin: 0 6px;
+    white-space: nowrap;
+  }
+
+  /* Botones en scroll horizontal, ocupan el espacio restante */
+  .topbar-right {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 5px;
+    flex: 1;
+    padding: 4px 0;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+  .topbar-right::-webkit-scrollbar { display: none; }
+  .btn-icon {
+    flex-shrink: 0;
+    padding: 5px 8px;
+    font-size: 9px;
+    white-space: nowrap;
+    border-radius: 6px;
+    letter-spacing: 0;
+  }
+
+  /* ── LAYOUT: mapa llena toda la pantalla bajo el topbar ── */
+  .main-layout {
+    position: fixed;
+    top: 52px;
+    left: 0; right: 0; bottom: 0;
+    height: calc(100vh - 52px);
+  }
+  #map {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    z-index: 1;
+  }
+
+  /* ── SIDEBAR → BOTTOM SHEET ELEGANTE ── */
+  .sidebar {
+    position: fixed;
+    top: auto;
+    left: 0; right: 0; bottom: 0;
+    width: 100%;
+    height: 62vh;
+    border-radius: 20px 20px 0 0;
+    z-index: 1200;
+    transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateY(0);
+    box-shadow: 0 -12px 40px rgba(0,0,0,0.8);
+  }
+
+  /* Colapsado: solo asoma la barra de stats */
+  .sidebar.collapsed { transform: translateY(calc(62vh - 88px)); }
+
+  /* Handle pill decorativo en la parte superior */
+  .sidebar::before {
+    content: '';
+    display: block;
+    width: 36px; height: 4px;
+    background: rgba(255,255,255,0.18);
+    border-radius: 4px;
+    margin: 10px auto 0;
+  }
+
+  /* Botón toggle → mini pill en esquina superior derecha */
+  .btn-toggle-sidebar {
+    position: absolute;
+    top: 10px; right: 14px;
+    left: auto;
+    transform: none;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .sidebar.collapsed .btn-toggle-sidebar { transform: rotate(180deg); }
+
+  /* Stats compactas */
+  .sidebar-stats {
+    grid-template-columns: repeat(3, 1fr);
+    padding: 6px 16px 10px;
+    gap: 6px;
+    margin-top: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: transparent;
+    border-radius: 0;
+  }
+  .stat-box { text-align: center; }
+  .stat-box span { font-size: 20px; }
+  .stat-box small { font-size: 8px; }
+  .sidebar-scrollable {
+    padding: 10px 14px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Inputs y secciones compactos */
+  .premium-input { height: 38px; font-size: 12px; margin-bottom: 8px; }
+  .section-label { font-size: 9px; margin-bottom: 10px; }
+  .brigada-item { padding: 11px 13px; border-radius: 12px; margin-bottom: 8px; }
+  .brig-name { font-size: 14px; }
+  .brig-sub { font-size: 10px; margin-top: 2px; }
+  .brig-info { font-size: 9px; margin-top: 6px; }
+
+  /* ── MAP CONTROLS ISLAND: justo sobre el drawer ── */
+  .map-controls-island {
+    bottom: calc(62vh + 10px);
+    right: 10px;
+    padding: 5px 10px;
+    gap: 4px;
+    border-radius: 12px;
+  }
+  .island-btn { font-size: 15px; padding: 4px 6px; }
+  .island-divider { width: 1px; height: 16px; }
+  .island-select { font-size: 10px; max-width: 88px; }
+
+  /* ── TOAST ── */
+  .toast-container {
+    bottom: calc(62vh + 16px);
+    right: 10px; left: 10px;
+  }
+  .toast-alert { font-size: 11px; padding: 10px 14px; }
+
+  /* ── MODALES → bottom sheet full ── */
+  .dashboard-overlay { align-items: flex-end; }
+  .dashboard-panel {
+    width: 100vw;
+    max-height: 96vh;
+    border-radius: 20px 20px 0 0;
+    margin: 0;
+  }
+  .dash-header { padding: 14px 16px 12px; flex-wrap: wrap; gap: 8px; }
+  .dash-title { font-size: 15px; }
+  .dash-sub { font-size: 10px; }
+  .dash-kpis { grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 14px; }
+  .kpi-card { padding: 10px 8px; gap: 8px; border-radius: 12px; }
+  .kpi-val { font-size: 20px; }
+  .kpi-icon { font-size: 18px; }
+  .kpi-lbl { font-size: 9px; }
+  .dash-ring-wrap { grid-column: 1 / -1; flex-direction: row; gap: 12px; justify-content: center; }
+  .dash-body { grid-template-columns: 1fr; padding: 0 14px 20px; gap: 12px; }
+  .dash-section { padding: 14px 12px; border-radius: 12px; }
+  .dash-section-title { font-size: 10px; }
+  .dash-table { font-size: 11px; }
+  .dash-table thead th { padding: 8px 8px; font-size: 9px; }
+  .dash-table td { padding: 8px 8px; }
+
+  .modal-content { width: 96vw; padding: 18px 14px; border-radius: 16px; }
+}
+
+/* ── iPhone SE y pantallas < 390px ── */
+@media (max-width: 390px) {
+  .main-layout { top: 52px; height: calc(100vh - 52px); }
+  .dash-kpis { grid-template-columns: repeat(2, 1fr); }
+  .map-controls-island { bottom: calc(62vh + 8px); }
+  .toast-container { bottom: calc(62vh + 12px); }
+}
