@@ -608,14 +608,40 @@ function updateStats() {
 }
 
 async function syncData() {
-  // Cargar solo desde el inicio del día actual (medianoche hora local)
-  const hoy = new Date();
-  const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
-  const { data } = await supaGps.from("ubicaciones_brigadas").select("*").gte("timestamp", inicioDelDia).order("timestamp", { ascending: false });
-  if (data) {
+  // Intentar RPC optimizado (1 fila por brigada) con fallback a query paginado
+  let rows = null;
+  const { data: rpcData, error: rpcError } = await supaGps.rpc('get_latest_positions');
+
+  if (!rpcError && rpcData && rpcData.length > 0) {
+    rows = rpcData;
+    console.log(`[syncData] RPC OK → ${rows.length} brigadas cargadas`);
+  } else {
+    // Fallback: query paginado si la función RPC no existe aún
+    console.warn('[syncData] RPC no disponible, usando fallback paginado:', rpcError?.message);
+    const hoy = new Date();
+    const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
+    const allRows = [];
+    let offset = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: page, error } = await supaGps.from("ubicaciones_brigadas")
+        .select("*").gte("timestamp", inicioDelDia)
+        .order("timestamp", { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (error || !page || page.length === 0) break;
+      allRows.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    rows = allRows;
+    console.log(`[syncData] Fallback → ${rows.length} filas descargadas`);
+  }
+
+  if (rows && rows.length > 0) {
     const grouped = new Map();
-    data.forEach(r => { if (!grouped.has(String(r.usuario_id))) grouped.set(String(r.usuario_id), r); });
-    
+    rows.forEach(r => { if (!grouped.has(String(r.usuario_id))) grouped.set(String(r.usuario_id), r); });
+    console.log(`[syncData] ${grouped.size} brigadas únicas procesadas`);
+
     grouped.forEach(row => {
       const uid = String(row.usuario_id);
       if (!state.users.has(uid)) {
