@@ -897,28 +897,34 @@ window.showTrail = async function(uid, brigadaName) {
   // ── Mapbox Map-Matching / Directions ──
   showToast(`🗺️ Trazando ruta por calles para <b>${brigadaName}</b>...`, "warn");
   let validChunks = 0;
-  for (let j = 0; j < filtered.length - 1; j += 24) {
-      const chunk = filtered.slice(j, j + 25);
+  for (let j = 0; j < filtered.length - 1; j += 99) {
+      const chunk = filtered.slice(j, j + 100);
       if (chunk.length < 2) continue;
       
       const coordsPath = chunk.map(p => `${p.longitud},${p.latitud}`).join(';');
-      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsPath}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+      // Map Matching requiere timestamps en formato UNIX (segundos) y radiuses para indicar precisión GPS
+      const timestamps = chunk.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(';');
+      const radiuses = chunk.map(p => p.acc != null ? Math.max(10, Math.min(Math.round(p.acc), 50)) : 25).join(';');
+      
+      const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coordsPath}?geometries=geojson&overview=full&tidy=true&timestamps=${timestamps}&radiuses=${radiuses}&access_token=${MAPBOX_TOKEN}`;
       
       try {
           const resp = await fetch(url);
           const json = await resp.json();
-          if (json.routes && json.routes[0]) {
-              L.geoJSON(json.routes[0].geometry, { 
-                style: { color: '#00E5FF', weight: 5, opacity: 0.9 } 
-              }).addTo(state.trailLayer);
+          if (json.matchings && json.matchings.length > 0) {
+              json.matchings.forEach(match => {
+                  L.geoJSON(match.geometry, { 
+                    style: { color: '#00E5FF', weight: 5, opacity: 0.9 } 
+                  }).addTo(state.trailLayer);
+              });
               validChunks++;
           } else {
-              // Fallback a línea recta si Mapbox no encuentra ruta (ej. zona sin calles o muy lejos)
+              // Fallback a línea recta si Mapbox no logra hacer match (ej. off-road)
               const latlngs = chunk.map(p => [p.latitud, p.longitud]);
               L.polyline(latlngs, { color: '#FF3B30', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
           }
       } catch (e) {
-          console.error("Mapbox err", e);
+          console.error("Mapbox matching err", e);
           const latlngs = chunk.map(p => [p.latitud, p.longitud]);
           L.polyline(latlngs, { color: '#FF3B30', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
       }
