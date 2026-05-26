@@ -815,27 +815,80 @@ window.showTrail = async function(uid, brigadaName) {
   const hoy = new Date();
   const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
   
-  const { data, error } = await supaGps.from('ubicaciones_brigadas')
-    .select('latitud, longitud, timestamp, acc, bateria')
-    .eq('usuario_id', uid)
-    .gte('timestamp', inicioDelDia)
-    .order('timestamp', { ascending: true });
+  // Paginar para traer TODOS los puntos del día (no solo 1000)
+  const allData = [];
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data: page, error } = await supaGps.from('ubicaciones_brigadas')
+      .select('latitud, longitud, timestamp, acc, bateria')
+      .eq('usuario_id', uid)
+      .gte('timestamp', inicioDelDia)
+      .order('timestamp', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error || !page || page.length === 0) break;
+    allData.push(...page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
+  }
   
-  if (error || !data || data.length < 2) {
+  if (allData.length < 2) {
     showToast(`❌ No hay suficientes datos para trazar el recorrido de ${brigadaName}.`, 'error');
     return;
   }
-  
-  // Filtrar puntos: 1 cada 60s, precisión < 100m
+  console.log(`[Trail] ${brigadaName}: ${allData.length} puntos brutos cargados`);
+
+  // Filtro 1: coordenadas válidas + precisión GPS aceptable (acc <= 50m)
+  const ACC_MAX = 50;
+  let points = allData.filter(p =>
+    isFinite(p.latitud) && isFinite(p.longitud) &&
+    (p.acc == null || p.acc <= ACC_MAX)
+  );
+
+  // Filtro 2: velocidad máxima entre puntos (descarta saltos fantasma GPS)
+  const MAX_SPEED_KMH = 120;
+  const calcDist = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3, p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+    const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(dp/2)*Math.sin(dp/2) + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  };
+  const speedFiltered = [];
+  let lastValidP = null;
+  for (const p of points) {
+    if (lastValidP) {
+      const dt_h = (new Date(p.timestamp).getTime() - new Date(lastValidP.timestamp).getTime()) / 3600000;
+      const dist_km = calcDist(lastValidP.latitud, lastValidP.longitud, p.latitud, p.longitud) / 1000;
+      const speed = dt_h > 0 ? dist_km / dt_h : 0;
+      if (speed > MAX_SPEED_KMH) continue;
+    }
+    speedFiltered.push(p);
+    lastValidP = p;
+  }
+  points = speedFiltered;
+
+  // Filtro 3: 1 punto cada 60s con movimiento > 5m (evita clusters estáticos)
   const filtered = [];
   let lastT = 0;
-  for (const p of data) {
-    if (!isFinite(p.latitud) || !isFinite(p.longitud)) continue;
-    if (p.acc && p.acc > 100) continue;
+  let lastP = null;
+  for (const p of points) {
     const t = new Date(p.timestamp).getTime();
-    if (t - lastT >= 60000) { filtered.push(p); lastT = t; }
+    if (t - lastT >= 60000) {
+      if (!lastP || calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 5) {
+        filtered.push(p);
+        lastT = t;
+        lastP = p;
+      }
+    }
+  }
+  // Siempre incluir el último punto real para mostrar posición actual
+  const lastPoint = points[points.length - 1];
+  if (filtered.length > 0 && lastPoint && lastPoint.timestamp !== filtered[filtered.length - 1].timestamp) {
+    filtered.push(lastPoint);
   }
   
+  console.log(`[Trail] ${brigadaName}: ${allData.length} brutos → ${points.length} válidos → ${filtered.length} trazados`);
+
   if (filtered.length < 2) {
     showToast(`❌ Pocos puntos con buena precisión para ${brigadaName}.`, 'error');
     return;
@@ -862,7 +915,7 @@ window.showTrail = async function(uid, brigadaName) {
   });
   
   state.map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
-  showToast(`✅ Recorrido de <b>${brigadaName}</b>: ${filtered.length} puntos hoy`, 'info');
+  showToast(`✅ Recorrido de <b>${brigadaName}</b>: ${filtered.length} puntos hoy (${allData.length} registros)`, 'info');
 }
 
 // --- Botón para limpiar trail ---
