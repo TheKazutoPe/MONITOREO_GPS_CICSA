@@ -894,9 +894,41 @@ window.showTrail = async function(uid, brigadaName) {
     return;
   }
   
-  // Dibujar polilínea
-  const latlngs = filtered.map(p => [p.latitud, p.longitud]);
-  const polyline = L.polyline(latlngs, { color: '#00E5FF', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
+  // ── Mapbox Map-Matching / Directions ──
+  showToast(`🗺️ Trazando ruta por calles para <b>${brigadaName}</b>...`, "warn");
+  let validChunks = 0;
+  for (let j = 0; j < filtered.length - 1; j += 24) {
+      const chunk = filtered.slice(j, j + 25);
+      if (chunk.length < 2) continue;
+      
+      const coordsPath = chunk.map(p => `${p.longitud},${p.latitud}`).join(';');
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordsPath}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+      
+      try {
+          const resp = await fetch(url);
+          const json = await resp.json();
+          if (json.routes && json.routes[0]) {
+              L.geoJSON(json.routes[0].geometry, { 
+                style: { color: '#00E5FF', weight: 5, opacity: 0.9 } 
+              }).addTo(state.trailLayer);
+              validChunks++;
+          } else {
+              // Fallback a línea recta si Mapbox no encuentra ruta (ej. zona sin calles o muy lejos)
+              const latlngs = chunk.map(p => [p.latitud, p.longitud]);
+              L.polyline(latlngs, { color: '#FF3B30', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
+          }
+      } catch (e) {
+          console.error("Mapbox err", e);
+          const latlngs = chunk.map(p => [p.latitud, p.longitud]);
+          L.polyline(latlngs, { color: '#FF3B30', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
+      }
+  }
+
+  // Fallback de emergencia si ningún chunk de Mapbox se trazó
+  if (validChunks === 0 && filtered.length >= 2) {
+      const latlngs = filtered.map(p => [p.latitud, p.longitud]);
+      L.polyline(latlngs, { color: '#00E5FF', weight: 4, opacity: 0.8, dashArray: '8 6' }).addTo(state.trailLayer);
+  }
   
   // Inicio y fin
   const pStart = filtered[0];
@@ -909,13 +941,15 @@ window.showTrail = async function(uid, brigadaName) {
   // Puntos intermedios
   filtered.forEach((p, i) => {
     if (i === 0 || i === filtered.length - 1) return;
-    L.circleMarker([p.latitud, p.longitud], { radius: 3, color: '#00E5FF', fillColor: '#00E5FF', fillOpacity: 0.6 })
+    L.circleMarker([p.latitud, p.longitud], { radius: 3, color: '#ffffff', fillColor: '#00E5FF', fillOpacity: 1, weight: 1 })
       .bindPopup(`<small>⏱ ${new Date(p.timestamp).toLocaleTimeString()}<br>🔋 ${p.bateria != null ? Math.round(p.bateria) + '%' : '—'}</small>`)
       .addTo(state.trailLayer);
   });
   
-  state.map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
-  showToast(`✅ Recorrido de <b>${brigadaName}</b>: ${filtered.length} puntos hoy (${allData.length} registros)`, 'info');
+  if (state.trailLayer.getLayers().length > 0) {
+    state.map.fitBounds(state.trailLayer.getBounds(), { padding: [60, 60] });
+  }
+  showToast(`✅ Recorrido de <b>${brigadaName}</b> trazado con Mapbox.`, 'info');
 }
 
 // --- Botón para limpiar trail ---
