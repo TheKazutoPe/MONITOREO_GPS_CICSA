@@ -1319,6 +1319,12 @@ function renderStackedChart(containerId, dataObj) {
   const btnToggle3D = document.getElementById('btnToggle3D');
   if (btnToggle3D) {
     btnToggle3D.onclick = () => {
+      // Validar soporte WebGL ANTES de hacer nada
+      if (!mapboxgl.supported()) {
+        showToast("⚠️ Tu computadora o navegador no soporta gráficos 3D (WebGL). Aceleración de hardware desactivada.", "error");
+        return;
+      }
+
       state.is3DMode = !state.is3DMode;
       if (state.is3DMode) {
         btnToggle3D.style.background = '#10b981';
