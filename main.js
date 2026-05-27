@@ -33,7 +33,7 @@ const ui = {
   btnCloseKmlModal: document.getElementById("btnCloseKmlModal")
 };
 
-const state = { map: null, markers: new Map(), users: new Map(), routeLayer: null, siteMarker: null, currentBase: "osm", baseLayers: {}, trailLayer: null, alertSoundEnabled: true };
+const state = { map: null, mapboxMap: null, is3DMode: false, markers: new Map(), users: new Map(), routeLayer: null, siteMarker: null, currentBase: "osm", baseLayers: {}, trailLayer: null, alertSoundEnabled: true };
 
 // --- Audio sutil para alertas (beep programático) ---
 function playAlertSound() {
@@ -649,7 +649,8 @@ async function syncData() {
         if (isFinite(row.latitud)) {
           m = L.marker([row.latitud, row.longitud]).bindPopup(buildPopup(row));
         }
-        state.users.set(uid, { marker: m, lastRow: row });
+        state.users.set(uid, { marker: m, mapboxMarker: null, lastRow: row });
+        if (state.is3DMode) window.updateMapboxMarker(state.users.get(uid), row);
       } else {
         const u = state.users.get(uid);
         if (new Date(row.timestamp) > new Date(u.lastRow.timestamp)) {
@@ -661,6 +662,7 @@ async function syncData() {
                u.marker.setPopupContent(buildPopup(row));
             }
           }
+          if (state.is3DMode) window.updateMapboxMarker(u, row);
         }
       }
       addOrUpdateUserInList(state.users.get(uid).lastRow);
@@ -765,7 +767,8 @@ function initRealtime() {
 
     if (!state.users.has(uid)) {
       const m = L.marker([row.latitud, row.longitud]).bindPopup(buildPopup(row));
-      state.users.set(uid, { marker: m, lastRow: row });
+      state.users.set(uid, { marker: m, mapboxMarker: null, lastRow: row });
+      if (state.is3DMode) window.updateMapboxMarker(state.users.get(uid), row);
       showToast(`🚀 Nueva brigada en línea: <b>${row.brigada}</b>`, 'info');
     } else {
       const u = state.users.get(uid);
@@ -777,6 +780,7 @@ function initRealtime() {
       } else {
           u.marker.setPopupContent(buildPopup(row));
       }
+      if (state.is3DMode) window.updateMapboxMarker(u, row);
 
       if (getStatusKey(oldRow) === 'off' && getStatusKey(row) !== 'off') {
         showToast(`✅ <b>${row.brigada}</b> ha reconectado.`, 'info');
@@ -1310,4 +1314,140 @@ function renderStackedChart(containerId, dataObj) {
   // Clear trail
   const btnClearTrail = document.getElementById('btnClearTrail');
   if (btnClearTrail) btnClearTrail.onclick = clearTrail;
+
+  // Mapbox 3D Toggle
+  const btnToggle3D = document.getElementById('btnToggle3D');
+  if (btnToggle3D) {
+    btnToggle3D.onclick = () => {
+      state.is3DMode = !state.is3DMode;
+      if (state.is3DMode) {
+        btnToggle3D.style.background = '#10b981';
+        btnToggle3D.style.color = '#fff';
+        document.getElementById('map').style.display = 'none';
+        document.getElementById('mapboxContainer').style.display = 'block';
+        if (!state.mapboxMap) window.initMapbox();
+        // Sincronizar todos los marcadores al modo 3D
+        state.users.forEach((u, uid) => {
+          window.updateMapboxMarker(u, u.lastRow);
+        });
+      } else {
+        btnToggle3D.style.background = '#fff';
+        btnToggle3D.style.color = '#10b981';
+        document.getElementById('mapboxContainer').style.display = 'none';
+        document.getElementById('map').style.display = 'block';
+      }
+    };
+  }
 })();
+
+// ----------------------------------------------------
+// MAPBOX 3D LOGIC
+// ----------------------------------------------------
+window.initMapbox = function() {
+  mapboxgl.accessToken = MAPBOX_TOKEN;
+  state.mapboxMap = new mapboxgl.Map({
+    container: 'mapboxContainer',
+    style: 'mapbox://styles/mapbox/dark-v11', // Cyberpunk / Comando style
+    center: [-77.02, -12.04],
+    zoom: 12,
+    pitch: 60,
+    bearing: -17.6,
+    antialias: true
+  });
+
+  state.mapboxMap.addControl(new mapboxgl.NavigationControl());
+
+  state.mapboxMap.on('style.load', () => {
+    // Agregar edificios 3D
+    const layers = state.mapboxMap.getStyle().layers;
+    const labelLayerId = layers.find(
+      (layer) => layer.type === 'symbol' && layer.layout['text-field']
+    ).id;
+
+    state.mapboxMap.addLayer(
+      {
+        'id': 'add-3d-buildings',
+        'source': 'composite',
+        'source-layer': 'building',
+        'filter': ['==', 'extrude', 'true'],
+        'type': 'fill-extrusion',
+        'minzoom': 15,
+        'paint': {
+          'fill-extrusion-color': '#10b981', // Verde neon
+          'fill-extrusion-height': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            15,
+            0,
+            15.05,
+            ['get', 'height']
+          ],
+          'fill-extrusion-base': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            15,
+            0,
+            15.05,
+            ['get', 'min_height']
+          ],
+          'fill-extrusion-opacity': 0.6
+        }
+      },
+      labelLayerId
+    );
+
+    // Agregar tráfico en vivo
+    state.mapboxMap.addSource('mapbox-traffic', {
+        type: 'vector',
+        url: 'mapbox://mapbox.mapbox-traffic-v1'
+    });
+    state.mapboxMap.addLayer({
+        id: 'traffic',
+        type: 'line',
+        source: 'mapbox-traffic',
+        'source-layer': 'traffic',
+        paint: {
+            'line-color': [
+                'match',
+                ['get', 'congestion'],
+                'low', '#10b981',
+                'moderate', '#f59e0b',
+                'heavy', '#e11d48',
+                'severe', '#881337',
+                '#000000'
+            ],
+            'line-width': 2
+        }
+    });
+  });
+};
+
+window.updateMapboxMarker = function(u, row) {
+  if (!state.mapboxMap || !isFinite(row.latitud)) return;
+  if (!u.mapboxMarker) {
+    // Create custom HTML element for Mapbox marker
+    const el = document.createElement('div');
+    el.className = 'mapbox-custom-marker';
+    el.style.backgroundColor = '#10b981';
+    el.style.width = '14px';
+    el.style.height = '14px';
+    el.style.borderRadius = '50%';
+    el.style.border = '2px solid white';
+    el.style.boxShadow = '0 0 10px #10b981';
+    el.style.cursor = 'pointer';
+
+    // Popup
+    const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(buildPopup(row));
+
+    u.mapboxMarker = new mapboxgl.Marker(el)
+      .setLngLat([row.longitud, row.latitud])
+      .setPopup(popup)
+      .addTo(state.mapboxMap);
+  } else {
+    // Animacion smooth en Mapbox (nativa)
+    u.mapboxMarker.setLngLat([row.longitud, row.latitud]);
+    u.mapboxMarker.getPopup().setHTML(buildPopup(row));
+  }
+};
