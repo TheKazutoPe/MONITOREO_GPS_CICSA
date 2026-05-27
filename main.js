@@ -3,6 +3,12 @@ const supa = supabase.createClient(CONFIG.SUPABASE_AUTH_URL, CONFIG.SUPABASE_AUT
 const supaGps = supabase.createClient(CONFIG.SUPABASE_GPS_URL, CONFIG.SUPABASE_GPS_KEY);
 const MAPBOX_TOKEN = CONFIG.MAPBOX_TOKEN;
 
+window.calcDist = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3, p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+  const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dp/2)*Math.sin(dp/2) + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+};
 const ui = {
   status: document.getElementById("status"),
   userList: document.getElementById("userList"),
@@ -408,14 +414,6 @@ async function executeKMLGeneration() {
   // Array para puntos por minuto (solo filtro de tiempo, sin restricción de distancia)
   const minutePoints = [];
   let lastMinTime = 0;
-  
-  const calcDist = (lat1, lon1, lat2, lon2) => {
-     const R = 6371e3, p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
-     const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
-     const a = Math.sin(dp/2)*Math.sin(dp/2) + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
-     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  };
-
   const MAX_SPEED_KMH = 120; // velocidad máxima realista (km/h)
   let lastValidP = null;     // último punto aceptado por el filtro de velocidad
 
@@ -849,12 +847,6 @@ window.showTrail = async function(uid, brigadaName) {
 
   // Filtro 2: velocidad máxima entre puntos (descarta saltos fantasma GPS)
   const MAX_SPEED_KMH = 120;
-  const calcDist = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3, p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
-    const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
-    const a = Math.sin(dp/2)*Math.sin(dp/2) + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  };
   const speedFiltered = [];
   let lastValidP = null;
   for (const p of points) {
