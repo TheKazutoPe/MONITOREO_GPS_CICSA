@@ -608,18 +608,20 @@ function updateStats() {
 }
 
 async function syncData() {
-  // Intentar RPC optimizado (1 fila por brigada) con fallback a query paginado
-  let rows = null;
-  const { data: rpcData, error: rpcError } = await supaGps.rpc('get_latest_positions');
+  const hoy = new Date();
+  const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
 
-  if (!rpcError && rpcData && rpcData.length > 0) {
+  // Intentar RPC optimizado v2 (pasando el inicio del día local)
+  let rows = null;
+  const { data: rpcData, error: rpcError } = await supaGps.rpc('get_latest_positions_v2', { inicio_dia: inicioDelDia });
+
+  // Exigimos que el RPC traiga más de 5 brigadas (para evitar el falso positivo del bug anterior)
+  if (!rpcError && rpcData && rpcData.length > 5) {
     rows = rpcData;
-    console.log(`[syncData] RPC OK → ${rows.length} brigadas cargadas`);
+    console.log(`[syncData] RPC v2 OK → ${rows.length} brigadas cargadas`);
   } else {
-    // Fallback: query paginado si la función RPC no existe aún
-    console.warn('[syncData] RPC no disponible, usando fallback paginado:', rpcError?.message);
-    const hoy = new Date();
-    const inicioDelDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0).toISOString();
+    // Fallback: query paginado si la función RPC v2 no existe o falló por zona horaria
+    console.warn('[syncData] RPC v2 no disponible o devolvió muy poco, usando fallback paginado.');
     const allRows = [];
     let offset = 0;
     const PAGE = 1000;
