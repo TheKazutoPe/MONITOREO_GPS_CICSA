@@ -8,8 +8,13 @@
   "theme_color": "#10b981",
   "icons": [
     {
-      "src": "assets/logo_carso.png",
-      "sizes": "any",
+      "src": "https://via.placeholder.com/192.png?text=CICSA+GPS",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512.png?text=CICSA+GPS",
+      "sizes": "512x512",
       "type": "image/png"
     }
   ]

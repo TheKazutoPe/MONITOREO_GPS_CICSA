@@ -423,7 +423,7 @@ async function executeKMLGeneration() {
      // ── Filtro 2: velocidad máxima entre puntos (descarta saltos fantasma)
      if (lastValidP) {
         const dt_h = (t - new Date(lastValidP.timestamp).getTime()) / 3600000; // horas
-        const dist_km = calcDist(lastValidP.latitud, lastValidP.longitud, p.latitud, p.longitud) / 1000;
+        const dist_km = window.calcDist(lastValidP.latitud, lastValidP.longitud, p.latitud, p.longitud) / 1000;
         const speed = dt_h > 0 ? dist_km / dt_h : 0;
         if (speed > MAX_SPEED_KMH) continue; // punto imposible, se descarta
      }
@@ -431,7 +431,7 @@ async function executeKMLGeneration() {
 
      // ── Filtro 3 (ruta): cada 60s Y > 80m de movimiento
      if (t - lastTime >= 60000) { 
-        if (!lastP || calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 80) {
+        if (!lastP || window.calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 80) {
            filtered.push(p);
            lastTime = t;
            lastP = p;
@@ -852,7 +852,7 @@ window.showTrail = async function(uid, brigadaName) {
   for (const p of points) {
     if (lastValidP) {
       const dt_h = (new Date(p.timestamp).getTime() - new Date(lastValidP.timestamp).getTime()) / 3600000;
-      const dist_km = calcDist(lastValidP.latitud, lastValidP.longitud, p.latitud, p.longitud) / 1000;
+      const dist_km = window.calcDist(lastValidP.latitud, lastValidP.longitud, p.latitud, p.longitud) / 1000;
       const speed = dt_h > 0 ? dist_km / dt_h : 0;
       if (speed > MAX_SPEED_KMH) continue;
     }
@@ -868,7 +868,7 @@ window.showTrail = async function(uid, brigadaName) {
   for (const p of points) {
     const t = new Date(p.timestamp).getTime();
     if (t - lastT >= 60000) {
-      if (!lastP || calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 5) {
+      if (!lastP || window.calcDist(lastP.latitud, lastP.longitud, p.latitud, p.longitud) > 5) {
         filtered.push(p);
         lastT = t;
         lastP = p;
@@ -1013,7 +1013,7 @@ window.updatePlaybackUI = function() {
   if (window.playbackState.index > 0) {
     const prev = window.playbackState.points[window.playbackState.index - 1];
     const dt_h = (new Date(p.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 3600000;
-    const dist_km = calcDist(prev.latitud, prev.longitud, p.latitud, p.longitud) / 1000;
+    const dist_km = window.calcDist(prev.latitud, prev.longitud, p.latitud, p.longitud) / 1000;
     speedKmh = dt_h > 0 ? Math.round(dist_km / dt_h) : 0;
   }
   document.getElementById('playbackSpeedLabel').textContent = speedKmh + " km/h";
