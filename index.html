@@ -11,12 +11,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- MAPBOX GL JS REMOVED -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-  <!-- MAPBOX GL JS -->
-  <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
 </head>
 
 <body>
@@ -43,13 +41,6 @@
   <div class="main-layout">
     <!-- LEAFLET 2D MAP -->
     <div id="map"></div>
-    <!-- MAPBOX 3D MAP -->
-    <div id="mapboxContainer" style="display: none; position: absolute; top: 0; bottom: 0; width: 100%; z-index: 0;"></div>
-    
-    <!-- 3D TOGGLE BUTTON -->
-    <div class="map-controls-island" style="top: 20px; right: 20px; bottom: auto; left: auto; transform: none; padding: 4px; z-index: 1000;">
-      <button id="btnToggle3D" class="island-btn" style="width: auto; padding: 0 16px; font-weight: bold; color: #10b981;">Modo 3D (Premium)</button>
-    </div>
     <aside class="sidebar" id="mainSidebar">
       <button id="btnToggleSidebar" class="btn-toggle-sidebar" title="Ocultar Panel">◀</button>
       <div class="sidebar-stats">
