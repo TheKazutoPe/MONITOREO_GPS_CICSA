@@ -1,0 +1,21 @@
+{
+  "name": "CICSA Connect PRO",
+  "short_name": "CICSA GPS",
+  "description": "Centro de Monitoreo GEOSAC - CLARO",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "assets/logo_carso.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/logo_carso.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

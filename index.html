@@ -5,6 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CICSA CONNECT PRO - Centro de Control</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#10b981">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
@@ -224,6 +226,28 @@
       <div id="wpContainer" style="display:flex; flex-direction:column; gap:30px;">
         <!-- Las tablas por zona se renderizarán aquí -->
       </div>
+    </div>
+  </div>
+
+  <!-- PLAYBACK PANEL -->
+  <div id="playbackPanel" class="playback-panel" style="display: none;">
+    <div class="playback-header">
+      <h4 id="playbackTitle">Reproductor de Ruta</h4>
+      <button id="btnClosePlayback" class="btn-clear-map">✕</button>
+    </div>
+    <div class="playback-controls">
+      <button id="btnPlayPause" class="btn-play">▶ Play</button>
+      <input type="range" id="playbackSlider" min="0" max="100" value="0" class="playback-slider">
+      <select id="playbackSpeed" class="island-select" style="padding: 4px 8px; font-size: 12px; height: auto;">
+        <option value="1">1x</option>
+        <option value="4" selected>4x</option>
+        <option value="10">10x</option>
+        <option value="20">20x</option>
+      </select>
+    </div>
+    <div class="playback-info">
+      <span id="playbackTime">--:--:--</span>
+      <span id="playbackSpeedLabel">0 km/h</span>
     </div>
   </div>
 

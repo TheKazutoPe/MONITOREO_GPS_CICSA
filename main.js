@@ -958,13 +958,128 @@ window.showTrail = async function(uid, brigadaName) {
     state.map.fitBounds(state.trailLayer.getBounds(), { padding: [60, 60] });
   }
   showToast(`✅ Recorrido de <b>${brigadaName}</b> trazado con Mapbox.`, 'info');
+  
+  // INICIALIZAR REPRODUCTOR
+  window.initPlayback(filtered, brigadaName);
 }
 
 // --- Botón para limpiar trail ---
 window.clearTrail = function() {
   if (state.trailLayer) state.trailLayer.clearLayers();
+  window.stopPlayback();
+  document.getElementById('playbackPanel').style.display = 'none';
   showToast('🗑️ Recorrido borrado del mapa.', 'info');
 }
+
+// ----------------------------------------------------
+// LOGICA DE REPRODUCTOR (PLAYBACK)
+// ----------------------------------------------------
+window.playbackState = {
+  points: [],
+  index: 0,
+  timer: null,
+  speedMultiplier: 4,
+  marker: null,
+  isPlaying: false
+};
+
+window.initPlayback = function(points, name) {
+  window.stopPlayback();
+  window.playbackState.points = points;
+  window.playbackState.index = 0;
+  window.playbackState.isPlaying = false;
+  
+  document.getElementById('playbackTitle').textContent = `▶ Recorrido: ${name}`;
+  document.getElementById('playbackSlider').max = points.length - 1;
+  document.getElementById('playbackSlider').value = 0;
+  document.getElementById('btnPlayPause').textContent = "▶ Play";
+  document.getElementById('playbackPanel').style.display = 'block';
+  
+  updatePlaybackUI();
+  
+  if (window.playbackState.marker) {
+    state.map.removeLayer(window.playbackState.marker);
+  }
+  // Marcador de auto animado (usamos el CSS transition que agregamos para que se deslice)
+  const autoIcon = L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div style="background:#10b981; color:black; font-size:16px; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 0 10px rgba(0,0,0,0.5);">🚗</div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+  });
+  window.playbackState.marker = L.marker([points[0].latitud, points[0].longitud], { icon: autoIcon, zIndexOffset: 1000 }).addTo(state.map);
+};
+
+window.updatePlaybackUI = function() {
+  const p = window.playbackState.points[window.playbackState.index];
+  if (!p) return;
+  document.getElementById('playbackTime').textContent = new Date(p.timestamp).toLocaleTimeString();
+  
+  // Calcular velocidad visual vs el punto anterior
+  let speedKmh = 0;
+  if (window.playbackState.index > 0) {
+    const prev = window.playbackState.points[window.playbackState.index - 1];
+    const dt_h = (new Date(p.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 3600000;
+    const dist_km = calcDist(prev.latitud, prev.longitud, p.latitud, p.longitud) / 1000;
+    speedKmh = dt_h > 0 ? Math.round(dist_km / dt_h) : 0;
+  }
+  document.getElementById('playbackSpeedLabel').textContent = speedKmh + " km/h";
+  document.getElementById('playbackSlider').value = window.playbackState.index;
+  
+  if (window.playbackState.marker) {
+    window.playbackState.marker.setLatLng([p.latitud, p.longitud]);
+  }
+};
+
+window.playNextStep = function() {
+  if (window.playbackState.index >= window.playbackState.points.length - 1) {
+    window.stopPlayback();
+    return;
+  }
+  window.playbackState.index++;
+  window.updatePlaybackUI();
+};
+
+window.togglePlayback = function() {
+  if (window.playbackState.isPlaying) {
+    window.stopPlayback();
+  } else {
+    if (window.playbackState.index >= window.playbackState.points.length - 1) {
+      window.playbackState.index = 0; // Reiniciar si terminó
+    }
+    window.playbackState.isPlaying = true;
+    document.getElementById('btnPlayPause').innerHTML = "⏸ Pausa";
+    
+    // El intervalo depende de la velocidad elegida. 
+    // Si la velocidad es 1x, avanzamos 1 paso por segundo. 
+    const baseIntervalMs = 1000;
+    const intervalMs = baseIntervalMs / window.playbackState.speedMultiplier;
+    window.playbackState.timer = setInterval(window.playNextStep, intervalMs);
+  }
+};
+
+window.stopPlayback = function() {
+  window.playbackState.isPlaying = false;
+  document.getElementById('btnPlayPause').innerHTML = "▶ Play";
+  if (window.playbackState.timer) clearInterval(window.playbackState.timer);
+};
+
+// Listeners
+document.getElementById('btnPlayPause').addEventListener('click', window.togglePlayback);
+document.getElementById('btnClosePlayback').addEventListener('click', () => {
+  window.clearTrail();
+});
+document.getElementById('playbackSlider').addEventListener('input', (e) => {
+  window.playbackState.index = parseInt(e.target.value);
+  window.updatePlaybackUI();
+});
+document.getElementById('playbackSpeed').addEventListener('change', (e) => {
+  window.playbackState.speedMultiplier = parseFloat(e.target.value);
+  if (window.playbackState.isPlaying) {
+    window.stopPlayback();
+    window.togglePlayback(); // Restart con nueva velocidad
+  }
+});
 
 // --- PANEL DE FLOTA (Dispositivos) ---
 function buildFleetPanel() {

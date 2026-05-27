@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Diagnóstico Supabase GPS</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <style>
+    body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
+    pre { white-space: pre-wrap; }
+    .section { border: 1px solid #333; padding: 10px; margin: 10px 0; }
+    .warn { color: #ff0; }
+    .err { color: #f00; }
+    .ok { color: #0f0; }
+  </style>
+</head>
+<body>
+<h2>🔍 Diagnóstico de Supabase GPS - ubicaciones_brigadas</h2>
+<pre id="log"></pre>
+<script>
+const log = document.getElementById('log');
+function print(msg, cls='') { log.innerHTML += `<span class="${cls}">${msg}</span>\n`; }
+
+async function run() {
+  const supaGps = supabase.createClient(CONFIG.SUPABASE_GPS_URL, CONFIG.SUPABASE_GPS_KEY);
+  
+  // 1. Hora actual y cálculo de "inicio del día"
+  const ahora = new Date();
+  const inicioDelDia = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 0, 0, 0);
+  print(`⏰ Hora local actual: ${ahora.toLocaleString('es-PE')}`);
+  print(`📅 Inicio del día (local): ${inicioDelDia.toLocaleString('es-PE')}`);
+  print(`📅 Inicio del día (ISO/UTC para query): ${inicioDelDia.toISOString()}`);
+  print(`📅 Zona horaria offset: UTC${-ahora.getTimezoneOffset()/60}`);
+  print('');
+  
+  // 2. Query SIN LIMIT (como lo hace syncData actualmente)
+  print('═══════════════════════════════════════════', 'warn');
+  print('TEST 1: Query IDÉNTICO al syncData() actual (sin limit)', 'warn');
+  print('═══════════════════════════════════════════', 'warn');
+  const q1 = await supaGps.from("ubicaciones_brigadas")
+    .select("usuario_id, brigada, timestamp, latitud, longitud")
+    .gte("timestamp", inicioDelDia.toISOString())
+    .order("timestamp", { ascending: false });
+  
+  if (q1.error) {
+    print(`❌ ERROR: ${JSON.stringify(q1.error)}`, 'err');
+  } else {
+    print(`Total filas devueltas: ${q1.data.length}`);
+    const uniqueUsers = new Map();
+    q1.data.forEach(r => { if (!uniqueUsers.has(String(r.usuario_id))) uniqueUsers.set(String(r.usuario_id), r); });
+    print(`Usuarios únicos: ${uniqueUsers.size}`);
+    print(`Brigadas únicas encontradas:`);
+    uniqueUsers.forEach((r, uid) => {
+      print(`  UID=${uid} → ${r.brigada} (último: ${new Date(r.timestamp).toLocaleTimeString('es-PE')})`);
+    });
+    
+    if (q1.data.length === 1000) {
+      print('', 'err');
+      print('⚠️  ¡¡ATENCIÓN!! Devolvió EXACTAMENTE 1000 filas = LÍMITE DEFAULT DE SUPABASE', 'err');
+      print('⚠️  Esto significa que HAY MÁS DATOS pero Supabase los TRUNCÓ', 'err');
+    }
+  }
+  
+  // 3. Query CON LIMIT alto
+  print('');
+  print('═══════════════════════════════════════════', 'warn');
+  print('TEST 2: Query con .limit(50000)', 'warn');
+  print('═══════════════════════════════════════════', 'warn');
+  const q2 = await supaGps.from("ubicaciones_brigadas")
+    .select("usuario_id, brigada, timestamp")
+    .gte("timestamp", inicioDelDia.toISOString())
+    .order("timestamp", { ascending: false })
+    .limit(50000);
+  
+  if (q2.error) {
+    print(`❌ ERROR: ${JSON.stringify(q2.error)}`, 'err');
+  } else {
+    print(`Total filas devueltas: ${q2.data.length}`);
+    const uniqueUsers2 = new Map();
+    q2.data.forEach(r => { if (!uniqueUsers2.has(String(r.usuario_id))) uniqueUsers2.set(String(r.usuario_id), r); });
+    print(`Usuarios únicos: ${uniqueUsers2.size}`);
+    print(`Brigadas únicas encontradas:`);
+    uniqueUsers2.forEach((r, uid) => {
+      print(`  UID=${uid} → ${r.brigada} (último: ${new Date(r.timestamp).toLocaleTimeString('es-PE')})`);
+    });
+  }
+  
+  // 4. Comparar resultados
+  print('');
+  print('═══════════════════════════════════════════', 'warn');
+  print('TEST 3: Datos de AYER para comparar', 'warn');
+  print('═══════════════════════════════════════════', 'warn');
+  const ayer = new Date(ahora);
+  ayer.setDate(ayer.getDate() - 1);
+  const inicioAyer = new Date(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 0, 0, 0);
+  const finAyer = new Date(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 23, 59, 59);
+  
+  const q3 = await supaGps.from("ubicaciones_brigadas")
+    .select("usuario_id, brigada")
+    .gte("timestamp", inicioAyer.toISOString())
+    .lte("timestamp", finAyer.toISOString())
+    .order("timestamp", { ascending: false })
+    .limit(50000);
+  
+  if (q3.error) {
+    print(`❌ ERROR: ${JSON.stringify(q3.error)}`, 'err');
+  } else {
+    print(`Total filas ayer: ${q3.data.length}`);
+    const uniqueAyer = new Map();
+    q3.data.forEach(r => { if (!uniqueAyer.has(String(r.usuario_id))) uniqueAyer.set(String(r.usuario_id), r); });
+    print(`Usuarios únicos ayer: ${uniqueAyer.size}`);
+    print(`Brigadas ayer:`);
+    uniqueAyer.forEach((r, uid) => {
+      print(`  UID=${uid} → ${r.brigada}`);
+    });
+  }
+  
+  // 5. Verificar RLS (Row Level Security)
+  print('');
+  print('═══════════════════════════════════════════', 'warn');
+  print('TEST 4: Verificar si hay políticas RLS activas', 'warn');
+  print('═══════════════════════════════════════════', 'warn');
+  // Intentar un count simple
+  const q4 = await supaGps.from("ubicaciones_brigadas")
+    .select("*", { count: 'exact', head: true })
+    .gte("timestamp", inicioDelDia.toISOString());
+  
+  if (q4.error) {
+    print(`❌ ERROR en count: ${JSON.stringify(q4.error)}`, 'err');
+    print('⚠️ Esto podría indicar un problema de RLS (Row Level Security)', 'err');
+  } else {
+    print(`Count exacto de filas hoy (server-side): ${q4.count}`);
+    if (q1.data && q1.data.length < q4.count) {
+      print(`⚠️ syncData() solo trae ${q1.data.length} de ${q4.count} registros`, 'err');
+      print(`⚠️ ¡¡CONFIRMADO: Supabase está TRUNCANDO los datos!!`, 'err');
+    }
+  }
+
+  print('');
+  print('═══════════════════════════════════════════', 'ok');
+  print('DIAGNÓSTICO COMPLETO', 'ok');
+  print('═══════════════════════════════════════════', 'ok');
+}
+
+run().catch(e => print('FATAL: ' + e.message, 'err'));
+</script>
+</body>
+</html>

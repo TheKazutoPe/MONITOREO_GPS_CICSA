@@ -376,3 +376,68 @@ body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #080
   .map-controls-island { bottom: calc(62vh + 8px); }
   .toast-container { bottom: calc(62vh + 12px); }
 }
+
+/* ---------------------------------------------------
+   SMOOTH MARKER ANIMATION (REAL-TIME GLIDE)
+--------------------------------------------------- */
+.leaflet-marker-icon {
+  transition: transform 1.2s ease-in-out !important;
+}
+
+/* ---------------------------------------------------
+   PLAYBACK PANEL
+--------------------------------------------------- */
+.playback-panel {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(24, 24, 27, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 16px 20px;
+  border-radius: 12px;
+  z-index: 1000;
+  width: 90%;
+  max-width: 400px;
+  color: white;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.playback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.playback-header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #10b981;
+}
+.playback-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.btn-play {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  min-width: 80px;
+}
+.btn-play:hover { background: #059669; }
+.playback-slider {
+  flex: 1;
+  cursor: pointer;
+}
+.playback-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #a1a1aa;
+}
