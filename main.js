@@ -954,10 +954,11 @@ window.showTrail = async function(uid, brigadaName) {
       .addTo(state.trailLayer);
   });
   
-  if (state.trailLayer.getLayers().length > 0) {
-    state.map.fitBounds(state.trailLayer.getBounds(), { padding: [60, 60] });
+  if (filtered.length > 0) {
+    const bounds = L.latLngBounds(filtered.map(p => [p.latitud, p.longitud]));
+    state.map.fitBounds(bounds, { padding: [60, 60] });
   }
-  showToast(`✅ Recorrido de <b>${brigadaName}</b> trazado con Mapbox.`, 'info');
+  showToast(`✅ Recorrido de <b>${brigadaName}</b> trazado.`, 'info');
   
   // INICIALIZAR REPRODUCTOR
   window.initPlayback(filtered, brigadaName);

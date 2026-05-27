@@ -9,12 +9,7 @@
   "icons": [
     {
       "src": "assets/logo_carso.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "assets/logo_carso.png",
-      "sizes": "512x512",
+      "sizes": "any",
       "type": "image/png"
     }
   ]
